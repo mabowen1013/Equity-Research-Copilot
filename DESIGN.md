@@ -1,2 +1,0 @@
-Background and Motivation:
-- 在做公司研究时，分析师通常需要同时查看 SEC filings、财务报表、历史股价、新闻公告和 earnings release。问题是这些信息分散在不同来源里，而且 10-K、10-Q 文件非常长，手动定位关键信息很耗时。另一方面，直接用普通 LLM 问股票问题，很容易得到没有来源、无法验证、甚至 hallucinated 的回答。所以我想做一个 Equity Research Copilot，把 SEC filings、财务指标、股价和新闻整合起来，让 AI 不是直接给买卖建议，而是基于原始文件和数据，给出有引用、有证据、可追溯的公司研究回答。
