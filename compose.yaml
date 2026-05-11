@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: equity_research_copilot_postgres
+    environment:
+      POSTGRES_DB: equity_research_copilot
+      POSTGRES_USER: equity_research
+      POSTGRES_PASSWORD: equity_research_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U equity_research -d equity_research_copilot",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

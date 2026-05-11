@@ -1,0 +1,16 @@
+from configparser import ConfigParser
+from pathlib import Path
+
+from app.db.base import Base
+
+
+def test_alembic_config_points_to_migration_directory() -> None:
+    config_path = Path(__file__).resolve().parents[1] / "alembic.ini"
+    config = ConfigParser()
+
+    assert config.read(config_path)
+    assert config["alembic"]["script_location"] == "alembic"
+
+
+def test_database_metadata_is_available_for_migrations() -> None:
+    assert "jobs" in Base.metadata.tables
