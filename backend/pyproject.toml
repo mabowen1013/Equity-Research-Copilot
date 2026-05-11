@@ -1,0 +1,26 @@
+[project]
+name = "equity-research-copilot-backend"
+version = "0.1.0"
+description = "FastAPI backend for the Equity Research Copilot project."
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.13,<2.0",
+    "fastapi>=0.100,<1.0",
+    "psycopg[binary]>=3.1,<4.0",
+    "pydantic-settings>=2.2,<3.0",
+    "sqlalchemy>=2.0,<3.0",
+    "uvicorn[standard]>=0.23,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4,<9.0",
+    "httpx>=0.24,<1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
