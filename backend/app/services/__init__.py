@@ -32,6 +32,7 @@ from app.services.sec_client import (
     SecRateLimiter,
     SecRequestError,
     SecResponseError,
+    get_global_sec_rate_limiter,
 )
 from app.services.sec_ingestion import (
     SEC_INGESTION_JOB_TYPE,
@@ -63,6 +64,7 @@ __all__ = [
     "build_sec_primary_document_url",
     "build_sec_submissions_url",
     "find_company_record",
+    "get_global_sec_rate_limiter",
     "normalize_accession_number",
     "normalize_ticker",
     "parse_recent_filing_records",

@@ -2,7 +2,13 @@ import httpx
 import pytest
 
 from app.core import Settings
-from app.services import SecClient, SecRateLimiter, SecRequestError, SecResponseError
+from app.services import (
+    SecClient,
+    SecRateLimiter,
+    SecRequestError,
+    SecResponseError,
+    get_global_sec_rate_limiter,
+)
 
 
 class FakeRateLimiter:
@@ -64,6 +70,25 @@ def test_sec_rate_limiter_sleeps_before_rapid_requests() -> None:
     limiter.wait()
 
     assert sleeps == [0.5]
+
+
+def test_global_sec_rate_limiter_is_shared_between_clients() -> None:
+    settings = Settings(
+        sec_user_agent="Equity Research Copilot test@example.com",
+        sec_rate_limit_per_second=7,
+    )
+
+    first_client = SecClient(
+        settings=settings,
+        http_client=make_http_client(lambda request: httpx.Response(200, json={})),
+    )
+    second_client = SecClient(
+        settings=settings,
+        http_client=make_http_client(lambda request: httpx.Response(200, json={})),
+    )
+
+    assert first_client._rate_limiter is second_client._rate_limiter
+    assert first_client._rate_limiter is get_global_sec_rate_limiter(7)
 
 
 def test_sec_client_retries_500_response_then_returns_json() -> None:
