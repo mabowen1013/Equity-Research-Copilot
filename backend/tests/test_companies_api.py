@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 import app.api.routes.companies as companies_route
 from app.db import get_db_session
 from app.main import app
-from app.models import Company, Job
+from app.models import Company, Filing, Job
 
 
 def make_company(
@@ -31,12 +31,64 @@ def make_company(
     )
 
 
-class FakeScalarResult:
-    def __init__(self, companies: list[Company]) -> None:
-        self.companies = companies
+def make_job(
+    *,
+    job_id: int = 1,
+    company_id: int = 1,
+    status: str = "succeeded",
+) -> Job:
+    now = datetime(2026, 5, 12, 13, 0, tzinfo=UTC)
+    return Job(
+        id=job_id,
+        job_type="sec_ingestion",
+        company_id=company_id,
+        status=status,
+        progress=100,
+        retry_count=0,
+        payload={"ticker": "AAPL", "stage": "completed"},
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+        started_at=now,
+        finished_at=now,
+    )
 
-    def all(self) -> list[Company]:
-        return self.companies
+
+def make_filing(
+    *,
+    filing_id: int = 1,
+    company_id: int = 1,
+    accession_number: str = "0000320193-24-000123",
+    form_type: str = "10-K",
+) -> Filing:
+    now = datetime(2026, 5, 12, 13, 0, tzinfo=UTC)
+    return Filing(
+        id=filing_id,
+        company_id=company_id,
+        accession_number=accession_number,
+        form_type=form_type,
+        filing_date=datetime(2024, 11, 1, tzinfo=UTC).date(),
+        report_date=datetime(2024, 9, 28, tzinfo=UTC).date(),
+        primary_document="aapl-20240928.htm",
+        sec_filing_url=(
+            "https://www.sec.gov/Archives/edgar/data/"
+            "320193/000032019324000123/0000320193-24-000123-index.htm"
+        ),
+        sec_primary_document_url=(
+            "https://www.sec.gov/Archives/edgar/data/"
+            "320193/000032019324000123/aapl-20240928.htm"
+        ),
+        created_at=now,
+        updated_at=now,
+    )
+
+
+class FakeScalarResult:
+    def __init__(self, items: list) -> None:
+        self.items = items
+
+    def all(self) -> list:
+        return self.items
 
 
 class FakeSession:
@@ -45,9 +97,13 @@ class FakeSession:
         *,
         company: Company | None = None,
         companies: list[Company] | None = None,
+        jobs: list[Job] | None = None,
+        filings: list[Filing] | None = None,
     ) -> None:
         self.company = company
         self.companies = companies or []
+        self.jobs = jobs or []
+        self.filings = filings or []
         self.added: list[Job] = []
         self.commit_calls = 0
         self.refresh_calls = 0
@@ -56,6 +112,12 @@ class FakeSession:
         return self.company
 
     def scalars(self, statement) -> FakeScalarResult:
+        statement_text = str(statement)
+        if "jobs" in statement_text:
+            return FakeScalarResult(self.jobs)
+        if "filings" in statement_text:
+            return FakeScalarResult(self.filings)
+
         return FakeScalarResult(self.companies)
 
     def add(self, job: Job) -> None:
@@ -169,3 +231,62 @@ def test_ingest_company_rejects_blank_ticker() -> None:
     app.dependency_overrides.clear()
     assert response.status_code == 400
     assert response.json() == {"detail": "Ticker must not be empty."}
+
+
+def test_list_company_jobs_returns_company_jobs() -> None:
+    override_db_session(FakeSession(company=make_company(), jobs=[make_job()]))
+    client = TestClient(app)
+
+    response = client.get("/companies/AAPL/jobs")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["job_type"] == "sec_ingestion"
+    assert response.json()[0]["company_id"] == 1
+    assert response.json()[0]["status"] == "succeeded"
+
+
+def test_list_company_jobs_returns_404_for_unknown_company() -> None:
+    override_db_session(FakeSession(company=None, jobs=[]))
+    client = TestClient(app)
+
+    response = client.get("/companies/NVDA/jobs")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Company not found"}
+
+
+def test_list_company_filings_returns_company_filings() -> None:
+    override_db_session(FakeSession(company=make_company(), filings=[make_filing()]))
+    client = TestClient(app)
+
+    response = client.get("/companies/AAPL/filings")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["accession_number"] == "0000320193-24-000123"
+    assert response.json()[0]["form_type"] == "10-K"
+    assert response.json()[0]["sec_primary_document_url"].endswith("aapl-20240928.htm")
+
+
+def test_list_company_filings_accepts_form_type_filter() -> None:
+    override_db_session(FakeSession(company=make_company(), filings=[make_filing(form_type="10-Q")]))
+    client = TestClient(app)
+
+    response = client.get("/companies/AAPL/filings?form_type=10-q")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["form_type"] == "10-Q"
+
+
+def test_list_company_filings_rejects_blank_form_type() -> None:
+    override_db_session(FakeSession(company=make_company(), filings=[]))
+    client = TestClient(app)
+
+    response = client.get("/companies/AAPL/filings?form_type=%20")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Form type must not be empty"}

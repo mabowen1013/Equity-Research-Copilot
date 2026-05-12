@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
 from app.models import Company, Filing, Job
 from app.services import (
     SEC_INGESTION_JOB_TYPE,
+    CompanyLookupService,
+    FilingMetadataService,
     SecIngestionJobNotFoundError,
     SecIngestionService,
 )
@@ -40,6 +43,98 @@ class FakeSession:
 
     def rollback(self) -> None:
         self.rollback_calls += 1
+
+
+class FakeIntegrationSession:
+    def __init__(self) -> None:
+        self.jobs: dict[int, Job] = {}
+        self.companies: list[Company] = []
+        self.filings: list[Filing] = []
+        self.next_id = 1
+        self.commit_calls = 0
+        self.rollback_calls = 0
+
+    def add(self, instance) -> None:
+        if getattr(instance, "id", None) is None:
+            instance.id = self.next_id
+            self.next_id += 1
+
+        if isinstance(instance, Job):
+            self.jobs[instance.id] = instance
+        elif isinstance(instance, Company):
+            self.companies.append(instance)
+        elif isinstance(instance, Filing):
+            self.filings.append(instance)
+
+    def flush(self) -> None:
+        pass
+
+    def get(self, model, job_id: int) -> Job | None:
+        return self.jobs.get(job_id)
+
+    def scalar(self, statement):
+        statement_text = str(statement)
+        if "FROM companies" in statement_text:
+            return self.companies[0] if self.companies else None
+        if "FROM filings" in statement_text:
+            return None
+        return None
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+
+
+class FakeCacheService:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def get_or_fetch_json(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(
+            response_json=kwargs["fetch_json"](kwargs["url"]),
+            cache_hit=False,
+            record=None,
+        )
+
+
+class FakeSecClient:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def get_json(self, url: str) -> dict:
+        self.urls.append(url)
+        if url.endswith("company_tickers.json"):
+            return {
+                "0": {
+                    "cik_str": 320193,
+                    "ticker": "AAPL",
+                    "title": "Apple Inc.",
+                    "exchange": "Nasdaq",
+                }
+            }
+
+        return {
+            "filings": {
+                "recent": {
+                    "accessionNumber": [
+                        "0000320193-24-000123",
+                        "0000320193-24-000111",
+                        "0000320193-24-000099",
+                    ],
+                    "form": ["10-K", "10-Q", "4"],
+                    "filingDate": ["2024-11-01", "2024-08-02", "2024-06-01"],
+                    "reportDate": ["2024-09-28", "2024-06-29", "2024-05-30"],
+                    "primaryDocument": [
+                        "aapl-20240928.htm",
+                        "aapl-20240629.htm",
+                        "ownership.xml",
+                    ],
+                }
+            }
+        }
 
 
 class FakeCompanyLookupService:
@@ -164,3 +259,41 @@ def test_run_job_raises_for_unknown_job_id() -> None:
 
     with pytest.raises(SecIngestionJobNotFoundError, match="was not found"):
         service.run_job(999)
+
+
+def test_sec_ingestion_runs_full_mocked_sec_metadata_flow() -> None:
+    session = FakeIntegrationSession()
+    cache_service = FakeCacheService()
+    sec_client = FakeSecClient()
+    company_lookup_service = CompanyLookupService(
+        session,
+        sec_client=sec_client,
+        cache_service=cache_service,
+    )
+    filing_metadata_service = FilingMetadataService(
+        session,
+        sec_client=sec_client,
+        cache_service=cache_service,
+    )
+    service = SecIngestionService(
+        session,
+        company_lookup_service=company_lookup_service,
+        filing_metadata_service=filing_metadata_service,
+        clock=lambda: NOW,
+    )
+
+    job = service.create_job("AAPL")
+    result = service.run_job(job.id)
+
+    assert result.status == "succeeded"
+    assert result.company_id == session.companies[0].id
+    assert result.payload["filings_count"] == 2
+    assert session.companies[0].ticker == "AAPL"
+    assert session.companies[0].cik == "0000320193"
+    assert [filing.form_type for filing in session.filings] == ["10-K", "10-Q"]
+    assert all(filing.company_id == session.companies[0].id for filing in session.filings)
+    assert len(cache_service.calls) == 2
+    assert sec_client.urls == [
+        "https://www.sec.gov/files/company_tickers.json",
+        "https://data.sec.gov/submissions/CIK0000320193.json",
+    ]
