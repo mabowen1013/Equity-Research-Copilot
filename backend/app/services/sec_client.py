@@ -15,6 +15,10 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = 0.5
 
+_GLOBAL_RATE_LIMITER: SecRateLimiter | None = None
+_GLOBAL_RATE_LIMITER_RATE: int | None = None
+_GLOBAL_RATE_LIMITER_LOCK = Lock()
+
 
 class SecClientError(RuntimeError):
     """Base error for SEC client failures."""
@@ -58,6 +62,20 @@ class SecRateLimiter:
             self._sleeper(delay)
 
 
+def get_global_sec_rate_limiter(requests_per_second: int) -> SecRateLimiter:
+    global _GLOBAL_RATE_LIMITER, _GLOBAL_RATE_LIMITER_RATE
+
+    with _GLOBAL_RATE_LIMITER_LOCK:
+        if (
+            _GLOBAL_RATE_LIMITER is None
+            or _GLOBAL_RATE_LIMITER_RATE != requests_per_second
+        ):
+            _GLOBAL_RATE_LIMITER = SecRateLimiter(requests_per_second)
+            _GLOBAL_RATE_LIMITER_RATE = requests_per_second
+
+        return _GLOBAL_RATE_LIMITER
+
+
 class SecClient:
     def __init__(
         self,
@@ -83,9 +101,8 @@ class SecClient:
         }
         self._client = http_client or httpx.Client(timeout=timeout_seconds)
         self._owns_client = http_client is None
-        self._rate_limiter = rate_limiter or SecRateLimiter(
+        self._rate_limiter = rate_limiter or get_global_sec_rate_limiter(
             active_settings.sec_rate_limit_per_second,
-            sleeper=sleeper,
         )
         self._sleeper = sleeper
         self._max_attempts = max_attempts
