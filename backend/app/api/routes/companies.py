@@ -1,13 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.db import get_db_session
+from app.db import get_db_session, get_sessionmaker
 from app.models import Company
-from app.schemas import CompanyRead, CompanySearchResult
-from app.services import CompanyLookupError, normalize_ticker
+from app.schemas import CompanyRead, CompanySearchResult, JobRead
+from app.services import CompanyLookupError, SecIngestionService, normalize_ticker
 
 router = APIRouter(prefix="/companies", tags=["companies"])
+
+
+def run_sec_ingestion_job(job_id: int) -> None:
+    session = get_sessionmaker()()
+    try:
+        SecIngestionService(session).run_job(job_id)
+    finally:
+        session.close()
 
 
 @router.get("/search", response_model=list[CompanySearchResult])
@@ -34,6 +42,28 @@ def search_companies(
     )
 
     return list(db.scalars(statement).all())
+
+
+@router.post(
+    "/{ticker}/ingest",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def ingest_company(
+    ticker: str,
+    background_tasks: BackgroundTasks,
+    refresh: bool = False,
+    db: Session = Depends(get_db_session),
+):
+    try:
+        job = SecIngestionService(db).create_job(ticker, refresh=refresh)
+    except CompanyLookupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    db.commit()
+    db.refresh(job)
+    background_tasks.add_task(run_sec_ingestion_job, job.id)
+    return job
 
 
 @router.get("/{ticker}", response_model=CompanyRead)

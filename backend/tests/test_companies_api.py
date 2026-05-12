@@ -3,9 +3,10 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+import app.api.routes.companies as companies_route
 from app.db import get_db_session
 from app.main import app
-from app.models import Company
+from app.models import Company, Job
 
 
 def make_company(
@@ -47,12 +48,28 @@ class FakeSession:
     ) -> None:
         self.company = company
         self.companies = companies or []
+        self.added: list[Job] = []
+        self.commit_calls = 0
+        self.refresh_calls = 0
 
     def scalar(self, statement) -> Company | None:
         return self.company
 
     def scalars(self, statement) -> FakeScalarResult:
         return FakeScalarResult(self.companies)
+
+    def add(self, job: Job) -> None:
+        job.id = 123
+        self.added.append(job)
+
+    def flush(self) -> None:
+        pass
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+
+    def refresh(self, job: Job) -> None:
+        self.refresh_calls += 1
 
 
 def override_db_session(session: FakeSession) -> None:
@@ -113,6 +130,41 @@ def test_get_company_rejects_blank_ticker() -> None:
     client = TestClient(app)
 
     response = client.get("/companies/%20")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Ticker must not be empty."}
+
+
+def test_ingest_company_creates_job_and_schedules_background_task(monkeypatch) -> None:
+    session = FakeSession()
+    scheduled_job_ids: list[int] = []
+    monkeypatch.setattr(companies_route, "run_sec_ingestion_job", scheduled_job_ids.append)
+    override_db_session(session)
+    client = TestClient(app)
+
+    response = client.post("/companies/aapl/ingest?refresh=true")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 202
+    assert response.json()["id"] == 123
+    assert response.json()["job_type"] == "sec_ingestion"
+    assert response.json()["status"] == "pending"
+    assert response.json()["payload"] == {
+        "ticker": "AAPL",
+        "refresh": True,
+        "stage": "queued",
+    }
+    assert session.commit_calls == 1
+    assert session.refresh_calls == 1
+    assert scheduled_job_ids == [123]
+
+
+def test_ingest_company_rejects_blank_ticker() -> None:
+    override_db_session(FakeSession())
+    client = TestClient(app)
+
+    response = client.post("/companies/%20/ingest")
 
     app.dependency_overrides.clear()
     assert response.status_code == 400

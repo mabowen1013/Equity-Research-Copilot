@@ -33,6 +33,11 @@ from app.services.sec_client import (
     SecRequestError,
     SecResponseError,
 )
+from app.services.sec_ingestion import (
+    SEC_INGESTION_JOB_TYPE,
+    SecIngestionJobNotFoundError,
+    SecIngestionService,
+)
 
 __all__ = [
     "CompanyLookupError",
@@ -44,6 +49,9 @@ __all__ = [
     "SecClientError",
     "SecCompanyRecord",
     "SecFilingRecord",
+    "SEC_INGESTION_JOB_TYPE",
+    "SecIngestionJobNotFoundError",
+    "SecIngestionService",
     "SecRateLimiter",
     "SecRequestError",
     "SecResponseCacheService",
