@@ -1,6 +1,6 @@
 # Equity Research Copilot
 
-Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion: ticker to CIK lookup, SEC submissions fetch, recent `10-K` / `10-Q` / `8-K` metadata storage, SEC response caching, rate limiting, retry handling, and ingestion job status tracking.
+Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion: ticker to CIK lookup with exchange metadata, SEC submissions fetch with SIC metadata, recent `10-K` / `10-Q` / `8-K` metadata storage, SEC response caching, rate limiting, retry handling, and ingestion job status tracking.
 
 This project is for research assistance only. It is not investment advice.
 
@@ -12,8 +12,9 @@ Implemented:
 - PostgreSQL setup with Alembic migrations.
 - Health checks, request logging, and environment configuration.
 - Job status tracking API.
-- SEC ticker to CIK/company lookup.
+- SEC ticker to CIK/company lookup, including exchange metadata when available.
 - SEC submissions ingestion for recent `10-K`, `10-Q`, and `8-K` filing metadata.
+- SEC submissions company metadata refresh for SIC and SIC description.
 - SEC response cache with optional refresh bypass.
 - SEC request User-Agent, rate limiting, retry, and failure handling.
 - Company, filing, and ingestion job read APIs.

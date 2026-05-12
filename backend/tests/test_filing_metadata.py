@@ -13,12 +13,15 @@ from app.services import (
     build_sec_primary_document_url,
     build_sec_submissions_url,
     normalize_accession_number,
+    parse_company_submissions_metadata,
     parse_recent_filing_records,
     parse_sec_date,
 )
 
 
 SEC_SUBMISSIONS_FIXTURE = {
+    "sic": "3571",
+    "sicDescription": "Electronic Computers",
     "filings": {
         "recent": {
             "accessionNumber": [
@@ -168,6 +171,13 @@ def test_parse_recent_filing_records_requires_recent_payload() -> None:
         parse_recent_filing_records({}, cik="0000320193")
 
 
+def test_parse_company_submissions_metadata_reads_sic_fields() -> None:
+    metadata = parse_company_submissions_metadata(SEC_SUBMISSIONS_FIXTURE)
+
+    assert metadata.sic == "3571"
+    assert metadata.sic_description == "Electronic Computers"
+
+
 def test_fetch_recent_filing_records_uses_cached_submissions_payload() -> None:
     cache_service = FakeCacheService()
     sec_client = FakeSecClient()
@@ -246,14 +256,17 @@ def test_upsert_filings_requires_persisted_company() -> None:
 
 def test_fetch_and_upsert_recent_filings_combines_fetch_and_persistence() -> None:
     session = FakeSession()
+    company = make_company()
     service = FilingMetadataService(
         session,
         sec_client=FakeSecClient(),
         cache_service=FakeCacheService(),
     )
 
-    filings = service.fetch_and_upsert_recent_filings(make_company())
+    filings = service.fetch_and_upsert_recent_filings(company)
 
     assert len(filings) == 3
     assert session.flush_calls == 1
+    assert company.sic == "3571"
+    assert company.sic_description == "Electronic Computers"
     assert filings[0].form_type == "10-K"

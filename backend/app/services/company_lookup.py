@@ -11,7 +11,7 @@ from app.models import Company
 from app.services.sec_cache import SecResponseCacheService, build_sec_cache_key
 from app.services.sec_client import SecClient
 
-SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 
 
 class CompanyLookupError(ValueError):
@@ -51,16 +51,13 @@ def zero_pad_cik(cik: int | str) -> str:
 def find_company_record(payload: dict[str, Any], ticker: str) -> SecCompanyRecord:
     normalized_ticker = normalize_ticker(ticker)
 
-    for value in payload.values():
-        if not isinstance(value, dict):
-            continue
-
+    for value in _iter_company_metadata_rows(payload):
         payload_ticker = value.get("ticker")
         if payload_ticker is None or normalize_ticker(str(payload_ticker)) != normalized_ticker:
             continue
 
-        cik = value.get("cik_str")
-        name = value.get("title")
+        cik = value.get("cik") or value.get("cik_str")
+        name = value.get("name") or value.get("title")
         if cik is None or name is None or not str(name).strip():
             raise CompanyLookupError(f"SEC ticker metadata for {normalized_ticker} is incomplete.")
 
@@ -73,6 +70,20 @@ def find_company_record(payload: dict[str, Any], ticker: str) -> SecCompanyRecor
         )
 
     raise TickerNotFoundError(f"Ticker {normalized_ticker} was not found in SEC metadata.")
+
+
+def _iter_company_metadata_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    fields = payload.get("fields")
+    data = payload.get("data")
+    if isinstance(fields, list) and isinstance(data, list):
+        normalized_fields = [str(field) for field in fields]
+        rows: list[dict[str, Any]] = []
+        for row in data:
+            if isinstance(row, (list, tuple)):
+                rows.append(dict(zip(normalized_fields, row, strict=False)))
+        return rows
+
+    return [value for value in payload.values() if isinstance(value, dict)]
 
 
 class CompanyLookupService:

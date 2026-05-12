@@ -15,6 +15,14 @@ from app.services import (
 
 
 SEC_TICKER_FIXTURE = {
+    "fields": ["cik", "name", "ticker", "exchange"],
+    "data": [
+        [320193, "Apple Inc.", "AAPL", "Nasdaq"],
+        [789019, "MICROSOFT CORP", "MSFT", "Nasdaq"],
+    ],
+}
+
+SEC_LEGACY_TICKER_FIXTURE = {
     "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
     "1": {"cik_str": "0000789019", "ticker": "MSFT", "title": "MICROSOFT CORP"},
 }
@@ -82,6 +90,17 @@ def test_find_company_record_returns_matching_sec_metadata() -> None:
         ticker="MSFT",
         cik="0000789019",
         name="MICROSOFT CORP",
+        exchange="Nasdaq",
+    )
+
+
+def test_find_company_record_supports_legacy_sec_ticker_payload() -> None:
+    record = find_company_record(SEC_LEGACY_TICKER_FIXTURE, "msft")
+
+    assert record == SecCompanyRecord(
+        ticker="MSFT",
+        cik="0000789019",
+        name="MICROSOFT CORP",
         exchange=None,
     )
 
@@ -104,6 +123,7 @@ def test_resolve_company_record_uses_cached_sec_ticker_payload() -> None:
 
     assert record.ticker == "AAPL"
     assert record.cik == "0000320193"
+    assert cache_service.calls[0]["url"] == "https://www.sec.gov/files/company_tickers_exchange.json"
     assert cache_service.calls[0]["refresh"] is True
     assert cache_service.calls[0]["fetch_json"].__self__ is sec_client
     assert cache_service.calls[0]["fetch_json"].__name__ == "get_json"

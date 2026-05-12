@@ -106,17 +106,15 @@ class FakeSecClient:
 
     def get_json(self, url: str) -> dict:
         self.urls.append(url)
-        if url.endswith("company_tickers.json"):
+        if url.endswith("company_tickers_exchange.json"):
             return {
-                "0": {
-                    "cik_str": 320193,
-                    "ticker": "AAPL",
-                    "title": "Apple Inc.",
-                    "exchange": "Nasdaq",
-                }
+                "fields": ["cik", "name", "ticker", "exchange"],
+                "data": [[320193, "Apple Inc.", "AAPL", "Nasdaq"]],
             }
 
         return {
+            "sic": "3571",
+            "sicDescription": "Electronic Computers",
             "filings": {
                 "recent": {
                     "accessionNumber": [
@@ -228,6 +226,8 @@ def test_run_job_resolves_company_fetches_filings_and_marks_succeeded() -> None:
     assert job.payload["cik"] == "0000320193"
     assert job.payload["company_name"] == "Apple Inc."
     assert job.payload["filings_count"] == 2
+    assert job.payload["sic"] is None
+    assert job.payload["sic_description"] is None
     assert company_lookup_service.calls == [{"ticker": "AAPL", "refresh": True}]
     assert filing_metadata_service.calls[0]["company"].ticker == "AAPL"
     assert filing_metadata_service.calls[0]["refresh"] is True
@@ -290,10 +290,15 @@ def test_sec_ingestion_runs_full_mocked_sec_metadata_flow() -> None:
     assert result.payload["filings_count"] == 2
     assert session.companies[0].ticker == "AAPL"
     assert session.companies[0].cik == "0000320193"
+    assert session.companies[0].exchange == "Nasdaq"
+    assert session.companies[0].sic == "3571"
+    assert session.companies[0].sic_description == "Electronic Computers"
+    assert result.payload["sic"] == "3571"
+    assert result.payload["sic_description"] == "Electronic Computers"
     assert [filing.form_type for filing in session.filings] == ["10-K", "10-Q"]
     assert all(filing.company_id == session.companies[0].id for filing in session.filings)
     assert len(cache_service.calls) == 2
     assert sec_client.urls == [
-        "https://www.sec.gov/files/company_tickers.json",
+        "https://www.sec.gov/files/company_tickers_exchange.json",
         "https://data.sec.gov/submissions/CIK0000320193.json",
     ]

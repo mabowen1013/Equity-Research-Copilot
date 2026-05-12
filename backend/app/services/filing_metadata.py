@@ -33,6 +33,12 @@ class SecFilingRecord:
     sec_primary_document_url: str | None
 
 
+@dataclass(frozen=True)
+class SecCompanySubmissionsMetadata:
+    sic: str | None
+    sic_description: str | None
+
+
 def build_sec_submissions_url(cik: str) -> str:
     return f"{SEC_SUBMISSIONS_BASE_URL}/CIK{zero_pad_cik(cik)}.json"
 
@@ -131,6 +137,15 @@ def parse_recent_filing_records(
     return records
 
 
+def parse_company_submissions_metadata(
+    submissions_payload: dict[str, Any],
+) -> SecCompanySubmissionsMetadata:
+    return SecCompanySubmissionsMetadata(
+        sic=_get_optional_string(submissions_payload.get("sic")),
+        sic_description=_get_optional_string(submissions_payload.get("sicDescription")),
+    )
+
+
 class FilingMetadataService:
     def __init__(
         self,
@@ -144,12 +159,12 @@ class FilingMetadataService:
         self._sec_client = sec_client or SecClient(settings=settings)
         self._cache_service = cache_service or SecResponseCacheService(db, settings=settings)
 
-    def fetch_recent_filing_records(
+    def fetch_submissions_payload(
         self,
         cik: str,
         *,
         refresh: bool = False,
-    ) -> list[SecFilingRecord]:
+    ) -> dict[str, Any]:
         url = build_sec_submissions_url(cik)
         cache_result = self._cache_service.get_or_fetch_json(
             cache_key=build_sec_cache_key(url),
@@ -157,7 +172,26 @@ class FilingMetadataService:
             fetch_json=self._sec_client.get_json,
             refresh=refresh,
         )
-        return parse_recent_filing_records(cache_result.response_json, cik=cik)
+        return cache_result.response_json
+
+    def fetch_recent_filing_records(
+        self,
+        cik: str,
+        *,
+        refresh: bool = False,
+    ) -> list[SecFilingRecord]:
+        submissions_payload = self.fetch_submissions_payload(cik, refresh=refresh)
+        return parse_recent_filing_records(submissions_payload, cik=cik)
+
+    def apply_company_submissions_metadata(
+        self,
+        company: Company,
+        submissions_payload: dict[str, Any],
+    ) -> Company:
+        metadata = parse_company_submissions_metadata(submissions_payload)
+        company.sic = metadata.sic
+        company.sic_description = metadata.sic_description
+        return company
 
     def upsert_filings(
         self,
@@ -194,7 +228,9 @@ class FilingMetadataService:
         *,
         refresh: bool = False,
     ) -> list[Filing]:
-        records = self.fetch_recent_filing_records(company.cik, refresh=refresh)
+        submissions_payload = self.fetch_submissions_payload(company.cik, refresh=refresh)
+        self.apply_company_submissions_metadata(company, submissions_payload)
+        records = parse_recent_filing_records(submissions_payload, cik=company.cik)
         return self.upsert_filings(company, records)
 
 
@@ -223,6 +259,13 @@ def _get_recent_string(
     if value is None or not str(value).strip():
         if required:
             raise FilingMetadataError(f"SEC submissions recent.{key} has a blank required value.")
+        return None
+
+    return str(value).strip()
+
+
+def _get_optional_string(value: Any) -> str | None:
+    if value is None or not str(value).strip():
         return None
 
     return str(value).strip()

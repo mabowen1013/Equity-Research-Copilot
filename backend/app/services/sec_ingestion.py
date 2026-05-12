@@ -81,7 +81,7 @@ class SecIngestionService:
                 company,
                 refresh=refresh,
             )
-            self._mark_succeeded(job, filings_count=len(filings))
+            self._mark_succeeded(job, company=company, filings_count=len(filings))
         except Exception as exc:
             self._db.rollback()
             failed_job = self._db.get(Job, job_id) or job
@@ -111,10 +111,11 @@ class SecIngestionService:
             company_id=company.id,
             cik=company.cik,
             company_name=company.name,
+            exchange=getattr(company, "exchange", None),
         )
         self._db.commit()
 
-    def _mark_succeeded(self, job: Job, *, filings_count: int) -> None:
+    def _mark_succeeded(self, job: Job, *, company: Any, filings_count: int) -> None:
         now = self._clock()
         job.status = "succeeded"
         job.progress = 100
@@ -124,6 +125,8 @@ class SecIngestionService:
             job,
             stage="completed",
             filings_count=filings_count,
+            sic=getattr(company, "sic", None),
+            sic_description=getattr(company, "sic_description", None),
         )
         self._db.commit()
 
