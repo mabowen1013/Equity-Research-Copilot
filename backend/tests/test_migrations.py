@@ -14,3 +14,6 @@ def test_alembic_config_points_to_migration_directory() -> None:
 
 def test_database_metadata_is_available_for_migrations() -> None:
     assert "jobs" in Base.metadata.tables
+    assert "companies" in Base.metadata.tables
+    assert "filings" in Base.metadata.tables
+    assert "sec_response_cache" in Base.metadata.tables
