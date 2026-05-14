@@ -36,6 +36,14 @@ Not implemented yet:
 
 Backend environment variables are loaded from `backend/.env`. Start from the example file:
 
+macOS / Linux:
+
+```zsh
+cp backend/.env.example backend/.env
+```
+
+Windows PowerShell:
+
 ```powershell
 Copy-Item backend/.env.example backend/.env
 ```
@@ -64,19 +72,37 @@ OPENAI_API_KEY=""
 
 Start PostgreSQL:
 
-```powershell
+```zsh
 docker compose -f compose.yaml up -d postgres
 ```
 
 Install backend dependencies:
 
+macOS / Linux:
+
+```zsh
+cd backend
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+```
+
+Windows PowerShell:
+
 ```powershell
 Set-Location backend
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -e .[dev]
+.\.venv\Scripts\python -m pip install -e ".[dev]"
 ```
 
 Run database migrations:
+
+macOS / Linux:
+
+```zsh
+.venv/bin/alembic upgrade head
+```
+
+Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\alembic upgrade head
@@ -84,11 +110,29 @@ Run database migrations:
 
 Start the backend API:
 
+macOS / Linux:
+
+```zsh
+.venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Windows PowerShell:
+
 ```powershell
 .\.venv\Scripts\uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 In another terminal, install and start the frontend:
+
+macOS / Linux:
+
+```zsh
+cd frontend
+npm install
+npm run dev
+```
+
+Windows PowerShell:
 
 ```powershell
 Set-Location frontend
@@ -100,9 +144,19 @@ The frontend dev server proxies `/health` to the backend at `http://127.0.0.1:80
 
 ## SEC Ingestion
 
-Start the backend first, then trigger ingestion from another PowerShell session.
+Start the backend first, then trigger ingestion from another terminal.
 
 Force a fresh SEC fetch for Apple:
+
+macOS / Linux:
+
+```zsh
+job_response=$(curl -sS -X POST "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true")
+printf '%s\n' "$job_response"
+job_id=$(printf '%s' "$job_response" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+```
+
+Windows PowerShell:
 
 ```powershell
 $job = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
@@ -111,11 +165,29 @@ $job
 
 Check the job status:
 
+macOS / Linux:
+
+```zsh
+curl -sS "http://127.0.0.1:8000/jobs/$job_id"
+```
+
+Windows PowerShell:
+
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($job.id)"
 ```
 
 Read stored company metadata and filings:
+
+macOS / Linux:
+
+```zsh
+curl -sS "http://127.0.0.1:8000/companies/AAPL"
+curl -sS "http://127.0.0.1:8000/companies/AAPL/filings"
+curl -sS "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K"
+```
+
+Windows PowerShell:
 
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL"
@@ -125,6 +197,16 @@ Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K"
 
 Run the demo tickers:
 
+macOS / Linux:
+
+```zsh
+curl -sS -X POST "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
+curl -sS -X POST "http://127.0.0.1:8000/companies/TSLA/ingest?refresh=true"
+curl -sS -X POST "http://127.0.0.1:8000/companies/NVDA/ingest?refresh=true"
+```
+
+Windows PowerShell:
+
 ```powershell
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/TSLA/ingest?refresh=true"
@@ -132,6 +214,14 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/NVDA/ingest?refr
 ```
 
 Omit `refresh=true` to reuse unexpired SEC response cache where possible:
+
+macOS / Linux:
+
+```zsh
+curl -sS -X POST "http://127.0.0.1:8000/companies/AAPL/ingest"
+```
+
+Windows PowerShell:
 
 ```powershell
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest"
@@ -164,6 +254,15 @@ ORDER BY fetched_at DESC;
 
 Backend tests:
 
+macOS / Linux:
+
+```zsh
+cd backend
+.venv/bin/python -m pytest
+```
+
+Windows PowerShell:
+
 ```powershell
 Set-Location backend
 .\.venv\Scripts\python -m pytest
@@ -171,12 +270,29 @@ Set-Location backend
 
 Frontend build:
 
+macOS / Linux:
+
+```zsh
+cd frontend
+npm run build
+```
+
+Windows PowerShell:
+
 ```powershell
 Set-Location frontend
 npm run build
 ```
 
 Health check:
+
+macOS / Linux:
+
+```zsh
+curl http://127.0.0.1:8000/health
+```
+
+Windows PowerShell:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
