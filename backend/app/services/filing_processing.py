@@ -1,5 +1,5 @@
+# 负责“调度任务”：创建 job、下载 filing HTML、调用文本提取服务、更新 job 状态。
 from __future__ import annotations
-
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -91,7 +91,7 @@ class FilingProcessingService:
             text_extraction_service = (
                 self._filing_text_extraction_service or FilingTextExtractionService(self._db)
             )
-            section = text_extraction_service.extract_full_document_section(
+            sections = text_extraction_service.extract_filing_sections(
                 filing,
                 result.document,
             )
@@ -100,7 +100,8 @@ class FilingProcessingService:
                 document_id=result.document.id,
                 cache_hit=result.cache_hit,
                 document_status=result.document.status,
-                section_id=section.id,
+                sections=sections,
+                parser_metrics=_extraction_metrics_payload(text_extraction_service),
             )
         except Exception as exc:
             self._db.rollback()
@@ -134,22 +135,26 @@ class FilingProcessingService:
         document_id: int,
         cache_hit: bool,
         document_status: str,
-        section_id: int,
+        sections: list[Any],
+        parser_metrics: dict[str, int] | None = None,
     ) -> None:
         now = self._clock()
         job.status = "succeeded"
         job.progress = 100
         job.finished_at = now
         job.updated_at = now
-        self._merge_payload(
-            job,
-            stage="completed",
-            filing_document_id=document_id,
-            document_cache_hit=cache_hit,
-            document_status=document_status,
-            full_document_section_id=section_id,
-            sections_count=1,
-        )
+        payload_updates: dict[str, Any] = {
+            "stage": "completed",
+            "filing_document_id": document_id,
+            "document_cache_hit": cache_hit,
+            "document_status": document_status,
+            "section_ids": [section.id for section in sections],
+            "sections_count": len(sections),
+        }
+        if parser_metrics is not None:
+            payload_updates["parser_metrics"] = parser_metrics
+
+        self._merge_payload(job, **payload_updates)
         self._db.commit()
 
     def _mark_extracting_text(
@@ -190,3 +195,18 @@ class FilingProcessingService:
             **(job.payload or {}),
             **updates,
         }
+
+
+def _extraction_metrics_payload(service: Any) -> dict[str, int] | None:
+    metrics = getattr(service, "last_extraction_metrics", None)
+    if metrics is None:
+        return None
+
+    as_payload = getattr(metrics, "as_payload", None)
+    if callable(as_payload):
+        return as_payload()
+
+    if isinstance(metrics, dict):
+        return {str(key): int(value) for key, value in metrics.items()}
+
+    return None

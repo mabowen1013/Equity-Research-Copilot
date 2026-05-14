@@ -87,8 +87,16 @@ class FakeFilingTextExtractionService:
     def __init__(self, *, error: Exception | None = None) -> None:
         self.error = error
         self.calls: list[dict] = []
+        self.last_extraction_metrics = SimpleNamespace(
+            as_payload=lambda: {
+                "total_sections": 2,
+                "sec_parser_validated_regex_offsets_count": 1,
+                "regex_fallback_count": 1,
+                "full_document_fallback_count": 0,
+            },
+        )
 
-    def extract_full_document_section(
+    def extract_filing_sections(
         self,
         filing: Filing,
         document: FilingDocument,
@@ -97,7 +105,7 @@ class FakeFilingTextExtractionService:
         if self.error is not None:
             raise self.error
 
-        return SimpleNamespace(id=777)
+        return [SimpleNamespace(id=777), SimpleNamespace(id=778)]
 
 
 def make_filing() -> Filing:
@@ -187,8 +195,14 @@ def test_run_job_downloads_document_and_marks_succeeded() -> None:
     assert job.payload["filing_document_id"] == 99
     assert job.payload["document_cache_hit"] is True
     assert job.payload["document_status"] == "downloaded"
-    assert job.payload["full_document_section_id"] == 777
-    assert job.payload["sections_count"] == 1
+    assert job.payload["section_ids"] == [777, 778]
+    assert job.payload["sections_count"] == 2
+    assert job.payload["parser_metrics"] == {
+        "total_sections": 2,
+        "sec_parser_validated_regex_offsets_count": 1,
+        "regex_fallback_count": 1,
+        "full_document_fallback_count": 0,
+    }
     assert document_service.calls == [{"filing": filing, "refresh": True}]
     assert text_service.calls == [{"filing": filing, "document": document_service.document}]
     assert session.commit_calls == 3

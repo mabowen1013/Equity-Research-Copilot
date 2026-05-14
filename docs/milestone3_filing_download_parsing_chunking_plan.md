@@ -63,16 +63,26 @@ This cadence is intentional. The filing pipeline is foundational for the rest of
 
 5. HTML cleanup and fallback text extraction
    - Add `selectolax` for fast HTML cleanup.
+   - Remove scripts, styles, templates, hidden nodes, and inline `display:none` / `visibility:hidden` content before text extraction.
    - Add `inscriptis` for layout-aware HTML-to-text conversion.
    - Store a fallback `full_document` section.
    - Add fixture-based parser tests.
    - Do not add SEC item detection yet.
 
 6. Section extraction
-   - Add SEC-aware section extraction using `sec-parser` where possible.
-   - Add deterministic regex fallback for common SEC item headings.
+   - Use `selectolax` cleanup followed by `sec-parser` as the primary semantic parser for `10-Q`.
+   - Build a `sec-parser` semantic tree and extract `10-Q` section hierarchy from title nodes.
+   - Use `inscriptis` normalized text for source offsets and citation-friendly text.
+   - Keep deterministic regex as the current fallback for `10-K` and `8-K` until dedicated form-specific extractors are added.
+   - Keep deterministic regex as a fallback for parser failures, weak parser coverage, and offset anchoring failures.
+   - Support same-line and split-line SEC item headings, such as `Item 2.` followed by `Management's Discussion and Analysis` on the next line.
    - Target major `10-K`, `10-Q`, and `8-K` sections.
    - Store section confidence and extraction method.
+   - Record parser outcome metrics in filing processing job payloads:
+     - `total_sections`
+     - `sec_parser_validated_regex_offsets_count`
+     - `regex_fallback_count`
+     - `full_document_fallback_count`
    - Keep `full_document` fallback behavior for weak or unusual filings.
 
 7. Chunking
@@ -103,7 +113,10 @@ This cadence is intentional. The filing pipeline is foundational for the rest of
 - Store raw filing HTML in local filesystem cache for development.
 - Store raw document metadata, sections, and chunks in PostgreSQL.
 - Use deterministic parsing and chunking rather than LLM-based parsing.
-- Use `selectolax` for HTML cleanup, `inscriptis` for normalized text extraction, `sec-parser` for SEC-aware structure, and `tiktoken` for token counts.
+- Use `selectolax` for HTML cleanup, `sec-parser` as the primary SEC-aware `10-Q` parser, `inscriptis` for normalized citation text, regex as the temporary `10-K`/`8-K` fallback, and `tiktoken` for token counts.
+- Preserve parser provenance with extraction methods such as `sec_parser_validated_regex_offsets`, `regex_fallback`, and `full_document_fallback`.
+- Let regex provide stable normalized-text offsets, then use `sec-parser` to validate section keys and titles when available.
+- Track parser outcome counts per filing processing job so exact-anchor quality and fallback rates can be measured across real filings.
 - Preserve enough metadata for every chunk to become a future citation target.
 
 ## Database Changes
@@ -190,9 +203,14 @@ Job tests:
 Parser tests:
 
 - HTML cleanup removes scripts/styles but preserves headings, paragraphs, lists, and tables.
+- HTML cleanup removes hidden inline-style content even when style casing or whitespace varies.
 - Fallback `full_document` section is created from valid HTML.
+- `sec-parser` semantic-tree extraction is preferred for well-structured `10-Q` filings.
 - Major `10-K`, `10-Q`, and `8-K` sections are extracted from fixtures.
+- Regex fallback recognizes SEC item headings whose item number and title appear on separate lines.
+- Regex fallback is used for `10-K` and `8-K` until dedicated extractors are implemented, and for `10-Q` only when `sec-parser` does not produce credible section coverage or offsets.
 - Weak section extraction keeps text through the fallback path.
+- Parser outcome metrics count total sections and each extraction method.
 
 Chunking tests:
 
@@ -211,6 +229,7 @@ Manual acceptance:
 
 - Ingest and process latest `10-K` and `10-Q` for `AAPL`, `TSLA`, and `NVDA`.
 - Verify major sections such as risk factors and MD&A appear when present.
+- Review parser metrics over a 20-filing sample before tuning anchor fallback behavior.
 - Verify Filing Explorer displays filings, sections, chunks, and SEC source links.
 - Verify processing failures are visible rather than silent.
 
@@ -220,6 +239,7 @@ Manual acceptance:
 - FastAPI `BackgroundTasks` remains acceptable for this milestone.
 - Raw filing HTML cache starts as local filesystem storage.
 - Parser quality and citation metadata are more important than rushing to embeddings.
+- Section extraction should prefer `sec-parser` for `10-Q`; `10-K` and `8-K` will receive dedicated extractors later and use regex fallback for now.
 - Embeddings remain Milestone 5.
 - XBRL metrics remain Milestone 4.
 - Citation-grounded Q&A remains Milestone 6.
