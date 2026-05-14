@@ -21,14 +21,27 @@ from app.services.filing_metadata import (
     parse_recent_filing_records,
     parse_sec_date,
 )
+from app.services.filing_document import (
+    FilingDocumentDownloadError,
+    FilingDocumentDownloadResult,
+    FilingDocumentService,
+)
+from app.services.filing_processing import (
+    FILING_PROCESSING_JOB_TYPE,
+    FilingProcessingFilingNotFoundError,
+    FilingProcessingJobNotFoundError,
+    FilingProcessingService,
+)
 from app.services.sec_cache import (
     SecCacheResult,
     SecResponseCacheService,
     build_sec_cache_key,
 )
 from app.services.sec_client import (
+    SEC_FILING_ACCEPT_HEADER,
     SecClient,
     SecClientError,
+    SecContentResponse,
     SecRateLimiter,
     SecRequestError,
     SecResponseError,
@@ -43,12 +56,21 @@ from app.services.sec_ingestion import (
 __all__ = [
     "CompanyLookupError",
     "CompanyLookupService",
+    "FilingDocumentDownloadError",
+    "FilingDocumentDownloadResult",
+    "FilingDocumentService",
     "FilingMetadataError",
     "FilingMetadataService",
+    "FILING_PROCESSING_JOB_TYPE",
+    "FilingProcessingFilingNotFoundError",
+    "FilingProcessingJobNotFoundError",
+    "FilingProcessingService",
+    "SEC_FILING_ACCEPT_HEADER",
     "SecCacheResult",
     "SecClient",
     "SecClientError",
     "SecCompanyRecord",
+    "SecContentResponse",
     "SecFilingRecord",
     "SEC_INGESTION_JOB_TYPE",
     "SecIngestionJobNotFoundError",

@@ -3,6 +3,7 @@ import pytest
 
 from app.core import Settings
 from app.services import (
+    SEC_FILING_ACCEPT_HEADER,
     SecClient,
     SecRateLimiter,
     SecRequestError,
@@ -47,6 +48,36 @@ def test_sec_client_adds_user_agent_and_builds_relative_urls() -> None:
     assert client.get_json("/submissions/CIK0000320193.json") == {"ok": True}
     assert seen["url"] == "https://data.sec.gov/submissions/CIK0000320193.json"
     assert seen["user_agent"] == "Equity Research Copilot test@example.com"
+
+
+def test_sec_client_get_content_adds_user_agent_and_html_accept_header() -> None:
+    seen: dict[str, str] = {}
+    rate_limiter = FakeRateLimiter()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["user_agent"] = request.headers["User-Agent"]
+        seen["accept"] = request.headers["Accept"]
+        return httpx.Response(
+            200,
+            content=b"<html><body>filing</body></html>",
+            headers={"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    client = SecClient(
+        settings=make_settings(),
+        http_client=make_http_client(handler),
+        rate_limiter=rate_limiter,
+    )
+
+    response = client.get_content("https://www.sec.gov/Archives/example.htm")
+
+    assert response.content == b"<html><body>filing</body></html>"
+    assert response.content_type == "text/html; charset=utf-8"
+    assert response.url == "https://www.sec.gov/Archives/example.htm"
+    assert seen["user_agent"] == "Equity Research Copilot test@example.com"
+    assert seen["accept"] == SEC_FILING_ACCEPT_HEADER
+    assert rate_limiter.calls == 1
 
 
 def test_sec_client_requires_user_agent() -> None:

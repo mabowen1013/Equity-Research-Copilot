@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     sec_user_agent: str | None = None
     sec_rate_limit_per_second: int = Field(default=10, ge=1, le=10)
     sec_cache_ttl_seconds: int = Field(default=86_400, ge=1)
+    sec_filing_cache_dir: Path = BACKEND_ROOT / ".cache" / "sec_filings"
     openai_api_key: SecretStr | None = None
 
     model_config = SettingsConfigDict(

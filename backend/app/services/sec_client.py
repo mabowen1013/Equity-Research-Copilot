@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from threading import Lock
 from typing import Any
 from urllib.parse import urljoin
@@ -14,6 +15,7 @@ SEC_BASE_URL = "https://data.sec.gov"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = 0.5
+SEC_FILING_ACCEPT_HEADER = "text/html,application/xhtml+xml,text/plain,*/*"
 
 _GLOBAL_RATE_LIMITER: SecRateLimiter | None = None
 _GLOBAL_RATE_LIMITER_RATE: int | None = None
@@ -60,6 +62,13 @@ class SecRateLimiter:
 
         if delay > 0:
             self._sleeper(delay)
+
+
+@dataclass(frozen=True)
+class SecContentResponse:
+    content: bytes
+    content_type: str | None
+    url: str
 
 
 def get_global_sec_rate_limiter(requests_per_second: int) -> SecRateLimiter:
@@ -111,8 +120,41 @@ class SecClient:
         self._base_url = base_url.rstrip("/") + "/"
 
     def get_json(self, url: str) -> dict[str, Any]:
+        response = self._request(url)
+        return self._parse_json_object(response, str(response.url))
+
+    def get_content(
+        self,
+        url: str,
+        *,
+        accept: str = SEC_FILING_ACCEPT_HEADER,
+    ) -> SecContentResponse:
+        response = self._request(url, headers={"Accept": accept})
+        return SecContentResponse(
+            content=response.content,
+            content_type=response.headers.get("Content-Type"),
+            url=str(response.url),
+        )
+
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
+
+    def __enter__(self) -> SecClient:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+    def _request(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
         request_url = self._build_url(url)
         last_error: SecClientError | None = None
+        request_headers = {**self._headers, **(headers or {})}
 
         for attempt in range(1, self._max_attempts + 1):
             self._rate_limiter.wait()
@@ -120,7 +162,7 @@ class SecClient:
             try:
                 response = self._client.get(
                     request_url,
-                    headers=self._headers,
+                    headers=request_headers,
                     timeout=self._timeout_seconds,
                 )
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
@@ -142,22 +184,12 @@ class SecClient:
                     status_code=response.status_code,
                 )
 
-            return self._parse_json_object(response, request_url)
+            return response
 
         if last_error is not None:
             raise last_error
 
         raise SecRequestError(f"SEC request failed for {request_url}.")
-
-    def close(self) -> None:
-        if self._owns_client:
-            self._client.close()
-
-    def __enter__(self) -> SecClient:
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-        self.close()
 
     def _build_url(self, url: str) -> str:
         if url.startswith(("http://", "https://")):

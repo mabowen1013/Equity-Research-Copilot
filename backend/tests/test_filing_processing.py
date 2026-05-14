@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from types import SimpleNamespace
+
+import pytest
+
+from app.models import Filing, FilingDocument, Job
+from app.services import (
+    FILING_PROCESSING_JOB_TYPE,
+    FilingDocumentDownloadError,
+    FilingProcessingFilingNotFoundError,
+    FilingProcessingJobNotFoundError,
+    FilingProcessingService,
+)
+
+NOW = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
+
+
+class FakeSession:
+    def __init__(self, *, filing: Filing | None = None) -> None:
+        self.filing = filing
+        self.jobs: dict[int, Job] = {}
+        self.added: list[Job] = []
+        self.next_id = 1
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self.flush_calls = 0
+
+    def add(self, job: Job) -> None:
+        if job.id is None:
+            job.id = self.next_id
+            self.next_id += 1
+
+        self.jobs[job.id] = job
+        self.added.append(job)
+
+    def flush(self) -> None:
+        self.flush_calls += 1
+
+    def get(self, model, item_id: int):
+        if model is Job:
+            return self.jobs.get(item_id)
+        if model is Filing and self.filing is not None and self.filing.id == item_id:
+            return self.filing
+        return None
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+
+
+class FakeFilingDocumentService:
+    def __init__(
+        self,
+        *,
+        document: FilingDocument | None = None,
+        error: Exception | None = None,
+        cache_hit: bool = False,
+    ) -> None:
+        self.document = document or FilingDocument(
+            id=99,
+            filing_id=7,
+            source_url="https://www.sec.gov/example.htm",
+            status="downloaded",
+        )
+        self.error = error
+        self.cache_hit = cache_hit
+        self.calls: list[dict] = []
+
+    def get_or_download_primary_document(
+        self,
+        filing: Filing,
+        *,
+        refresh: bool = False,
+    ):
+        self.calls.append({"filing": filing, "refresh": refresh})
+        if self.error is not None:
+            raise self.error
+
+        return SimpleNamespace(document=self.document, cache_hit=self.cache_hit)
+
+
+def make_filing() -> Filing:
+    return Filing(
+        id=7,
+        company_id=42,
+        accession_number="0000320193-24-000123",
+        form_type="10-K",
+        filing_date=date(2024, 11, 1),
+        report_date=date(2024, 9, 28),
+        primary_document="aapl-20240928.htm",
+        sec_filing_url="https://www.sec.gov/Archives/example-index.htm",
+        sec_primary_document_url="https://www.sec.gov/Archives/example.htm",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
+def make_service(
+    session: FakeSession,
+    *,
+    filing_document_service: FakeFilingDocumentService | None = None,
+) -> FilingProcessingService:
+    return FilingProcessingService(
+        session,
+        filing_document_service=filing_document_service or FakeFilingDocumentService(),
+        clock=lambda: NOW,
+    )
+
+
+def test_create_job_stores_filing_payload() -> None:
+    session = FakeSession(filing=make_filing())
+    service = make_service(session)
+
+    job = service.create_job(7, refresh=True)
+
+    assert job.id == 1
+    assert job.job_type == FILING_PROCESSING_JOB_TYPE
+    assert job.company_id == 42
+    assert job.status == "pending"
+    assert job.progress == 0
+    assert job.payload == {
+        "filing_id": 7,
+        "accession_number": "0000320193-24-000123",
+        "form_type": "10-K",
+        "refresh": True,
+        "stage": "queued",
+    }
+    assert job.created_at == NOW
+    assert job.updated_at == NOW
+    assert session.added == [job]
+    assert session.flush_calls == 1
+
+
+def test_create_job_raises_for_unknown_filing() -> None:
+    service = make_service(FakeSession(filing=None))
+
+    with pytest.raises(FilingProcessingFilingNotFoundError, match="Filing 7"):
+        service.create_job(7)
+
+
+def test_run_job_downloads_document_and_marks_succeeded() -> None:
+    filing = make_filing()
+    session = FakeSession(filing=filing)
+    document_service = FakeFilingDocumentService(cache_hit=True)
+    service = make_service(session, filing_document_service=document_service)
+    job = service.create_job(7, refresh=True)
+
+    result = service.run_job(job.id)
+
+    assert result is job
+    assert job.status == "succeeded"
+    assert job.progress == 100
+    assert job.error_message is None
+    assert job.started_at == NOW
+    assert job.finished_at == NOW
+    assert job.payload["stage"] == "completed"
+    assert job.payload["filing_document_id"] == 99
+    assert job.payload["document_cache_hit"] is True
+    assert job.payload["document_status"] == "downloaded"
+    assert document_service.calls == [{"filing": filing, "refresh": True}]
+    assert session.commit_calls == 2
+    assert session.rollback_calls == 0
+
+
+def test_run_job_marks_failed_when_download_raises() -> None:
+    session = FakeSession(filing=make_filing())
+    document_service = FakeFilingDocumentService(
+        error=FilingDocumentDownloadError("SEC document unavailable"),
+    )
+    service = make_service(session, filing_document_service=document_service)
+    job = service.create_job(7)
+
+    result = service.run_job(job.id)
+
+    assert result is job
+    assert job.status == "failed"
+    assert job.progress == 10
+    assert job.error_message == "SEC document unavailable"
+    assert job.finished_at == NOW
+    assert job.payload["stage"] == "failed"
+    assert job.payload["error_type"] == "FilingDocumentDownloadError"
+    assert session.rollback_calls == 1
+    assert session.commit_calls == 2
+
+
+def test_run_job_marks_failed_when_filing_is_missing() -> None:
+    session = FakeSession(filing=make_filing())
+    service = make_service(session)
+    job = service.create_job(7)
+    session.filing = None
+
+    result = service.run_job(job.id)
+
+    assert result is job
+    assert job.status == "failed"
+    assert job.error_message == "Filing 7 was not found."
+    assert job.payload["error_type"] == "FilingProcessingFilingNotFoundError"
+    assert session.rollback_calls == 1
+    assert session.commit_calls == 2
+
+
+def test_run_job_raises_for_unknown_job_id() -> None:
+    service = make_service(FakeSession(filing=make_filing()))
+
+    with pytest.raises(FilingProcessingJobNotFoundError, match="was not found"):
+        service.run_job(999)
