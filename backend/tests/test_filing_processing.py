@@ -83,6 +83,23 @@ class FakeFilingDocumentService:
         return SimpleNamespace(document=self.document, cache_hit=self.cache_hit)
 
 
+class FakeFilingTextExtractionService:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[dict] = []
+
+    def extract_full_document_section(
+        self,
+        filing: Filing,
+        document: FilingDocument,
+    ):
+        self.calls.append({"filing": filing, "document": document})
+        if self.error is not None:
+            raise self.error
+
+        return SimpleNamespace(id=777)
+
+
 def make_filing() -> Filing:
     return Filing(
         id=7,
@@ -103,10 +120,14 @@ def make_service(
     session: FakeSession,
     *,
     filing_document_service: FakeFilingDocumentService | None = None,
+    filing_text_extraction_service: FakeFilingTextExtractionService | None = None,
 ) -> FilingProcessingService:
     return FilingProcessingService(
         session,
         filing_document_service=filing_document_service or FakeFilingDocumentService(),
+        filing_text_extraction_service=(
+            filing_text_extraction_service or FakeFilingTextExtractionService()
+        ),
         clock=lambda: NOW,
     )
 
@@ -146,7 +167,12 @@ def test_run_job_downloads_document_and_marks_succeeded() -> None:
     filing = make_filing()
     session = FakeSession(filing=filing)
     document_service = FakeFilingDocumentService(cache_hit=True)
-    service = make_service(session, filing_document_service=document_service)
+    text_service = FakeFilingTextExtractionService()
+    service = make_service(
+        session,
+        filing_document_service=document_service,
+        filing_text_extraction_service=text_service,
+    )
     job = service.create_job(7, refresh=True)
 
     result = service.run_job(job.id)
@@ -161,8 +187,11 @@ def test_run_job_downloads_document_and_marks_succeeded() -> None:
     assert job.payload["filing_document_id"] == 99
     assert job.payload["document_cache_hit"] is True
     assert job.payload["document_status"] == "downloaded"
+    assert job.payload["full_document_section_id"] == 777
+    assert job.payload["sections_count"] == 1
     assert document_service.calls == [{"filing": filing, "refresh": True}]
-    assert session.commit_calls == 2
+    assert text_service.calls == [{"filing": filing, "document": document_service.document}]
+    assert session.commit_calls == 3
     assert session.rollback_calls == 0
 
 
@@ -185,6 +214,32 @@ def test_run_job_marks_failed_when_download_raises() -> None:
     assert job.payload["error_type"] == "FilingDocumentDownloadError"
     assert session.rollback_calls == 1
     assert session.commit_calls == 2
+
+
+def test_run_job_marks_failed_when_text_extraction_raises() -> None:
+    filing = make_filing()
+    session = FakeSession(filing=filing)
+    document_service = FakeFilingDocumentService()
+    text_service = FakeFilingTextExtractionService(error=RuntimeError("no text"))
+    service = make_service(
+        session,
+        filing_document_service=document_service,
+        filing_text_extraction_service=text_service,
+    )
+    job = service.create_job(7)
+
+    result = service.run_job(job.id)
+
+    assert result is job
+    assert job.status == "failed"
+    assert job.progress == 60
+    assert job.error_message == "no text"
+    assert job.payload["stage"] == "failed"
+    assert job.payload["filing_document_id"] == 99
+    assert job.payload["error_type"] == "RuntimeError"
+    assert text_service.calls == [{"filing": filing, "document": document_service.document}]
+    assert session.rollback_calls == 1
+    assert session.commit_calls == 3
 
 
 def test_run_job_marks_failed_when_filing_is_missing() -> None:

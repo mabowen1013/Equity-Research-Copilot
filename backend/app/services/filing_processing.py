@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Filing, Job
 from app.services.filing_document import FilingDocumentService
+from app.services.filing_text import FilingTextExtractionService
 
 FILING_PROCESSING_JOB_TYPE = "filing_processing"
 
@@ -30,10 +31,12 @@ class FilingProcessingService:
         db: Session,
         *,
         filing_document_service: FilingDocumentService | None = None,
+        filing_text_extraction_service: FilingTextExtractionService | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._db = db
         self._filing_document_service = filing_document_service
+        self._filing_text_extraction_service = filing_text_extraction_service
         self._clock = clock
 
     def create_job(self, filing_id: int, *, refresh: bool = False) -> Job:
@@ -79,11 +82,25 @@ class FilingProcessingService:
                 filing,
                 refresh=refresh,
             )
+            self._mark_extracting_text(
+                job,
+                document_id=result.document.id,
+                cache_hit=result.cache_hit,
+                document_status=result.document.status,
+            )
+            text_extraction_service = (
+                self._filing_text_extraction_service or FilingTextExtractionService(self._db)
+            )
+            section = text_extraction_service.extract_full_document_section(
+                filing,
+                result.document,
+            )
             self._mark_succeeded(
                 job,
                 document_id=result.document.id,
                 cache_hit=result.cache_hit,
                 document_status=result.document.status,
+                section_id=section.id,
             )
         except Exception as exc:
             self._db.rollback()
@@ -117,6 +134,7 @@ class FilingProcessingService:
         document_id: int,
         cache_hit: bool,
         document_status: str,
+        section_id: int,
     ) -> None:
         now = self._clock()
         job.status = "succeeded"
@@ -126,6 +144,28 @@ class FilingProcessingService:
         self._merge_payload(
             job,
             stage="completed",
+            filing_document_id=document_id,
+            document_cache_hit=cache_hit,
+            document_status=document_status,
+            full_document_section_id=section_id,
+            sections_count=1,
+        )
+        self._db.commit()
+
+    def _mark_extracting_text(
+        self,
+        job: Job,
+        *,
+        document_id: int,
+        cache_hit: bool,
+        document_status: str,
+    ) -> None:
+        now = self._clock()
+        job.progress = 60
+        job.updated_at = now
+        self._merge_payload(
+            job,
+            stage="extracting_text",
             filing_document_id=document_id,
             document_cache_hit=cache_hit,
             document_status=document_status,
