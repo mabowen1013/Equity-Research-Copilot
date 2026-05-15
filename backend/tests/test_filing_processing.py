@@ -84,8 +84,14 @@ class FakeFilingDocumentService:
 
 
 class FakeFilingTextExtractionService:
-    def __init__(self, *, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        error: Exception | None = None,
+        events: list[str] | None = None,
+    ) -> None:
         self.error = error
+        self.events = events
         self.calls: list[dict] = []
         self.last_extraction_metrics = SimpleNamespace(
             as_payload=lambda: {
@@ -101,11 +107,53 @@ class FakeFilingTextExtractionService:
         filing: Filing,
         document: FilingDocument,
     ):
+        if self.events is not None:
+            self.events.append("extract_sections")
         self.calls.append({"filing": filing, "document": document})
         if self.error is not None:
             raise self.error
 
         return [SimpleNamespace(id=777), SimpleNamespace(id=778)]
+
+
+class FakeFilingChunkingService:
+    def __init__(
+        self,
+        *,
+        error: Exception | None = None,
+        events: list[str] | None = None,
+    ) -> None:
+        self.error = error
+        self.events = events
+        self.calls: list[dict] = []
+        self.delete_calls: list[Filing] = []
+
+    def delete_chunks_for_filing(self, filing: Filing) -> int:
+        if self.events is not None:
+            self.events.append("delete_chunks")
+        self.delete_calls.append(filing)
+        return 2
+
+    def create_chunks_for_filing(
+        self,
+        filing: Filing,
+        sections: list,
+        *,
+        delete_existing: bool = True,
+    ):
+        if self.events is not None:
+            self.events.append("create_chunks")
+        self.calls.append(
+            {
+                "filing": filing,
+                "sections": sections,
+                "delete_existing": delete_existing,
+            },
+        )
+        if self.error is not None:
+            raise self.error
+
+        return [SimpleNamespace(id=880), SimpleNamespace(id=881), SimpleNamespace(id=882)]
 
 
 def make_filing() -> Filing:
@@ -129,6 +177,7 @@ def make_service(
     *,
     filing_document_service: FakeFilingDocumentService | None = None,
     filing_text_extraction_service: FakeFilingTextExtractionService | None = None,
+    filing_chunking_service: FakeFilingChunkingService | None = None,
 ) -> FilingProcessingService:
     return FilingProcessingService(
         session,
@@ -136,6 +185,7 @@ def make_service(
         filing_text_extraction_service=(
             filing_text_extraction_service or FakeFilingTextExtractionService()
         ),
+        filing_chunking_service=filing_chunking_service or FakeFilingChunkingService(),
         clock=lambda: NOW,
     )
 
@@ -175,11 +225,14 @@ def test_run_job_downloads_document_and_marks_succeeded() -> None:
     filing = make_filing()
     session = FakeSession(filing=filing)
     document_service = FakeFilingDocumentService(cache_hit=True)
-    text_service = FakeFilingTextExtractionService()
+    events: list[str] = []
+    text_service = FakeFilingTextExtractionService(events=events)
+    chunking_service = FakeFilingChunkingService(events=events)
     service = make_service(
         session,
         filing_document_service=document_service,
         filing_text_extraction_service=text_service,
+        filing_chunking_service=chunking_service,
     )
     job = service.create_job(7, refresh=True)
 
@@ -197,6 +250,8 @@ def test_run_job_downloads_document_and_marks_succeeded() -> None:
     assert job.payload["document_status"] == "downloaded"
     assert job.payload["section_ids"] == [777, 778]
     assert job.payload["sections_count"] == 2
+    assert job.payload["chunk_ids"] == [880, 881, 882]
+    assert job.payload["chunks_count"] == 3
     assert job.payload["parser_metrics"] == {
         "total_sections": 2,
         "sec_parser_validated_regex_offsets_count": 1,
@@ -204,7 +259,12 @@ def test_run_job_downloads_document_and_marks_succeeded() -> None:
         "full_document_fallback_count": 0,
     }
     assert document_service.calls == [{"filing": filing, "refresh": True}]
+    assert events == ["delete_chunks", "extract_sections", "create_chunks"]
+    assert chunking_service.delete_calls == [filing]
     assert text_service.calls == [{"filing": filing, "document": document_service.document}]
+    assert chunking_service.calls[0]["filing"] is filing
+    assert chunking_service.calls[0]["delete_existing"] is False
+    assert [section.id for section in chunking_service.calls[0]["sections"]] == [777, 778]
     assert session.commit_calls == 3
     assert session.rollback_calls == 0
 
@@ -252,6 +312,37 @@ def test_run_job_marks_failed_when_text_extraction_raises() -> None:
     assert job.payload["filing_document_id"] == 99
     assert job.payload["error_type"] == "RuntimeError"
     assert text_service.calls == [{"filing": filing, "document": document_service.document}]
+    assert session.rollback_calls == 1
+    assert session.commit_calls == 3
+
+
+def test_run_job_marks_failed_when_chunking_raises() -> None:
+    filing = make_filing()
+    session = FakeSession(filing=filing)
+    document_service = FakeFilingDocumentService()
+    text_service = FakeFilingTextExtractionService()
+    chunking_service = FakeFilingChunkingService(error=RuntimeError("chunking failed"))
+    service = make_service(
+        session,
+        filing_document_service=document_service,
+        filing_text_extraction_service=text_service,
+        filing_chunking_service=chunking_service,
+    )
+    job = service.create_job(7)
+
+    result = service.run_job(job.id)
+
+    assert result is job
+    assert job.status == "failed"
+    assert job.progress == 60
+    assert job.error_message == "chunking failed"
+    assert job.payload["stage"] == "failed"
+    assert job.payload["filing_document_id"] == 99
+    assert job.payload["error_type"] == "RuntimeError"
+    assert text_service.calls == [{"filing": filing, "document": document_service.document}]
+    assert chunking_service.calls[0]["filing"] is filing
+    assert chunking_service.calls[0]["delete_existing"] is False
+    assert [section.id for section in chunking_service.calls[0]["sections"]] == [777, 778]
     assert session.rollback_calls == 1
     assert session.commit_calls == 3
 

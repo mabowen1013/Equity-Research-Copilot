@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import Filing, Job
+from app.services.filing_chunking import FilingChunkingService
 from app.services.filing_document import FilingDocumentService
 from app.services.filing_text import FilingTextExtractionService
 
@@ -32,11 +33,13 @@ class FilingProcessingService:
         *,
         filing_document_service: FilingDocumentService | None = None,
         filing_text_extraction_service: FilingTextExtractionService | None = None,
+        filing_chunking_service: FilingChunkingService | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._db = db
         self._filing_document_service = filing_document_service
         self._filing_text_extraction_service = filing_text_extraction_service
+        self._filing_chunking_service = filing_chunking_service
         self._clock = clock
 
     def create_job(self, filing_id: int, *, refresh: bool = False) -> Job:
@@ -91,9 +94,16 @@ class FilingProcessingService:
             text_extraction_service = (
                 self._filing_text_extraction_service or FilingTextExtractionService(self._db)
             )
+            chunking_service = self._filing_chunking_service or FilingChunkingService(self._db)
+            chunking_service.delete_chunks_for_filing(filing)
             sections = text_extraction_service.extract_filing_sections(
                 filing,
                 result.document,
+            )
+            chunks = chunking_service.create_chunks_for_filing(
+                filing,
+                sections,
+                delete_existing=False,
             )
             self._mark_succeeded(
                 job,
@@ -101,6 +111,7 @@ class FilingProcessingService:
                 cache_hit=result.cache_hit,
                 document_status=result.document.status,
                 sections=sections,
+                chunks=chunks,
                 parser_metrics=_extraction_metrics_payload(text_extraction_service),
             )
         except Exception as exc:
@@ -136,6 +147,7 @@ class FilingProcessingService:
         cache_hit: bool,
         document_status: str,
         sections: list[Any],
+        chunks: list[Any],
         parser_metrics: dict[str, int] | None = None,
     ) -> None:
         now = self._clock()
@@ -150,6 +162,8 @@ class FilingProcessingService:
             "document_status": document_status,
             "section_ids": [section.id for section in sections],
             "sections_count": len(sections),
+            "chunk_ids": [chunk.id for chunk in chunks],
+            "chunks_count": len(chunks),
         }
         if parser_metrics is not None:
             payload_updates["parser_metrics"] = parser_metrics

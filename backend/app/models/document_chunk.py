@@ -34,7 +34,11 @@ class DocumentChunk(Base):
 
     id = Column(Integer, primary_key=True)
     filing_id = Column(ForeignKey("filings.id"), nullable=False, index=True)
-    section_id = Column(ForeignKey("filing_sections.id"), nullable=False, index=True)
+    section_id = Column(
+        ForeignKey("filing_sections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     chunk_index = Column(Integer, nullable=False)
     chunk_text = Column(Text, nullable=False)
     token_count = Column(Integer, nullable=False)

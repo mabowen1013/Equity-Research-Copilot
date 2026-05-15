@@ -117,6 +117,10 @@ def test_document_chunks_table_links_to_filings_and_sections() -> None:
 
     assert filing_foreign_keys == {"filings.id"}
     assert section_foreign_keys == {"filing_sections.id"}
+    assert {
+        foreign_key.ondelete
+        for foreign_key in DocumentChunk.section_id.foreign_keys
+    } == {"CASCADE"}
     assert "uq_document_chunks_section_index" in constraint_names
     assert "ck_document_chunks_index_nonnegative" in constraint_names
     assert "ck_document_chunks_token_count_positive" in constraint_names

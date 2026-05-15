@@ -13,6 +13,7 @@ dependencies = [
     "sec-parser>=0.58,<1.0",
     "selectolax>=0.3,<1.0",
     "sqlalchemy>=2.0,<3.0",
+    "tiktoken>=0.7,<1.0",
     "uvicorn[standard]>=0.23,<1.0",
 ]
 

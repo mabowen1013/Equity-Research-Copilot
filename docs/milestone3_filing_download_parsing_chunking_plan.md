@@ -88,13 +88,16 @@ This cadence is intentional. The filing pipeline is foundational for the rest of
 7. Chunking
    - Add section-bounded chunk creation.
    - Use `tiktoken` for token counts.
-   - Prefer semantic paragraph, list, and table boundaries before token-size splitting.
+   - Prefer semantic paragraph and list boundaries before token-size splitting.
+   - Defer table-aware chunking for now; table text emitted by `inscriptis` is chunked as ordinary text, while structured financial facts remain a later XBRL concern.
    - Store chunk offsets, hashes, token counts, and citation metadata.
+   - Clear stale chunks before section re-extraction and cascade chunk deletes when sections are removed, so reprocessing remains idempotent.
    - Add tests proving chunks do not cross section boundaries.
 
 8. Read APIs
    - Add `GET /filings/{filing_id}/sections`.
    - Add `GET /filings/{filing_id}/chunks?section_id=&limit=`.
+   - Return sections in filing order and chunks in section/chunk order.
    - Extend filing responses with lightweight processing status and parsed counts if practical.
    - Keep existing Milestone 2 endpoints backward compatible.
 
@@ -105,6 +108,7 @@ This cadence is intentional. The filing pipeline is foundational for the rest of
    - Show extracted sections in filing order.
    - Show selected section text and chunks.
    - Show citation metadata for each chunk.
+   - Use a dense three-pane analyst workspace so filings, section text, and chunk metadata can be scanned together.
    - Keep the UI dense, professional, and analyst-oriented.
 
 ## Key Technical Choices

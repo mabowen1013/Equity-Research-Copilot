@@ -25,4 +25,12 @@
 - 选择selectolax做HTML清理，然后用sec-parser作为semantic parser处理10-Q数据。
 - 10-K，8-K数据额外自己写代码处理。
 - 。。。
-- 
+
+# 2026/5/15
+- Milestone 3 change 7 开始实现 text-only chunking。
+- 新增 section-bounded document chunk creation：按段落优先、token 上限兜底拆分，并保存 offset/hash/citation metadata。
+- 暂时不做 table-aware chunking；`inscriptis` 转出的表格文本先按普通文本进入 chunks，结构化财务数据留给 XBRL。
+- 修复 re-extract sections 时旧 chunks 可能阻塞 `filing_sections` 删除的问题：processing 重新解析前会先清理旧 chunks，并新增 migration 让 `document_chunks.section_id` 对 section delete cascade。
+- 完成 Milestone 3 change 8 的 read API：新增 `GET /filings/{filing_id}/sections` 和 `GET /filings/{filing_id}/chunks`，供 Filing Explorer 读取 parsed sections/chunks。
+- 开始 Milestone 3 change 9：前端 Filing Explorer。新增 ticker entry point、filings 列表、process/reprocess 操作、sections/chunks 浏览和 citation metadata 展示。
+- 修正 Filing Explorer 的 processing 状态展示：不再把旧的 `succeeded` job 等同于 chunked，新增 `sections only` / `no chunks` / `chunked N` 状态，并在 process 后轮询 job、自动刷新当前 filing 的 sections/chunks。

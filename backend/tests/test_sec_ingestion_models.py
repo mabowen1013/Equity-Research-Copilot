@@ -1,6 +1,14 @@
 from app.db.base import Base
 from app.models import Company, Filing, SecResponseCache
-from app.schemas import CompanyRead, CompanySearchResult, FilingRead, SecResponseCacheRead
+from app.schemas import (
+    CompanyRead,
+    CompanySearchResult,
+    DocumentChunkRead,
+    FilingDocumentRead,
+    FilingRead,
+    FilingSectionRead,
+    SecResponseCacheRead,
+)
 
 
 def test_companies_table_contains_sec_metadata_columns() -> None:
@@ -95,5 +103,8 @@ def test_sec_ingestion_tables_are_registered_for_migrations() -> None:
 def test_sec_ingestion_schemas_allow_orm_serialization() -> None:
     assert CompanyRead.model_config["from_attributes"] is True
     assert CompanySearchResult.model_config["from_attributes"] is True
+    assert DocumentChunkRead.model_config["from_attributes"] is True
+    assert FilingDocumentRead.model_config["from_attributes"] is True
     assert FilingRead.model_config["from_attributes"] is True
+    assert FilingSectionRead.model_config["from_attributes"] is True
     assert SecResponseCacheRead.model_config["from_attributes"] is True

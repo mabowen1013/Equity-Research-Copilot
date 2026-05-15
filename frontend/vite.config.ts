@@ -6,6 +6,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/health": "http://127.0.0.1:8000",
+      "/companies": "http://127.0.0.1:8000",
+      "/filings": "http://127.0.0.1:8000",
+      "/jobs": "http://127.0.0.1:8000",
     },
   },
 });
