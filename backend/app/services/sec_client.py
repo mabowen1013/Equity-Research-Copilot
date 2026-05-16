@@ -112,6 +112,29 @@ class SecClient:
 
     def get_json(self, url: str) -> dict[str, Any]:
         request_url = self._build_url(url)
+        response = self._get_response(request_url, headers=self._headers)
+        return self._parse_json_object(response, request_url)
+
+    def get_text(self, url: str) -> str:
+        request_url = self._build_url(url)
+        headers = {
+            **self._headers,
+            "Accept": "text/html,application/xhtml+xml,text/plain,*/*",
+        }
+        response = self._get_response(request_url, headers=headers)
+        return response.text
+
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
+
+    def __enter__(self) -> SecClient:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+    def _get_response(self, request_url: str, *, headers: dict[str, str]) -> httpx.Response:
         last_error: SecClientError | None = None
 
         for attempt in range(1, self._max_attempts + 1):
@@ -120,7 +143,7 @@ class SecClient:
             try:
                 response = self._client.get(
                     request_url,
-                    headers=self._headers,
+                    headers=headers,
                     timeout=self._timeout_seconds,
                 )
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
@@ -142,22 +165,12 @@ class SecClient:
                     status_code=response.status_code,
                 )
 
-            return self._parse_json_object(response, request_url)
+            return response
 
         if last_error is not None:
             raise last_error
 
         raise SecRequestError(f"SEC request failed for {request_url}.")
-
-    def close(self) -> None:
-        if self._owns_client:
-            self._client.close()
-
-    def __enter__(self) -> SecClient:
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-        self.close()
 
     def _build_url(self, url: str) -> str:
         if url.startswith(("http://", "https://")):
