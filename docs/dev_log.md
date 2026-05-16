@@ -35,12 +35,15 @@
 - 完成 Milestone 3 change 8 的 read API：新增 `GET /filings/{filing_id}/sections` 和 `GET /filings/{filing_id}/chunks`，供 Filing Explorer 读取 parsed sections/chunks。
 - 开始 Milestone 3 change 9：前端 Filing Explorer。新增 ticker entry point、filings 列表、process/reprocess 操作、sections/chunks 浏览和 citation metadata 展示。
 - 修正 Filing Explorer 的 processing 状态展示：不再把旧的 `succeeded` job 等同于 chunked，新增 `sections only` / `no chunks` / `chunked N` 状态，并在 process 后轮询 job、自动刷新当前 filing 的 sections/chunks。
-
+- 优化table data的处理，确保表格数据放在同一个chunk内
+- 优化text chunking
 
 # 2026/5/16
-- 开始并实现Milestone 3核心能力
+- 发现chunking效果依旧不佳
+- 选择使用sec2md库进行财报的处理。
 - 加入sec2md作为10-K、10-Q、8-K HTML解析和chunking工具
 - 新增filing_documents、filing_sections、document_chunks表格
 - 实现filing_parse job，支持下载primary document、缓存raw HTML、保存annotated HTML、提取sections和chunks
 - 新增/filings相关API，用于触发解析、读取sections和chunks
 - 将前端从health check页面升级为Filing Explorer，可加载公司、查看filings、触发解析并浏览sections/chunks
+- 完成milestone3
