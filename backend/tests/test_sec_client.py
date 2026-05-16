@@ -49,6 +49,66 @@ def test_sec_client_adds_user_agent_and_builds_relative_urls() -> None:
     assert seen["user_agent"] == "Equity Research Copilot test@example.com"
 
 
+def test_sec_client_get_text_adds_user_agent_and_accepts_html() -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["user_agent"] = request.headers["User-Agent"]
+        seen["accept"] = request.headers["Accept"]
+        return httpx.Response(200, text="<html><body>filing</body></html>")
+
+    client = SecClient(
+        settings=make_settings(),
+        http_client=make_http_client(handler),
+        rate_limiter=FakeRateLimiter(),
+    )
+
+    assert client.get_text("https://www.sec.gov/Archives/example.htm") == (
+        "<html><body>filing</body></html>"
+    )
+    assert seen["url"] == "https://www.sec.gov/Archives/example.htm"
+    assert seen["user_agent"] == "Equity Research Copilot test@example.com"
+    assert "text/html" in seen["accept"]
+
+
+def test_sec_client_get_text_retries_retryable_response() -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, text="try later")
+        return httpx.Response(200, text="<html>ok</html>")
+
+    client = SecClient(
+        settings=make_settings(),
+        http_client=make_http_client(handler),
+        rate_limiter=FakeRateLimiter(),
+        sleeper=sleeps.append,
+        backoff_seconds=0.25,
+    )
+
+    assert client.get_text("https://www.sec.gov/Archives/example.htm") == "<html>ok</html>"
+    assert calls == 2
+    assert sleeps == [0.25]
+
+
+def test_sec_client_get_text_raises_for_non_retryable_response() -> None:
+    client = SecClient(
+        settings=make_settings(),
+        http_client=make_http_client(lambda request: httpx.Response(404, text="missing")),
+        rate_limiter=FakeRateLimiter(),
+    )
+
+    with pytest.raises(SecResponseError) as exc_info:
+        client.get_text("https://www.sec.gov/Archives/missing.htm")
+
+    assert exc_info.value.status_code == 404
+
+
 def test_sec_client_requires_user_agent() -> None:
     with pytest.raises(RuntimeError, match="SEC_USER_AGENT must be configured"):
         SecClient(

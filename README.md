@@ -1,6 +1,6 @@
 # Equity Research Copilot
 
-Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion: ticker to CIK lookup, SEC submissions fetch, recent `10-K` / `10-Q` / `8-K` metadata storage, SEC response caching, rate limiting, retry handling, and ingestion job status tracking.
+Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, and citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings.
 
 This project is for research assistance only. It is not investment advice.
 
@@ -16,15 +16,17 @@ Implemented:
 - SEC submissions ingestion for recent `10-K`, `10-Q`, and `8-K` filing metadata.
 - SEC response cache with optional refresh bypass.
 - SEC request User-Agent, rate limiting, retry, and failure handling.
-- Company, filing, and ingestion job read APIs.
+- Filing HTML download through the project SEC client.
+- Raw and annotated filing document cache.
+- `sec2md` parsing for filing sections and chunks.
+- Filing Explorer UI for metadata ingestion, filing parsing, sections, chunks, and source links.
+- Company, filing, parsing, and job read APIs.
 
 Not implemented yet:
 
-- Filing HTML download and raw document cache.
-- Filing parsing, section extraction, and chunking.
 - XBRL company facts and normalized financial metrics.
 - Embeddings, retrieval, citation-grounded Q&A, and citation validation.
-- Frontend views for ingestion, filing explorer, metrics, or Q&A.
+- Frontend views for metrics or Q&A.
 
 ## Prerequisites
 
@@ -96,7 +98,7 @@ npm install
 npm run dev
 ```
 
-The frontend dev server proxies `/health` to the backend at `http://127.0.0.1:8000`.
+The frontend dev server proxies `/health`, `/companies`, `/filings`, and `/jobs` to the backend at `http://127.0.0.1:8000`.
 
 ## SEC Ingestion
 
@@ -149,6 +151,32 @@ FROM sec_response_cache
 ORDER BY fetched_at DESC;
 ```
 
+## Filing Parsing
+
+Milestone 3 uses [`sec2md`](https://github.com/lucasastorian/sec2md) to convert filing HTML into clean markdown pages, extracted sections, and page-aware chunks. The app still downloads SEC documents through its own SEC client so User-Agent, retry, rate limiting, and failure handling remain centralized.
+
+Parse a stored filing after metadata ingestion:
+
+```powershell
+$filings = Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K&limit=1"
+$parseJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/parse"
+$parseJob
+```
+
+Check parse status and read sections/chunks:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($parseJob.id)"
+Invoke-RestMethod "http://127.0.0.1:8000/filings/$($filings[0].id)/sections"
+Invoke-RestMethod "http://127.0.0.1:8000/filings/$($filings[0].id)/chunks?limit=10"
+```
+
+Force a fresh filing HTML download and re-parse:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/parse?refresh=true"
+```
+
 ## API Endpoints
 
 - `GET /health`
@@ -159,6 +187,11 @@ ORDER BY fetched_at DESC;
 - `POST /companies/{ticker}/ingest?refresh=false`
 - `GET /companies/{ticker}/jobs`
 - `GET /companies/{ticker}/filings?form_type=&limit=`
+- `POST /filings/{filing_id}/parse?refresh=false`
+- `GET /filings/{filing_id}/sections`
+- `GET /filings/{filing_id}/sections/{section_id}`
+- `GET /filings/{filing_id}/chunks?section_id=&limit=`
+- `GET /filings/{filing_id}/chunks/{chunk_id}/source`
 
 ## Verification
 
@@ -184,7 +217,10 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ## Data Limitations
 
-- The system currently stores SEC filing metadata and source links, not filing text.
+- The system currently stores SEC filing metadata, raw filing HTML, parsed section markdown, and document chunks.
 - SEC data can be delayed, amended, incomplete, or inconsistent across forms and companies.
 - Filing date and report date are different concepts and should not be treated as interchangeable.
-- Later milestones will add filing parsing, XBRL metrics, retrieval, citations, and answer validation.
+- M3 parses the primary SEC HTML document only; 8-K exhibit files are not downloaded as separate documents yet.
+- `sec2md` only supports HTML input. PDF or non-HTML primary documents are marked as parse failures.
+- Chunk highlighted-source pages are generated dynamically from stored annotated HTML and chunk element ids.
+- Later milestones will add XBRL metrics, retrieval, citations, and answer validation.
