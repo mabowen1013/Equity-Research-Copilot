@@ -1,6 +1,6 @@
 # Equity Research Copilot
 
-Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, and citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings.
+Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings, and normalized XBRL financial metrics from SEC company facts.
 
 This project is for research assistance only. It is not investment advice.
 
@@ -20,13 +20,15 @@ Implemented:
 - Raw and annotated filing document cache.
 - `sec2md` parsing for filing sections and chunks.
 - Filing Explorer UI for metadata ingestion, filing parsing, sections, chunks, and source links.
-- Company, filing, parsing, and job read APIs.
+- XBRL company facts loading for the v1 financial metric set.
+- Computed free cash flow and margin metrics with source traceability.
+- Metrics UI with unavailable states for missing facts.
+- Company, filing, parsing, metrics, and job read APIs.
 
 Not implemented yet:
 
-- XBRL company facts and normalized financial metrics.
 - Embeddings, retrieval, citation-grounded Q&A, and citation validation.
-- Frontend views for metrics or Q&A.
+- Frontend views for Q&A.
 
 ## Prerequisites
 
@@ -185,6 +187,8 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/
 - `GET /companies/search?q=...`
 - `GET /companies/{ticker}`
 - `POST /companies/{ticker}/ingest?refresh=false`
+- `POST /companies/{ticker}/metrics/load?refresh=false`
+- `GET /companies/{ticker}/metrics?metric_key=&limit=`
 - `GET /companies/{ticker}/jobs`
 - `GET /companies/{ticker}/filings?form_type=&limit=`
 - `POST /filings/{filing_id}/parse?refresh=false`
@@ -223,4 +227,5 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 - M3 parses the primary SEC HTML document only; 8-K exhibit files are not downloaded as separate documents yet.
 - `sec2md` only supports HTML input. PDF or non-HTML primary documents are marked as parse failures.
 - Chunk highlighted-source pages are generated dynamically from stored annotated HTML and chunk element ids.
-- Later milestones will add XBRL metrics, retrieval, citations, and answer validation.
+- XBRL metrics use a conservative US-GAAP tag mapping. Missing metrics are shown as unavailable rather than guessed.
+- Later milestones will add retrieval, citations, and answer validation.

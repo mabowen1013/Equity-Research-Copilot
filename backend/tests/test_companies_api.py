@@ -1,12 +1,13 @@
 from collections.abc import Generator
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
 import app.api.routes.companies as companies_route
 from app.db import get_db_session
 from app.main import app
-from app.models import Company, Filing, Job
+from app.models import Company, Filing, FinancialFact, Job
 
 
 def make_company(
@@ -83,6 +84,33 @@ def make_filing(
     )
 
 
+def make_financial_fact(*, company_id: int = 1) -> FinancialFact:
+    now = datetime(2026, 5, 16, 12, 0, tzinfo=UTC)
+    return FinancialFact(
+        id=55,
+        company_id=company_id,
+        canonical_metric_key="revenue",
+        taxonomy_tag="us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+        label="Revenue",
+        period_start=datetime(2023, 10, 1, tzinfo=UTC).date(),
+        period_end=datetime(2024, 9, 28, tzinfo=UTC).date(),
+        fiscal_year=2024,
+        fiscal_period="FY",
+        form_type="10-K",
+        filed_date=datetime(2024, 11, 1, tzinfo=UTC).date(),
+        unit="USD",
+        value=Decimal("391035000000"),
+        source_accession_number="0000320193-24-000123",
+        source_filing_id=10,
+        source_filing_url="https://www.sec.gov/Archives/aapl-index.htm",
+        source_fact_id="sec-companyfacts:revenue:test",
+        is_computed=False,
+        calculation_notes=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 class FakeScalarResult:
     def __init__(self, items: list) -> None:
         self.items = items
@@ -99,11 +127,13 @@ class FakeSession:
         companies: list[Company] | None = None,
         jobs: list[Job] | None = None,
         filings: list[Filing] | None = None,
+        financial_facts: list[FinancialFact] | None = None,
     ) -> None:
         self.company = company
         self.companies = companies or []
         self.jobs = jobs or []
         self.filings = filings or []
+        self.financial_facts = financial_facts or []
         self.added: list[Job] = []
         self.commit_calls = 0
         self.refresh_calls = 0
@@ -117,6 +147,8 @@ class FakeSession:
             return FakeScalarResult(self.jobs)
         if "filings" in statement_text:
             return FakeScalarResult(self.filings)
+        if "financial_facts" in statement_text:
+            return FakeScalarResult(self.financial_facts)
 
         return FakeScalarResult(self.companies)
 
@@ -231,6 +263,67 @@ def test_ingest_company_rejects_blank_ticker() -> None:
     app.dependency_overrides.clear()
     assert response.status_code == 400
     assert response.json() == {"detail": "Ticker must not be empty."}
+
+
+def test_load_company_metrics_creates_job_and_schedules_background_task(monkeypatch) -> None:
+    session = FakeSession(company=make_company())
+    scheduled_job_ids: list[int] = []
+    monkeypatch.setattr(companies_route, "run_xbrl_metrics_job", scheduled_job_ids.append)
+    override_db_session(session)
+    client = TestClient(app)
+
+    response = client.post("/companies/aapl/metrics/load?refresh=true")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 202
+    assert response.json()["id"] == 123
+    assert response.json()["job_type"] == "xbrl_metrics_load"
+    assert response.json()["payload"] == {
+        "ticker": "AAPL",
+        "company_id": 1,
+        "refresh": True,
+        "stage": "queued",
+    }
+    assert session.commit_calls == 1
+    assert session.refresh_calls == 1
+    assert scheduled_job_ids == [123]
+
+
+def test_load_company_metrics_returns_404_for_unknown_company() -> None:
+    override_db_session(FakeSession(company=None))
+    client = TestClient(app)
+
+    response = client.post("/companies/NVDA/metrics/load")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+
+
+def test_list_company_metrics_returns_financial_facts() -> None:
+    override_db_session(
+        FakeSession(company=make_company(), financial_facts=[make_financial_fact()])
+    )
+    client = TestClient(app)
+
+    response = client.get("/companies/AAPL/metrics?metric_key=revenue")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    fact = response.json()[0]
+    assert fact["canonical_metric_key"] == "revenue"
+    assert fact["value"] == "391035000000"
+    assert fact["source_accession_number"] == "0000320193-24-000123"
+
+
+def test_list_company_metrics_rejects_blank_metric_key() -> None:
+    override_db_session(FakeSession(company=make_company(), financial_facts=[]))
+    client = TestClient(app)
+
+    response = client.get("/companies/AAPL/metrics?metric_key=%20")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Metric key must not be empty"}
 
 
 def test_list_company_jobs_returns_company_jobs() -> None:

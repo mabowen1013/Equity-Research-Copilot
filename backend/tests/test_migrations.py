@@ -1,6 +1,7 @@
 from configparser import ConfigParser
 from pathlib import Path
 
+from app import models  # noqa: F401
 from app.db.base import Base
 
 
@@ -19,4 +20,5 @@ def test_database_metadata_is_available_for_migrations() -> None:
     assert "filing_documents" in Base.metadata.tables
     assert "filing_sections" in Base.metadata.tables
     assert "document_chunks" in Base.metadata.tables
+    assert "financial_facts" in Base.metadata.tables
     assert "sec_response_cache" in Base.metadata.tables

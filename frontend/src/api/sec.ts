@@ -85,6 +85,30 @@ export type DocumentChunk = {
   updated_at: string;
 };
 
+export type FinancialFact = {
+  id: number;
+  company_id: number;
+  canonical_metric_key: string;
+  taxonomy_tag: string;
+  label: string;
+  period_start: string | null;
+  period_end: string;
+  fiscal_year: number | null;
+  fiscal_period: string | null;
+  form_type: string | null;
+  filed_date: string | null;
+  unit: string;
+  value: string;
+  source_accession_number: string | null;
+  source_filing_id: number | null;
+  source_filing_url: string | null;
+  source_fact_id: string;
+  is_computed: boolean;
+  calculation_notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
 
@@ -109,6 +133,27 @@ export function ingestCompany(ticker: string, refresh = false): Promise<Job> {
 
 export function fetchCompanyFilings(ticker: string): Promise<Filing[]> {
   return requestJson<Filing[]>(`/companies/${encodeURIComponent(ticker)}/filings?limit=100`);
+}
+
+export function loadCompanyMetrics(ticker: string, refresh = false): Promise<Job> {
+  const query = refresh ? "?refresh=true" : "";
+  return requestJson<Job>(`/companies/${encodeURIComponent(ticker)}/metrics/load${query}`, {
+    method: "POST",
+  });
+}
+
+export function fetchCompanyMetrics(
+  ticker: string,
+  metricKey?: string,
+): Promise<FinancialFact[]> {
+  const params = new URLSearchParams({ limit: "1000" });
+  if (metricKey) {
+    params.set("metric_key", metricKey);
+  }
+
+  return requestJson<FinancialFact[]>(
+    `/companies/${encodeURIComponent(ticker)}/metrics?${params.toString()}`,
+  );
 }
 
 export function parseFiling(filingId: number, refresh = false): Promise<Job> {

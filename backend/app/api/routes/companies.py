@@ -3,9 +3,16 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db_session, get_sessionmaker
-from app.models import Company, Filing, Job
-from app.schemas import CompanyRead, CompanySearchResult, FilingRead, JobRead
-from app.services import CompanyLookupError, SecIngestionService, normalize_ticker
+from app.models import Company, Filing, FinancialFact, Job
+from app.schemas import CompanyRead, CompanySearchResult, FilingRead, FinancialFactRead, JobRead
+from app.services import (
+    CompanyLookupError,
+    SecIngestionService,
+    XbrlCompanyNotFoundError,
+    XbrlMetricsError,
+    XbrlMetricsService,
+    normalize_ticker,
+)
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -14,6 +21,14 @@ def run_sec_ingestion_job(job_id: int) -> None:
     session = get_sessionmaker()()
     try:
         SecIngestionService(session).run_job(job_id)
+    finally:
+        session.close()
+
+
+def run_xbrl_metrics_job(job_id: int) -> None:
+    session = get_sessionmaker()()
+    try:
+        XbrlMetricsService(session).run_job(job_id)
     finally:
         session.close()
 
@@ -40,6 +55,59 @@ def search_companies(
         .order_by(Company.ticker)
         .limit(limit)
     )
+
+    return list(db.scalars(statement).all())
+
+
+@router.post(
+    "/{ticker}/metrics/load",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def load_company_metrics(
+    ticker: str,
+    background_tasks: BackgroundTasks,
+    refresh: bool = False,
+    db: Session = Depends(get_db_session),
+) -> Job:
+    try:
+        job = XbrlMetricsService(db).create_job(ticker, refresh=refresh)
+    except XbrlCompanyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except XbrlMetricsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    db.commit()
+    db.refresh(job)
+    background_tasks.add_task(run_xbrl_metrics_job, job.id)
+    return job
+
+
+@router.get("/{ticker}/metrics", response_model=list[FinancialFactRead])
+def list_company_metrics(
+    ticker: str,
+    metric_key: str | None = None,
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: Session = Depends(get_db_session),
+) -> list[FinancialFact]:
+    company = get_company_or_404(ticker, db)
+    statement = (
+        select(FinancialFact)
+        .where(FinancialFact.company_id == company.id)
+        .order_by(
+            FinancialFact.canonical_metric_key,
+            FinancialFact.period_end.desc(),
+            FinancialFact.filed_date.desc().nullslast(),
+            FinancialFact.id.desc(),
+        )
+        .limit(limit)
+    )
+
+    if metric_key is not None:
+        normalized_metric_key = metric_key.strip().lower()
+        if not normalized_metric_key:
+            raise HTTPException(status_code=400, detail="Metric key must not be empty")
+        statement = statement.where(FinancialFact.canonical_metric_key == normalized_metric_key)
 
     return list(db.scalars(statement).all())
 
