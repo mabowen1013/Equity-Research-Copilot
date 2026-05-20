@@ -116,6 +116,35 @@ h3 {
   font-weight: 700;
 }
 
+.view-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #c7d2df;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px;
+}
+
+.view-switcher button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 14px;
+  background: transparent;
+  color: #52606f;
+  font-size: 0.86rem;
+}
+
+.view-switcher button:hover:not(:disabled) {
+  background: #eef4fb;
+}
+
+.view-switcher__item--active {
+  background: #2459b3 !important;
+  color: #ffffff !important;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
@@ -144,9 +173,14 @@ h3 {
   overflow: hidden;
 }
 
+.workspace-grid--metrics {
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+}
+
 .sidebar,
 .filings-panel,
-.reader-panel {
+.reader-panel,
+.metrics-page {
   min-width: 0;
   padding: 20px;
 }
@@ -200,6 +234,18 @@ h3 {
 .full-button:hover:not(:disabled) {
   background: #184ca8;
   color: #ffffff;
+}
+
+.full-button--secondary {
+  border-color: #64748b;
+  background: #ffffff;
+  color: #334155;
+}
+
+.full-button--secondary:hover:not(:disabled) {
+  border-color: #2459b3;
+  background: #eef4fb;
+  color: #184ca8;
 }
 
 .company-facts {
@@ -383,6 +429,243 @@ h3 {
   flex-direction: column;
 }
 
+.metrics-page {
+  min-height: 0;
+  overflow: auto;
+}
+
+.metrics-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.metrics-page__header p {
+  margin: 4px 0 0;
+}
+
+.metric-group-grid {
+  display: none;
+}
+
+.metric-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.metric-summary-card {
+  display: grid;
+  min-width: 0;
+  min-height: 112px;
+  gap: 6px;
+  align-content: start;
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  text-align: left;
+}
+
+.metric-summary-card--active {
+  border-color: #2459b3;
+  background: #eef4fb;
+}
+
+.metric-summary-card span,
+.metric-summary-card small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metric-summary-card span {
+  color: #334155;
+  font-size: 0.78rem;
+}
+
+.metric-summary-card strong {
+  color: #111827;
+  font-size: 1.12rem;
+  line-height: 1.2;
+}
+
+.metric-summary-card small {
+  color: #66788a;
+  font-size: 0.7rem;
+}
+
+.metric-browser {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  min-height: 0;
+  gap: 18px;
+}
+
+.metric-selector {
+  display: grid;
+  max-height: 62vh;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.metric-selector__item {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  border-color: #d6dee8;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.metric-selector__item--active {
+  border-color: #2459b3;
+  background: #eef4fb;
+}
+
+.metric-selector__item span,
+.metric-selector__item small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metric-selector__item span {
+  color: #1f2933;
+  font-size: 0.86rem;
+}
+
+.metric-selector__item small {
+  color: #66788a;
+  font-size: 0.72rem;
+}
+
+.metric-detail {
+  min-width: 0;
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.metric-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid #e3e9f0;
+  padding: 14px 16px;
+  background: #f8fafc;
+}
+
+.metric-detail__header h3 {
+  margin: 0;
+  color: #1f2933;
+  font-size: 1rem;
+}
+
+.metric-detail__header p {
+  margin: 4px 0 0;
+}
+
+.metric-detail__header button {
+  min-height: 34px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.metric-fact-table {
+  display: grid;
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.metric-fact-row {
+  border-bottom: 1px solid #edf2f7;
+  color: #334155;
+  font-size: 0.8rem;
+}
+
+.metric-fact-row:last-child {
+  border-bottom: 0;
+}
+
+.metric-fact-row summary,
+.metric-fact-row--header {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) minmax(96px, 0.7fr) minmax(130px, 1fr) minmax(118px, 0.85fr);
+  gap: 12px;
+  align-items: start;
+  padding: 11px 14px;
+}
+
+.metric-fact-row summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.metric-fact-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.metric-fact-row--header {
+  background: #ffffff;
+  color: #66788a;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.metric-fact-row strong {
+  color: #111827;
+  font-size: 0.92rem;
+}
+
+.metric-fact-row span,
+.metric-fact-row strong,
+.metric-fact-detail span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metric-fact-row small {
+  display: block;
+  margin-top: 3px;
+  color: #66788a;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.metric-fact-detail {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #edf2f7;
+  background: #fbfcfe;
+  padding: 10px 14px 12px;
+  color: #66788a;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.metric-empty {
+  margin: 0;
+  padding: 16px 14px;
+  color: #66788a;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.metric-detail__footer {
+  margin: 0;
+  border-top: 1px solid #edf2f7;
+  padding: 10px 14px;
+  color: #66788a;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .action-row {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -491,9 +774,31 @@ h3 {
     grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   }
 
+  .workspace-grid--metrics {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
   .reader-panel {
     grid-column: 1 / -1;
     border-top: 1px solid #e3e9f0;
+  }
+
+  .metric-group-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-browser {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-selector {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: none;
+    padding-right: 0;
   }
 }
 
@@ -520,5 +825,12 @@ h3 {
 
   .section-list {
     max-height: none;
+  }
+
+  .metric-summary-grid,
+  .metric-selector,
+  .metric-fact-row summary,
+  .metric-fact-row--header {
+    grid-template-columns: 1fr;
   }
 }

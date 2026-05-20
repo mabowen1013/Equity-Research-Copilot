@@ -7,6 +7,7 @@ from app.schemas.filing_sec2md import (
     FilingSectionRead,
     FilingSectionSummary,
 )
+from app.schemas.financial_fact import FinancialFactRead
 from app.schemas.job import JobRead
 from app.schemas.sec_response_cache import SecResponseCacheRead
 
@@ -19,6 +20,7 @@ __all__ = [
     "FilingParseSummary",
     "FilingSectionRead",
     "FilingSectionSummary",
+    "FinancialFactRead",
     "JobRead",
     "SecResponseCacheRead",
 ]

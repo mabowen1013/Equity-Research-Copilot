@@ -47,3 +47,9 @@
 - 新增/filings相关API，用于触发解析、读取sections和chunks
 - 将前端从health check页面升级为Filing Explorer，可加载公司、查看filings、触发解析并浏览sections/chunks
 - 完成milestone3
+
+# 2026/5/19
+- 开始并完成Milestone 4核心范围：新增financial_facts表，加载SEC Company Facts，normalize核心XBRL指标和computed metrics
+- 新增xbrl_metrics_load job以及/companies/{ticker}/metrics/load、/companies/{ticker}/metrics API
+- 前端新增Financial Metrics面板，展示XBRL facts、source accession/source link和unavailable core metrics
+- XBRL load job 增加 raw skipped facts 和 computed metric diagnostics，便于排查指标 unavailable 的具体原因
