@@ -237,7 +237,7 @@ def test_ingest_company_creates_job_and_schedules_background_task(monkeypatch) -
     override_db_session(session)
     client = TestClient(app)
 
-    response = client.post("/companies/aapl/ingest?refresh=true")
+    response = client.post("/companies/aapl/ingest")
 
     app.dependency_overrides.clear()
     assert response.status_code == 202
@@ -251,6 +251,25 @@ def test_ingest_company_creates_job_and_schedules_background_task(monkeypatch) -
     }
     assert session.commit_calls == 1
     assert session.refresh_calls == 1
+    assert scheduled_job_ids == [123]
+
+
+def test_ingest_company_allows_explicit_cache_reuse(monkeypatch) -> None:
+    session = FakeSession()
+    scheduled_job_ids: list[int] = []
+    monkeypatch.setattr(companies_route, "run_sec_ingestion_job", scheduled_job_ids.append)
+    override_db_session(session)
+    client = TestClient(app)
+
+    response = client.post("/companies/aapl/ingest?refresh=false")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 202
+    assert response.json()["payload"] == {
+        "ticker": "AAPL",
+        "refresh": False,
+        "stage": "queued",
+    }
     assert scheduled_job_ids == [123]
 
 

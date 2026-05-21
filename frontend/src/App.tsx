@@ -355,7 +355,7 @@ export function App() {
     setMessage(null);
 
     try {
-      const job = await ingestCompany(normalizedTicker);
+      const job = await ingestCompany(normalizedTicker, true);
       setIngestJob(job);
       pollJob(job.id, setIngestJob, async () => {
         setMessage(`SEC metadata loaded for ${normalizedTicker}.`);

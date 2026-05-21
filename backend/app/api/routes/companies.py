@@ -120,7 +120,7 @@ def list_company_metrics(
 def ingest_company(
     ticker: str,
     background_tasks: BackgroundTasks,
-    refresh: bool = False,
+    refresh: bool = True,
     db: Session = Depends(get_db_session),
 ):
     try:

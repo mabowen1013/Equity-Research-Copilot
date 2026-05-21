@@ -35,7 +35,7 @@ class SecIngestionService:
         self._filing_metadata_service = filing_metadata_service
         self._clock = clock
 
-    def create_job(self, ticker: str, *, refresh: bool = False) -> Job:
+    def create_job(self, ticker: str, *, refresh: bool = True) -> Job:
         normalized_ticker = normalize_ticker(ticker)
         now = self._clock()
         job = Job(

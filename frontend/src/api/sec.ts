@@ -124,8 +124,8 @@ export function fetchCompany(ticker: string): Promise<Company> {
   return requestJson<Company>(`/companies/${encodeURIComponent(ticker)}`);
 }
 
-export function ingestCompany(ticker: string, refresh = false): Promise<Job> {
-  const query = refresh ? "?refresh=true" : "";
+export function ingestCompany(ticker: string, refresh = true): Promise<Job> {
+  const query = `?refresh=${refresh ? "true" : "false"}`;
   return requestJson<Job>(`/companies/${encodeURIComponent(ticker)}/ingest${query}`, {
     method: "POST",
   });
