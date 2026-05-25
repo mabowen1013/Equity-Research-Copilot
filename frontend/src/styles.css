@@ -180,7 +180,8 @@ h3 {
 .sidebar,
 .filings-panel,
 .reader-panel,
-.metrics-page {
+.metrics-page,
+.research-page {
   min-width: 0;
   padding: 20px;
 }
@@ -429,12 +430,14 @@ h3 {
   flex-direction: column;
 }
 
-.metrics-page {
+.metrics-page,
+.research-page {
   min-height: 0;
   overflow: auto;
 }
 
-.metrics-page__header {
+.metrics-page__header,
+.research-page__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -442,8 +445,221 @@ h3 {
   margin-bottom: 18px;
 }
 
-.metrics-page__header p {
+.metrics-page__header p,
+.research-page__header p {
   margin: 4px 0 0;
+}
+
+.research-page__header span {
+  border-radius: 999px;
+  background: #edf2f7;
+  color: #334155;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.research-form {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.research-form label,
+.pill-row > span {
+  color: #52606f;
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.research-form textarea {
+  width: 100%;
+  min-height: 92px;
+  border: 1px solid #bfccd8;
+  border-radius: 8px;
+  padding: 12px;
+  color: #111827;
+  resize: vertical;
+}
+
+.research-form button {
+  width: fit-content;
+  min-height: 40px;
+  border-color: #2459b3;
+  background: #2459b3;
+  color: #ffffff;
+  padding: 0 14px;
+}
+
+.research-results {
+  display: grid;
+  gap: 16px;
+}
+
+.research-card {
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.research-summary-grid,
+.trace-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.summary-tile {
+  min-width: 0;
+  border: 1px solid #e3e9f0;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.summary-tile span {
+  display: block;
+  color: #66788a;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.summary-tile strong {
+  display: block;
+  min-width: 0;
+  margin-top: 4px;
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
+.pill-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 8px;
+}
+
+.pill-row div,
+.evidence-meta,
+.trace-warning-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill-row small,
+.evidence-meta span,
+.trace-warning-list span {
+  border-radius: 999px;
+  background: #edf2f7;
+  color: #334155;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.research-warning {
+  margin: 12px 0 0;
+  border: 1px solid #f0d28a;
+  border-radius: 8px;
+  background: #fff8e5;
+  color: #805a12;
+  padding: 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.comparison-list,
+.evidence-list,
+.top-chunk-list {
+  display: grid;
+  gap: 10px;
+}
+
+.comparison-card,
+.evidence-card {
+  min-width: 0;
+  border: 1px solid #e3e9f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.comparison-card div,
+.evidence-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.comparison-card span,
+.evidence-card__top span {
+  color: #184ca8;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.comparison-card strong,
+.evidence-card__top strong {
+  color: #111827;
+  font-size: 1rem;
+}
+
+.comparison-card p,
+.comparison-card small {
+  margin: 4px 0 0;
+  color: #52606f;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.evidence-section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.evidence-section {
+  min-width: 0;
+}
+
+.evidence-section h4,
+.evidence-card h4 {
+  margin: 0 0 8px;
+  color: #1f2933;
+  font-size: 0.86rem;
+}
+
+.evidence-card p {
+  margin: 8px 0;
+  color: #334155;
+  font-size: 0.86rem;
+}
+
+.evidence-card a {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  margin: 10px 8px 0 0;
+  border: 1px solid #aab7c4;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
+.trace-warning-list {
+  margin-top: 10px;
+}
+
+.trace-warning-list span {
+  background: #fff1f1;
+  color: #9a2f2f;
 }
 
 .metric-group-grid {
@@ -795,6 +1011,12 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .research-summary-grid,
+  .trace-grid,
+  .evidence-section-grid {
+    grid-template-columns: 1fr;
+  }
+
   .metric-selector {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     max-height: none;
@@ -831,6 +1053,10 @@ h3 {
   .metric-selector,
   .metric-fact-row summary,
   .metric-fact-row--header {
+    grid-template-columns: 1fr;
+  }
+
+  .pill-row {
     grid-template-columns: 1fr;
   }
 }

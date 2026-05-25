@@ -68,9 +68,17 @@ def test_document_chunks_table_contains_citation_metadata_columns() -> None:
         "source_start_offset",
         "source_end_offset",
         "has_table",
+        "search_vector",
         "created_at",
         "updated_at",
     }
+
+
+def test_document_chunks_search_vector_is_database_generated() -> None:
+    search_vector = DocumentChunk.__table__.columns["search_vector"]
+
+    assert search_vector.computed is not None
+    assert "to_tsvector" in str(search_vector.computed.sqltext)
 
 
 def test_sec2md_tables_are_registered_for_migrations() -> None:

@@ -187,7 +187,7 @@ def test_create_job_normalizes_ticker_and_stores_initial_payload() -> None:
     session = FakeSession()
     service = make_service(session)
 
-    job = service.create_job(" aapl ", refresh=True)
+    job = service.create_job(" aapl ")
 
     assert job.id == 1
     assert job.job_type == SEC_INGESTION_JOB_TYPE
@@ -213,7 +213,7 @@ def test_run_job_resolves_company_fetches_filings_and_marks_succeeded() -> None:
         company_lookup_service=company_lookup_service,
         filing_metadata_service=filing_metadata_service,
     )
-    job = service.create_job("AAPL", refresh=True)
+    job = service.create_job("AAPL")
 
     result = service.run_job(job.id)
 

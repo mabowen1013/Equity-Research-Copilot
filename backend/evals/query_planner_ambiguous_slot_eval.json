@@ -1,0 +1,3263 @@
+{
+  "suite_name": "query_planner_ambiguous_slot_eval",
+  "description": "Ambiguous natural-language queries for testing QueryPlanner slot extraction, retrieval strategy flags, and evidence requirements.",
+  "version": "1.1",
+  "matcher_schema_version": "1.0",
+  "matcher_semantics": {
+    "equals": "Actual value must exactly equal expected value.",
+    "equals_unordered": "Actual list must contain exactly the same items, order-insensitive.",
+    "contains_all": "Actual list must include every listed item; extra items are allowed.",
+    "contains_any": "Actual list must include at least one listed item.",
+    "not_contains_any": "Actual list must include none of the listed items.",
+    "gte": "Actual numeric value must be greater than or equal to this value.",
+    "lte": "Actual numeric value must be less than or equal to this value."
+  },
+  "cases": [
+    {
+      "id": "aapl_broad_recent_performance",
+      "ticker": "AAPL",
+      "question": "How did Apple do recently?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_overview"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_latest_quarter_performance",
+      "ticker": "AAPL",
+      "question": "How was Apple's latest quarter?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_overview"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_is_performing_well",
+      "ticker": "AAPL",
+      "question": "Is Apple performing well?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_business_better",
+      "ticker": "AAPL",
+      "question": "Was Apple's business better?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_is_growing",
+      "ticker": "AAPL",
+      "question": "Is Apple growing?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_how_fast_growing",
+      "ticker": "AAPL",
+      "question": "How fast is Apple growing?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_growth_healthy",
+      "ticker": "AAPL",
+      "question": "Is Apple's growth healthy?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_selling_more",
+      "ticker": "AAPL",
+      "question": "Is Apple selling more?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_sold_more_recently",
+      "ticker": "AAPL",
+      "question": "Did Apple sell more recently?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_sell_more_than_last_year",
+      "ticker": "AAPL",
+      "question": "Did Apple sell more than last year?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "latest_fy_yoy"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-K"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_sales_strong",
+      "ticker": "AAPL",
+      "question": "Are sales still strong?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_changed_vs_last_year",
+      "ticker": "AAPL",
+      "question": "What changed compared with last year?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "broad_comparison"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "latest_fy_yoy"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-K"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_what_is_different_now",
+      "ticker": "AAPL",
+      "question": "What is different now?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "prose"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": []
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "allows_low_confidence": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_what_got_better",
+      "ticker": "AAPL",
+      "question": "What got better?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_why_performance_changed",
+      "ticker": "AAPL",
+      "question": "Why did performance change?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "mixed"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_what_drove_performance",
+      "ticker": "AAPL",
+      "question": "What drove Apple's performance?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "mixed"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_main_drivers",
+      "ticker": "AAPL",
+      "question": "What were the main drivers?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "prose"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "unspecified"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "allows_low_confidence": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_margins_better",
+      "ticker": "AAPL",
+      "question": "Are margins better?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "gross_margin",
+            "operating_margin",
+            "net_margin"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "gross_margin",
+            "operating_margin",
+            "net_margin"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_gross_margin_change_why",
+      "ticker": "AAPL",
+      "question": "Why did gross margin change?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "mixed"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "gross_margin"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "gross_margin"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_more_profitable",
+      "ticker": "AAPL",
+      "question": "Is Apple more profitable?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_make_more_money",
+      "ticker": "AAPL",
+      "question": "Did Apple make more money?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        },
+        "note": {
+          "equals": "This is intentionally ambiguous; revenue may also be acceptable if your product treats 'money' as sales."
+        }
+      }
+    },
+    {
+      "id": "aapl_growth_accelerating",
+      "ticker": "AAPL",
+      "question": "Is Apple's growth accelerating?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "growth_acceleration"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "previous_quarter_yoy"
+          ]
+        },
+        "default_comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_multiple_period_comparison": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_lost_momentum",
+      "ticker": "AAPL",
+      "question": "Did Apple lose momentum?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "growth_acceleration"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "previous_quarter_yoy"
+          ]
+        },
+        "default_comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_multiple_period_comparison": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_revenue_momentum_improving",
+      "ticker": "AAPL",
+      "question": "Is revenue momentum improving?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "growth_acceleration"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "previous_quarter_yoy"
+          ]
+        },
+        "default_comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_multiple_period_comparison": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_revenue_improve_ambiguous",
+      "ticker": "AAPL",
+      "question": "Did revenue improve?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_net_income_higher_ambiguous",
+      "ticker": "AAPL",
+      "question": "Was net income higher?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_judgment"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_latest_risk_factors",
+      "ticker": "AAPL",
+      "question": "What are Apple's latest risk factors?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "risk"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Risk Factors"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Risk Factors"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-K",
+            "10-Q"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        }
+      }
+    },
+    {
+      "id": "aapl_what_could_go_wrong",
+      "ticker": "AAPL",
+      "question": "What could go wrong?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "risk"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "unspecified"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Risk Factors"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Risk Factors"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-K",
+            "10-Q"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        },
+        "note": {
+          "equals": "Current rule planner may miss this unless risk-like aliases are expanded."
+        }
+      }
+    },
+    {
+      "id": "aapl_main_concerns",
+      "ticker": "AAPL",
+      "question": "What are the main concerns?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "risk"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "unspecified"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Risk Factors",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Risk Factors",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-K",
+            "10-Q"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        },
+        "note": {
+          "equals": "This is intentionally fuzzy; risk or prose may be acceptable depending on product policy."
+        }
+      }
+    },
+    {
+      "id": "aapl_liquidity",
+      "ticker": "AAPL",
+      "question": "How is Apple's liquidity?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "liquidity"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "operating_cash_flow",
+            "free_cash_flow"
+          ]
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Liquidity",
+            "Cash Flows",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Liquidity",
+            "Cash Flows",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "operating_cash_flow",
+            "free_cash_flow"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "note": {
+          "equals": "This may fail until liquidity intent is implemented."
+        }
+      }
+    },
+    {
+      "id": "aapl_enough_cash",
+      "ticker": "AAPL",
+      "question": "Does Apple have enough cash?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "liquidity"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "operating_cash_flow",
+            "free_cash_flow"
+          ]
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Liquidity",
+            "Cash Flows",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Liquidity",
+            "Cash Flows",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "operating_cash_flow",
+            "free_cash_flow"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "note": {
+          "equals": "This may fail until liquidity/cash-position support is implemented."
+        }
+      }
+    },
+    {
+      "id": "aapl_cash_flow_improve",
+      "ticker": "AAPL",
+      "question": "Did cash flow improve?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "operating_cash_flow",
+            "free_cash_flow"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Cash Flows",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Cash Flows",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "operating_cash_flow",
+            "free_cash_flow"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_which_part_did_better",
+      "ticker": "AAPL",
+      "question": "Which part of Apple did better?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "segment_or_product_performance"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_product_or_segment_breakdown": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_services_improve",
+      "ticker": "AAPL",
+      "question": "Did services improve?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "segment_or_product_performance"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_product_or_segment_breakdown": {
+          "equals": true
+        },
+        "product_or_segment_terms": {
+          "contains_all": [
+            "Services"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_growth_source",
+      "ticker": "AAPL",
+      "question": "Where did growth come from?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "mixed"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis",
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_product_or_segment_breakdown": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_stock_price_better",
+      "ticker": "AAPL",
+      "question": "Is Apple's stock price better?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "comparison"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": []
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        },
+        "should_not_default_to_company_growth_metrics": {
+          "equals": true
+        },
+        "unsupported_subject": {
+          "equals": "stock price"
+        }
+      }
+    },
+    {
+      "id": "aapl_valuation_improve",
+      "ticker": "AAPL",
+      "question": "Did Apple's valuation improve?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "comparison"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": []
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        },
+        "should_not_default_to_company_growth_metrics": {
+          "equals": true
+        },
+        "unsupported_subject": {
+          "equals": "valuation"
+        }
+      }
+    },
+    {
+      "id": "aapl_headcount_grow",
+      "ticker": "AAPL",
+      "question": "Did Apple headcount grow?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "comparison"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": []
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        },
+        "should_not_default_to_company_growth_metrics": {
+          "equals": true
+        },
+        "unsupported_subject": {
+          "equals": "headcount"
+        }
+      }
+    },
+    {
+      "id": "aapl_debt_increase",
+      "ticker": "AAPL",
+      "question": "Did Apple debt increase?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "comparison"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": []
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        },
+        "should_not_default_to_company_growth_metrics": {
+          "equals": true
+        },
+        "unsupported_subject": {
+          "equals": "debt"
+        }
+      }
+    },
+    {
+      "id": "aapl_short_growth",
+      "ticker": "AAPL",
+      "question": "growth?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        },
+        "allows_low_confidence": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_short_risks",
+      "ticker": "AAPL",
+      "question": "risks?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "risk"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "unspecified"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Risk Factors"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Risk Factors"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-K",
+            "10-Q"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        }
+      }
+    },
+    {
+      "id": "aapl_short_margin",
+      "ticker": "AAPL",
+      "question": "margin?",
+      "expected_plan": {
+        "question_type": {
+          "equals": "metric"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "gross_margin",
+            "operating_margin",
+            "net_margin"
+          ]
+        },
+        "time_scope": {
+          "equals": "unspecified"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "gross_margin",
+            "operating_margin",
+            "net_margin"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_low_confidence": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_cn_recent_performance",
+      "ticker": "AAPL",
+      "question": "苹果最近表现怎么样？",
+      "expected_plan": {
+        "question_type": {
+          "equals": "performance_overview"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "latest_quarter_yoy"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements",
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue",
+            "gross_margin",
+            "operating_income",
+            "net_income"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_cn_selling_more",
+      "ticker": "AAPL",
+      "question": "苹果卖得更多了吗？",
+      "expected_plan": {
+        "question_type": {
+          "equals": "trend"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "revenue"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Financial Statements"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Financial Statements"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "revenue"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_cn_margin_why",
+      "ticker": "AAPL",
+      "question": "苹果利润率为什么变化？",
+      "expected_plan": {
+        "question_type": {
+          "equals": "mixed"
+        },
+        "metric_keys": {
+          "equals_unordered": [
+            "gross_margin",
+            "operating_margin",
+            "net_margin"
+          ]
+        },
+        "time_scope": {
+          "equals": "comparison_trend"
+        },
+        "comparison_basis": {
+          "equals": "ambiguous"
+        },
+        "comparison_candidates": {
+          "equals_unordered": [
+            "latest_quarter_yoy",
+            "latest_ytd_yoy",
+            "latest_fy_yoy"
+          ]
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": true
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": true
+        },
+        "preferred_forms": {
+          "contains_all": [
+            "10-Q"
+          ]
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Management's Discussion and Analysis"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-Q",
+            "10-K"
+          ]
+        },
+        "metric_keys": {
+          "contains_all": [
+            "gross_margin",
+            "operating_margin",
+            "net_margin"
+          ]
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": true
+        },
+        "allows_ambiguous_period": {
+          "equals": true
+        }
+      }
+    },
+    {
+      "id": "aapl_cn_risks",
+      "ticker": "AAPL",
+      "question": "苹果最近有什么风险？",
+      "expected_plan": {
+        "question_type": {
+          "equals": "risk"
+        },
+        "metric_keys": {
+          "equals_unordered": []
+        },
+        "time_scope": {
+          "equals": "latest"
+        },
+        "comparison_basis": {
+          "equals": "none"
+        },
+        "target_sections": {
+          "equals_unordered": [
+            "Risk Factors"
+          ]
+        },
+        "needs_financial_facts": {
+          "equals": false
+        },
+        "needs_text_chunks": {
+          "equals": true
+        },
+        "needs_metric_comparisons": {
+          "equals": false
+        }
+      },
+      "expected_evidence": {
+        "sections": {
+          "contains_all": [
+            "Risk Factors"
+          ]
+        },
+        "forms": {
+          "contains_all": [
+            "10-K",
+            "10-Q"
+          ]
+        },
+        "requires_latest_filing": {
+          "equals": true
+        },
+        "requires_chunks": {
+          "equals": true
+        },
+        "requires_facts": {
+          "equals": false
+        }
+      }
+    }
+  ]
+}

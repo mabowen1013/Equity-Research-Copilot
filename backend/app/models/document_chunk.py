@@ -1,5 +1,5 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Boolean, Column, Computed, Date, DateTime, ForeignKey, Integer, String, Text, text
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 
 from app.db.base import Base
 
@@ -27,5 +27,14 @@ class DocumentChunk(Base):
     source_start_offset = Column(Integer, nullable=True)
     source_end_offset = Column(Integer, nullable=True)
     has_table = Column(Boolean, nullable=False, server_default=text("false"))
+    search_vector = Column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('english', coalesce(section_label, '')), 'A') || "
+            "setweight(to_tsvector('english', coalesce(chunk_text, '')), 'B')",
+            persisted=True,
+        ),
+        nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

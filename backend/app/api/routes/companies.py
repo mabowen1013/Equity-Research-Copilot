@@ -6,6 +6,9 @@ from app.db import get_db_session, get_sessionmaker
 from app.models import Company, Filing, FinancialFact, Job
 from app.schemas import CompanyRead, CompanySearchResult, FilingRead, FinancialFactRead, JobRead
 from app.services import (
+    ChunkEmbeddingCompanyNotFoundError,
+    ChunkEmbeddingError,
+    ChunkEmbeddingService,
     CompanyLookupError,
     SecIngestionService,
     XbrlCompanyNotFoundError,
@@ -29,6 +32,14 @@ def run_xbrl_metrics_job(job_id: int) -> None:
     session = get_sessionmaker()()
     try:
         XbrlMetricsService(session).run_job(job_id)
+    finally:
+        session.close()
+
+
+def run_chunk_embedding_job(job_id: int) -> None:
+    session = get_sessionmaker()()
+    try:
+        ChunkEmbeddingService(session).run_job(job_id)
     finally:
         session.close()
 
@@ -57,6 +68,30 @@ def search_companies(
     )
 
     return list(db.scalars(statement).all())
+
+
+@router.post(
+    "/{ticker}/embeddings/generate",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def generate_company_embeddings(
+    ticker: str,
+    background_tasks: BackgroundTasks,
+    refresh: bool = False,
+    db: Session = Depends(get_db_session),
+) -> Job:
+    try:
+        job = ChunkEmbeddingService(db).create_job(ticker, refresh=refresh)
+    except ChunkEmbeddingCompanyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ChunkEmbeddingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    db.commit()
+    db.refresh(job)
+    background_tasks.add_task(run_chunk_embedding_job, job.id)
+    return job
 
 
 @router.post(
@@ -120,7 +155,7 @@ def list_company_metrics(
 def ingest_company(
     ticker: str,
     background_tasks: BackgroundTasks,
-    refresh: bool = False,
+    refresh: bool = True,
     db: Session = Depends(get_db_session),
 ):
     try:

@@ -1,4 +1,5 @@
 from app.models.company import Company
+from app.models.chunk_embedding import ChunkEmbedding
 from app.models.document_chunk import DocumentChunk
 from app.models.filing import Filing
 from app.models.filing_document import FilingDocument
@@ -9,6 +10,7 @@ from app.models.sec_response_cache import SecResponseCache
 
 __all__ = [
     "Company",
+    "ChunkEmbedding",
     "DocumentChunk",
     "Filing",
     "FilingDocument",

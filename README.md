@@ -1,6 +1,6 @@
 # Equity Research Copilot
 
-Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings, and normalized XBRL financial metrics from SEC company facts.
+Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings, normalized XBRL financial metrics from SEC company facts, and M5A retrieval over filing chunks and XBRL facts.
 
 This project is for research assistance only. It is not investment advice.
 
@@ -23,11 +23,14 @@ Implemented:
 - XBRL company facts loading for the v1 financial metric set.
 - Computed free cash flow and margin metrics with source traceability.
 - Metrics UI with unavailable states for missing facts.
-- Company, filing, parsing, metrics, and job read APIs.
+- Batch chunk embedding generation with versioned embedding inputs.
+- Dense retrieval, lexical retrieval, XBRL fact retrieval, rule-based query planning, RRF fusion, metadata reranking, and retrieval trace output.
+- Company, filing, parsing, metrics, embedding, retrieval, and job read APIs.
 
 Not implemented yet:
 
-- Embeddings, retrieval, citation-grounded Q&A, and citation validation.
+- Citation-grounded Q&A and citation validation.
+- Advanced retrieval features such as LLM planner fallback, HNSW auto mode, MMR diversity, neighbor expansion, learned reranking, and frontend retrieval debug UI.
 - Frontend views for Q&A.
 
 ## Prerequisites
@@ -52,7 +55,16 @@ Required values:
 | `SEC_USER_AGENT` | Yes | User-Agent sent to SEC APIs. Include app name and contact email. |
 | `SEC_RATE_LIMIT_PER_SECOND` | No | SEC request limit. Defaults to `10`, the maximum allowed by the app configuration. |
 | `SEC_CACHE_TTL_SECONDS` | No | SEC JSON response cache TTL. Defaults to `86400` seconds. |
-| `OPENAI_API_KEY` | No | OpenAI API key for later AI features. Can be left empty until those features are used. |
+| `OPENAI_API_KEY` | Yes for embeddings | OpenAI API key used by the default embedding provider. Retrieval can still degrade to lexical and XBRL facts without dense embeddings. |
+| `EMBEDDING_PROVIDER` | No | Embedding provider. Defaults to `openai`. |
+| `EMBEDDING_MODEL` | No | Embedding model. Defaults to `text-embedding-3-small`. |
+| `EMBEDDING_DIMENSIONS` | No | Embedding vector dimensions. Defaults to `1536`. |
+| `EMBEDDING_INPUT_VERSION` | No | Version for the document embedding input template. Defaults to `v1`. |
+| `VECTOR_SEARCH_MODE` | No | Reserved vector search profile. Defaults to `exact`; HNSW is a later optimization. |
+| `RETRIEVAL_DENSE_CANDIDATES` | No | Dense candidate budget. Defaults to `40`. |
+| `RETRIEVAL_LEXICAL_CANDIDATES` | No | Lexical candidate budget. Defaults to `40`. |
+| `RETRIEVAL_FACT_CANDIDATES` | No | XBRL fact candidate budget. Defaults to `20`. |
+| `RETRIEVAL_TOP_K` | No | Final chunk evidence count. Defaults to `10`. |
 
 Example:
 
@@ -62,6 +74,15 @@ SEC_USER_AGENT="Equity Research Copilot/0.1 (contact: your-email@example.com)"
 SEC_RATE_LIMIT_PER_SECOND=10
 SEC_CACHE_TTL_SECONDS=86400
 OPENAI_API_KEY=""
+EMBEDDING_PROVIDER="openai"
+EMBEDDING_MODEL="text-embedding-3-small"
+EMBEDDING_DIMENSIONS=1536
+EMBEDDING_INPUT_VERSION="v1"
+VECTOR_SEARCH_MODE="exact"
+RETRIEVAL_DENSE_CANDIDATES=40
+RETRIEVAL_LEXICAL_CANDIDATES=40
+RETRIEVAL_FACT_CANDIDATES=20
+RETRIEVAL_TOP_K=10
 ```
 
 ## Local Development
@@ -106,10 +127,11 @@ The frontend dev server proxies `/health`, `/companies`, `/filings`, and `/jobs`
 
 Start the backend first, then trigger ingestion from another PowerShell session.
 
-Force a fresh SEC fetch for Apple:
+Fetch fresh SEC metadata for Apple. Filing metadata ingestion bypasses the SEC response
+cache by default so newly accepted 10-K, 10-Q, and 8-K filings are picked up promptly:
 
 ```powershell
-$job = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
+$job = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest"
 $job
 ```
 
@@ -135,10 +157,11 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/TSLA/ingest?refr
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/NVDA/ingest?refresh=true"
 ```
 
-Omit `refresh=true` to reuse unexpired SEC response cache where possible:
+Pass `refresh=false` only when you intentionally want to reuse unexpired SEC response
+cache:
 
 ```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest"
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=false"
 ```
 
 To inspect cached SEC responses directly:
@@ -179,6 +202,35 @@ Force a fresh filing HTML download and re-parse:
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/parse?refresh=true"
 ```
 
+## Retrieval
+
+Milestone 5A adds retrieval without answer generation. Generate embeddings after filings are parsed:
+
+```powershell
+$embedJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/embeddings/generate"
+Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($embedJob.id)"
+```
+
+Call the retrieval debug API:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve" `
+  -ContentType "application/json" `
+  -Body '{"ticker":"AAPL","question":"What are Apple latest risk factors?"}'
+```
+
+The full response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, and `retrieval_trace`. Ambiguous growth questions return comparison-basis metadata and multiple XBRL fact pairs, such as latest quarter YoY, YTD YoY, and FY YoY. Use the compact analysis view when inspecting retrieval from a terminal:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve?view=analysis" `
+  -ContentType "application/json" `
+  -Body '{"ticker":"AAPL","question":"What are Apple latest risk factors?"}'
+```
+
+Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible.
+
+The small M5A retrieval eval seed set lives at `backend/evals/m5a_retrieval_eval.json`.
+
 ## API Endpoints
 
 - `GET /health`
@@ -186,7 +238,8 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/
 - `GET /jobs/{job_id}`
 - `GET /companies/search?q=...`
 - `GET /companies/{ticker}`
-- `POST /companies/{ticker}/ingest?refresh=false`
+- `POST /companies/{ticker}/ingest?refresh=true`
+- `POST /companies/{ticker}/embeddings/generate?refresh=false`
 - `POST /companies/{ticker}/metrics/load?refresh=false`
 - `GET /companies/{ticker}/metrics?metric_key=&limit=`
 - `GET /companies/{ticker}/jobs`
@@ -196,6 +249,7 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/
 - `GET /filings/{filing_id}/sections/{section_id}`
 - `GET /filings/{filing_id}/chunks?section_id=&limit=`
 - `GET /filings/{filing_id}/chunks/{chunk_id}/source`
+- `POST /research/retrieve`
 
 ## Verification
 
@@ -228,4 +282,5 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 - `sec2md` only supports HTML input. PDF or non-HTML primary documents are marked as parse failures.
 - Chunk highlighted-source pages are generated dynamically from stored annotated HTML and chunk element ids.
 - XBRL metrics use a conservative US-GAAP tag mapping. Missing metrics are shown as unavailable rather than guessed.
-- Later milestones will add retrieval, citations, and answer validation.
+- M5A retrieval is deterministic and does not use an LLM planner. LLM planner fallback, HNSW auto mode, and advanced reranking are deferred until eval and latency data justify them.
+- Later milestones will add citations, answer generation, and answer validation.
