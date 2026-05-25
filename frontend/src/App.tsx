@@ -9,6 +9,9 @@ import {
   FilingSectionSummary,
   FinancialFact,
   Job,
+  RetrievalAnalysisChunk,
+  RetrievalAnalysisComparison,
+  RetrievalAnalysisResponse,
   fetchCompany,
   fetchCompanyFilings,
   fetchCompanyMetrics,
@@ -16,9 +19,11 @@ import {
   fetchFilingSection,
   fetchFilingSections,
   fetchJob,
+  generateCompanyEmbeddings,
   ingestCompany,
   loadCompanyMetrics,
   parseFiling,
+  retrieveEvidence,
 } from "./api/sec";
 import "./styles.css";
 
@@ -39,7 +44,7 @@ const CORE_METRIC_ORDER = Object.keys(CORE_METRIC_LABELS);
 const DEFAULT_METRIC_KEY = CORE_METRIC_ORDER[0];
 const DEFAULT_DETAIL_LIMIT = 12;
 
-type AppView = "filings" | "metrics";
+type AppView = "filings" | "metrics" | "research";
 
 type MetricGroup = {
   key: string;
@@ -53,6 +58,16 @@ type MetricSummary = {
   label: string;
   total: number;
 };
+
+function getViewTitle(view: AppView): string {
+  if (view === "metrics") {
+    return "XBRL Metrics";
+  }
+  if (view === "research") {
+    return "Research";
+  }
+  return "Filing Explorer";
+}
 
 function isActiveJob(job: Job | null): boolean {
   return job !== null && (job.status === "pending" || job.status === "running");
@@ -99,6 +114,31 @@ function formatMetricValue(fact: FinancialFact): string {
   }).format(value);
 }
 
+function formatDecimalValue(value: string): string {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return value;
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+    notation: "compact",
+  }).format(numericValue);
+}
+
+function formatGrowthRate(value: string | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return value;
+  }
+
+  return `${(numericValue * 100).toFixed(1)}%`;
+}
+
 function formatMetricPeriod(fact: FinancialFact): string {
   return fact.period_start === null
     ? `Period ended ${fact.period_end}`
@@ -106,11 +146,15 @@ function formatMetricPeriod(fact: FinancialFact): string {
 }
 
 function formatMetricFilingContext(fact: FinancialFact): string | null {
-  const fiscalLabel = [fact.fiscal_year ? `FY${fact.fiscal_year}` : null, fact.fiscal_period]
+  const fiscalLabel = [fact.fact_fiscal_year ? `FY${fact.fact_fiscal_year}` : null, fact.fiscal_period]
     .filter(Boolean)
     .join(" ");
+  const sourceFiscalLabel =
+    fact.source_fiscal_year && fact.source_fiscal_year !== fact.fact_fiscal_year
+      ? `source FY${fact.source_fiscal_year}`
+      : null;
   const filedLabel = fact.filed_date ? `filed ${fact.filed_date}` : null;
-  const context = [fiscalLabel ? `reported in ${fiscalLabel}` : null, filedLabel]
+  const context = [fiscalLabel ? `period ${fiscalLabel}` : null, sourceFiscalLabel, filedLabel]
     .filter(Boolean)
     .join(", ");
 
@@ -178,9 +222,17 @@ export function App() {
   const [ingestJob, setIngestJob] = useState<Job | null>(null);
   const [parseJob, setParseJob] = useState<Job | null>(null);
   const [xbrlJob, setXbrlJob] = useState<Job | null>(null);
+  const [embeddingJob, setEmbeddingJob] = useState<Job | null>(null);
+  const [researchQuestion, setResearchQuestion] = useState(
+    "Why did revenue grow last quarter?",
+  );
+  const [retrievalResult, setRetrievalResult] = useState<RetrievalAnalysisResponse | null>(
+    null,
+  );
   const [isLoadingCompany, setIsLoadingCompany] = useState(false);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isLoadingParsedData, setIsLoadingParsedData] = useState(false);
+  const [isRetrieving, setIsRetrieving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollingTimers = useRef<number[]>([]);
@@ -237,6 +289,7 @@ export function App() {
       setSelectedSectionId(null);
       setSectionDetail(null);
       setChunks([]);
+      setRetrievalResult(null);
       if (loadedFilings[0]) {
         await loadParsedData(loadedFilings[0].id);
       }
@@ -249,6 +302,7 @@ export function App() {
       setSectionDetail(null);
       setChunks([]);
       setMetrics([]);
+      setRetrievalResult(null);
       setError(getErrorMessage(loadError));
     } finally {
       setIsLoadingCompany(false);
@@ -387,6 +441,58 @@ export function App() {
     }
   }
 
+  async function handleGenerateEmbeddings() {
+    if (!company) {
+      setError("Load a stored company first.");
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+
+    try {
+      const job = await generateCompanyEmbeddings(company.ticker);
+      setEmbeddingJob(job);
+      pollJob(job.id, setEmbeddingJob, async () => {
+        setMessage(`Chunk embeddings generated for ${company.ticker}.`);
+      });
+    } catch (embeddingError) {
+      setError(getErrorMessage(embeddingError));
+    }
+  }
+
+  async function handleRetrieveEvidence(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!company) {
+      setError("Load a stored company first.");
+      return;
+    }
+
+    const question = researchQuestion.trim();
+    if (!question) {
+      setError("Research question must not be empty.");
+      return;
+    }
+
+    setIsRetrieving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      setRetrievalResult(
+        await retrieveEvidence({
+          ticker: company.ticker,
+          question,
+        }),
+      );
+    } catch (retrievalError) {
+      setRetrievalResult(null);
+      setError(getErrorMessage(retrievalError));
+    } finally {
+      setIsRetrieving(false);
+    }
+  }
+
   async function handleParse(refresh = false) {
     if (!selectedFiling) {
       setError("Select a filing first.");
@@ -445,7 +551,7 @@ export function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Equity Research Copilot</p>
-          <h1>{activeView === "filings" ? "Filing Explorer" : "XBRL Metrics"}</h1>
+          <h1>{getViewTitle(activeView)}</h1>
         </div>
         <nav className="view-switcher" aria-label="Workspace views">
           <button
@@ -462,6 +568,13 @@ export function App() {
           >
             Metrics
           </button>
+          <button
+            className={activeView === "research" ? "view-switcher__item--active" : ""}
+            type="button"
+            onClick={() => setActiveView("research")}
+          >
+            Research
+          </button>
         </nav>
         <div className="status-row" aria-live="polite">
           <span className={`status-dot status-dot--${apiStatus}`} />
@@ -471,7 +584,9 @@ export function App() {
 
       <section
         className={`workspace-grid ${
-          activeView === "metrics" ? "workspace-grid--metrics" : ""
+          activeView === "metrics" || activeView === "research"
+            ? "workspace-grid--metrics"
+            : ""
         }`}
       >
         <aside className="sidebar">
@@ -509,6 +624,15 @@ export function App() {
             {isActiveJob(xbrlJob) ? "Loading Metrics" : "Load XBRL Metrics"}
           </button>
 
+          <button
+            className="full-button full-button--secondary"
+            type="button"
+            onClick={handleGenerateEmbeddings}
+            disabled={!company || isActiveJob(embeddingJob)}
+          >
+            {isActiveJob(embeddingJob) ? "Embedding Chunks" : "Generate Embeddings"}
+          </button>
+
           {company && (
             <dl className="company-facts">
               <div>
@@ -529,6 +653,7 @@ export function App() {
           {ingestJob && <JobStatus job={ingestJob} />}
           {parseJob && <JobStatus job={parseJob} />}
           {xbrlJob && <JobStatus job={xbrlJob} />}
+          {embeddingJob && <JobStatus job={embeddingJob} />}
           {message && <p className="notice notice--success">{message}</p>}
           {error && <p className="notice notice--error">{error}</p>}
         </aside>
@@ -680,7 +805,7 @@ export function App() {
               </div>
             </section>
           </>
-        ) : (
+        ) : activeView === "metrics" ? (
           <FinancialMetricsPage
             metrics={metrics}
             isLoading={isLoadingMetrics}
@@ -692,9 +817,276 @@ export function App() {
             }}
             onToggleShowAll={() => setShowAllMetricFacts((current) => !current)}
           />
+        ) : (
+          <ResearchPage
+            ticker={company?.ticker ?? ticker.trim().toUpperCase()}
+            hasCompany={company !== null}
+            question={researchQuestion}
+            result={retrievalResult}
+            isRetrieving={isRetrieving}
+            onQuestionChange={setResearchQuestion}
+            onSubmit={handleRetrieveEvidence}
+          />
         )}
       </section>
     </main>
+  );
+}
+
+function ResearchPage({
+  ticker,
+  hasCompany,
+  question,
+  result,
+  isRetrieving,
+  onQuestionChange,
+  onSubmit,
+}: {
+  ticker: string;
+  hasCompany: boolean;
+  question: string;
+  result: RetrievalAnalysisResponse | null;
+  isRetrieving: boolean;
+  onQuestionChange: (question: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
+}) {
+  const plan = result?.retrieval_plan;
+  const evidenceSections: { title: string; chunks: RetrievalAnalysisChunk[] }[] = result
+    ? [
+        {
+          title: "Primary Statements",
+          chunks: result.final_evidence_pack.primary_financial_statement_chunks,
+        },
+        {
+          title: "MD&A Explanations",
+          chunks: result.final_evidence_pack.mda_explanation_chunks,
+        },
+        {
+          title: "Segment / Product",
+          chunks: result.final_evidence_pack.segment_or_product_breakdown_chunks,
+        },
+        {
+          title: "Annual Context",
+          chunks: result.final_evidence_pack.annual_context_chunks,
+        },
+      ]
+    : [];
+  const visibleComparisons = result?.final_evidence_pack.metric_comparisons ?? [];
+  const candidateCounts = Object.entries(result?.analysis_trace.candidate_counts ?? {});
+  const totalMs = result?.analysis_trace.timing_ms.total_ms;
+
+  return (
+    <section className="research-page" aria-labelledby="research-heading">
+      <div className="research-page__header">
+        <div>
+          <h2 id="research-heading">Evidence Retrieval</h2>
+          <p className="muted">
+            {hasCompany ? `Planner and retriever for ${ticker}` : "Load a stored company first"}
+          </p>
+        </div>
+        {totalMs !== undefined && <span>{totalMs.toFixed(0)} ms</span>}
+      </div>
+
+      <form className="research-form" onSubmit={onSubmit}>
+        <label htmlFor="research-question">Question</label>
+        <textarea
+          id="research-question"
+          value={question}
+          onChange={(event) => onQuestionChange(event.target.value)}
+          rows={3}
+          disabled={!hasCompany || isRetrieving}
+        />
+        <button type="submit" disabled={!hasCompany || isRetrieving}>
+          {isRetrieving ? "Retrieving" : "Retrieve Evidence"}
+        </button>
+      </form>
+
+      {result === null ? (
+        <p className="empty-state">
+          {hasCompany
+            ? "Ask a question to inspect the retrieval plan and evidence pack."
+            : "Load a company, parse filings, load metrics, and generate embeddings before retrieval."}
+        </p>
+      ) : (
+        <div className="research-results">
+          {plan && (
+            <section className="research-card" aria-labelledby="plan-heading">
+              <div className="panel-header panel-header--compact">
+                <h3 id="plan-heading">Planner Output</h3>
+                <span>{plan.planner_source}</span>
+              </div>
+              <div className="research-summary-grid">
+                <SummaryTile label="Type" value={plan.question_type} />
+                <SummaryTile label="Time" value={plan.time_scope} />
+                <SummaryTile label="Basis" value={plan.comparison_basis} />
+                <SummaryTile label="Confidence" value={plan.rule_confidence.toFixed(2)} />
+              </div>
+              <PillRow label="Metrics" values={plan.metric_keys} emptyValue="No metrics" />
+              <PillRow label="Sections" values={plan.target_sections} emptyValue="No section filter" />
+              <PillRow label="Forms" values={plan.forms} emptyValue="All forms" />
+              {plan.ambiguities.length > 0 && (
+                <p className="research-warning">{plan.ambiguities.join(" ")}</p>
+              )}
+            </section>
+          )}
+
+          {visibleComparisons.length > 0 && (
+            <section className="research-card" aria-labelledby="comparisons-heading">
+              <div className="panel-header panel-header--compact">
+                <h3 id="comparisons-heading">Metric Comparisons</h3>
+                <span>{visibleComparisons.length}</span>
+              </div>
+              <div className="comparison-list">
+                {visibleComparisons.map((comparison) => (
+                  <ComparisonCard comparison={comparison} key={comparison.evidence_id} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="research-card" aria-labelledby="evidence-heading">
+            <div className="panel-header panel-header--compact">
+              <h3 id="evidence-heading">Evidence Pack</h3>
+              <span>{result.source_coverage_summary.chunk_count as number} chunks</span>
+            </div>
+            <div className="evidence-section-grid">
+              {evidenceSections.map((section) => (
+                <div className="evidence-section" key={section.title}>
+                  <h4>{section.title}</h4>
+                  {section.chunks.length > 0 ? (
+                    <div className="evidence-list">
+                      {section.chunks.map((chunk) => (
+                        <EvidenceChunkCard chunk={chunk} key={chunk.evidence_id} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="metric-empty">No selected chunks</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="research-card" aria-labelledby="top-chunks-heading">
+            <div className="panel-header panel-header--compact">
+              <h3 id="top-chunks-heading">Top Retrieved Chunks</h3>
+              <span>{result.top_chunks.length}</span>
+            </div>
+            {result.top_chunks.length > 0 ? (
+              <div className="top-chunk-list">
+                {result.top_chunks.map((chunk) => (
+                  <EvidenceChunkCard chunk={chunk} key={chunk.evidence_id} />
+                ))}
+              </div>
+            ) : (
+              <p className="metric-empty">No retrieved chunks</p>
+            )}
+          </section>
+
+          <section className="research-card" aria-labelledby="trace-heading">
+            <div className="panel-header panel-header--compact">
+              <h3 id="trace-heading">Trace</h3>
+              <span>{result.analysis_trace.degraded.length} warnings</span>
+            </div>
+            <div className="trace-grid">
+              {candidateCounts.map(([key, value]) => (
+                <SummaryTile key={key} label={key} value={String(value)} />
+              ))}
+            </div>
+            {result.analysis_trace.degraded.length > 0 && (
+              <div className="trace-warning-list">
+                {result.analysis_trace.degraded.map((warning) => (
+                  <span key={`${warning.stage}:${warning.reason}`}>
+                    {warning.stage}: {warning.reason}
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="summary-tile">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PillRow({
+  label,
+  values,
+  emptyValue,
+}: {
+  label: string;
+  values: string[];
+  emptyValue: string;
+}) {
+  return (
+    <div className="pill-row">
+      <span>{label}</span>
+      <div>
+        {(values.length > 0 ? values : [emptyValue]).map((value) => (
+          <small key={value}>{value}</small>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ComparisonCard({ comparison }: { comparison: RetrievalAnalysisComparison }) {
+  return (
+    <article className="comparison-card">
+      <div>
+        <span>{comparison.canonical_metric_key}</span>
+        <strong>{formatGrowthRate(comparison.growth_rate)}</strong>
+      </div>
+      <p>
+        {formatDecimalValue(comparison.current_value)} vs{" "}
+        {formatDecimalValue(comparison.prior_value)}
+      </p>
+      <small>
+        {comparison.current_period_label ?? comparison.current_period_end} /{" "}
+        {comparison.prior_period_label ?? comparison.prior_period_end} | {comparison.basis}
+      </small>
+    </article>
+  );
+}
+
+function EvidenceChunkCard({ chunk }: { chunk: RetrievalAnalysisChunk }) {
+  return (
+    <article className="evidence-card">
+      <div className="evidence-card__top">
+        <span>{chunk.form_type}</span>
+        <strong>{chunk.score.toFixed(3)}</strong>
+      </div>
+      <h4>{chunk.section_label}</h4>
+      <p>{chunk.snippet}</p>
+      <div className="evidence-meta">
+        <span>{chunk.filing_date}</span>
+        <span>Pages {chunk.pages ?? "n/a"}</span>
+        {Object.entries(chunk.source_ranks).map(([source, rank]) => (
+          <span key={source}>
+            {source} #{rank}
+          </span>
+        ))}
+      </div>
+      <a href={chunk.sec_url} target="_blank" rel="noreferrer">
+        SEC Source
+      </a>
+      <a
+        href={getHighlightedSourceUrl(chunk.filing_id, chunk.chunk_id)}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Highlighted Source
+      </a>
+    </article>
   );
 }
 

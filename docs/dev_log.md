@@ -53,3 +53,42 @@
 - 新增xbrl_metrics_load job以及/companies/{ticker}/metrics/load、/companies/{ticker}/metrics API
 - 前端新增Financial Metrics面板，展示XBRL facts、source accession/source link和unavailable core metrics
 - XBRL load job 增加 raw skipped facts 和 computed metric diagnostics，便于排查指标 unavailable 的具体原因
+
+# 2026/5/20
+- 准备开始Milestone 5
+- 完成Milestone 5A Core Retrieval后端基础
+- 新增pgvector相关schema：chunk_embeddings表、embedding_input_version、document_chunks全文检索search_vector
+- 新增batch embedding job：/companies/{ticker}/embeddings/generate
+
+# 2026/5/21
+- 新增rule-based QueryPlanner、dense retrieval、lexical retrieval、XBRL facts retrieval、RRF fusion和metadata rerank
+- 新增/research/retrieve debug API，返回retrieval_plan、retrieved evidence和retrieval_trace
+- 新增M5A小型eval seed set，并补充相关后端测试
+
+# 2026/5/22
+- 让GPT给我模拟生成了很多可能出现的模糊query，一个个输入，观察得到的facts和chunks，如果效果不佳，就寻找问题并进行修改。
+- 累死了，代码被修改的一塌糊涂，想当笨重，这完全不是真正的解决方式。
+- 决定把query_planner代码架构修改成：Rule-based + LLM fallback + validation
+- 保留目前被修改的一塌糊涂的代码，毕竟虽然难看，但还是强行处理了很多可能的query。
+- 重新构建 confidence计算方式。
+- 把query_planner拆分成多个模块
+    - QueryNormalizer
+    - IntentParser
+    - MetricResolver
+    - TimeResolver
+    - SectionResolver
+    - RetrievalStrategyBuilder
+    - QueryExpansionBuilder
+    - PlanValidator
+
+# 2026/5/24
+- 地狱一般的体验。
+- 大幅度修改query_planner.py
+- 优化query -> dense query部分
+    - 有些query本身太过于模糊，直接做embedding没有意义
+    - 根据planner给出的slots生成dense query
+
+# 2026/5/25
+- 加入LLM fallback
+    - 如果confidence低于0.75，使用LLM分析query question。
+- 添加 evaluation set，对query planner进行performance evaluation，如果expected和代码分析出来的一致，计算通过。

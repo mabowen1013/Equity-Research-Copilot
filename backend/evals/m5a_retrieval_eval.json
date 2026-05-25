@@ -1,0 +1,94 @@
+[
+  {
+    "id": "aapl_latest_risk_factors",
+    "ticker": "AAPL",
+    "question": "What are Apple's latest risk factors?",
+    "expected_plan": {
+      "question_type": "risk",
+      "metric_keys": [],
+      "time_scope": "latest",
+      "target_sections": ["Risk Factors"],
+      "needs_financial_facts": false,
+      "needs_text_chunks": true,
+      "needs_metric_comparisons": false
+    },
+    "expected_evidence": {
+      "sections": ["Risk Factors"],
+      "forms": ["10-K", "10-Q"],
+      "requires_latest_filing": true
+    }
+  },
+  {
+    "id": "tsla_mda_margin_explanation",
+    "ticker": "TSLA",
+    "question": "Why did Tesla's gross margin change according to MD&A?",
+    "expected_plan": {
+      "question_type": "mixed",
+      "metric_keys": ["gross_margin"],
+      "target_sections": ["Management's Discussion and Analysis"],
+      "needs_financial_facts": true,
+      "needs_text_chunks": true
+    },
+    "expected_evidence": {
+      "sections": ["Management's Discussion and Analysis"],
+      "metric_keys": ["gross_margin"],
+      "requires_chunks": true,
+      "requires_facts": true
+    }
+  },
+  {
+    "id": "nvda_latest_revenue",
+    "ticker": "NVDA",
+    "question": "What was NVIDIA's latest revenue?",
+    "expected_plan": {
+      "question_type": "metric",
+      "metric_keys": ["revenue"],
+      "time_scope": "latest",
+      "needs_financial_facts": true,
+      "needs_text_chunks": true,
+      "needs_metric_comparisons": false
+    },
+    "expected_evidence": {
+      "metric_keys": ["revenue"],
+      "requires_facts": true,
+      "requires_latest_period": true
+    }
+  },
+  {
+    "id": "aapl_net_income_yoy",
+    "ticker": "AAPL",
+    "question": "How did Apple's net income change year over year?",
+    "expected_plan": {
+      "question_type": "trend",
+      "metric_keys": ["net_income"],
+      "time_scope": "comparison_trend",
+      "comparison_basis": "ambiguous",
+      "target_sections": ["Financial Statements"],
+      "needs_financial_facts": true,
+      "needs_text_chunks": true,
+      "needs_metric_comparisons": true
+    },
+    "expected_evidence": {
+      "metric_keys": ["net_income"],
+      "requires_facts": true,
+      "question_type": "trend"
+    }
+  },
+  {
+    "id": "tsla_fcf_explanation_mixed",
+    "ticker": "TSLA",
+    "question": "Tesla free cash flow 最近变化的原因是什么？",
+    "expected_plan": {
+      "question_type": "mixed",
+      "metric_keys": ["free_cash_flow"],
+      "target_sections": ["Management's Discussion and Analysis"],
+      "needs_financial_facts": true,
+      "needs_text_chunks": true
+    },
+    "expected_evidence": {
+      "metric_keys": ["free_cash_flow"],
+      "requires_chunks": true,
+      "requires_facts": true
+    }
+  }
+]

@@ -9,6 +9,18 @@ from app.schemas.filing_sec2md import (
 )
 from app.schemas.financial_fact import FinancialFactRead
 from app.schemas.job import JobRead
+from app.schemas.retrieval import (
+    EvidencePackRead,
+    MetricComparisonRead,
+    RetrievalAnalysisEvidencePackRead,
+    RetrievalAnalysisResponse,
+    RetrievalAnalysisComparisonRead,
+    RetrievedChunkRead,
+    RetrievedFinancialFactRead,
+    RetrievalPlanRead,
+    RetrievalRequest,
+    RetrievalResponse,
+)
 from app.schemas.sec_response_cache import SecResponseCacheRead
 
 __all__ = [
@@ -22,5 +34,15 @@ __all__ = [
     "FilingSectionSummary",
     "FinancialFactRead",
     "JobRead",
+    "EvidencePackRead",
+    "MetricComparisonRead",
+    "RetrievalAnalysisEvidencePackRead",
+    "RetrievalAnalysisResponse",
+    "RetrievalAnalysisComparisonRead",
+    "RetrievedChunkRead",
+    "RetrievedFinancialFactRead",
+    "RetrievalPlanRead",
+    "RetrievalRequest",
+    "RetrievalResponse",
     "SecResponseCacheRead",
 ]

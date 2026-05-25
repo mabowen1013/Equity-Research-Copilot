@@ -36,6 +36,18 @@ def test_settings_default_sec_rate_limit_and_cache_ttl(monkeypatch) -> None:
 
     assert settings.sec_rate_limit_per_second == 10
     assert settings.sec_cache_ttl_seconds == 86_400
+    assert settings.embedding_model == "text-embedding-3-small"
+    assert settings.embedding_dimensions == 1536
+    assert settings.embedding_input_version == "v1"
+    assert settings.vector_search_mode == "exact"
+    assert settings.retrieval_dense_candidates == 40
+    assert settings.retrieval_lexical_candidates == 40
+    assert settings.retrieval_fact_candidates == 20
+    assert settings.retrieval_top_k == 10
+    assert settings.query_planner_mode == "rule_only"
+    assert settings.query_planner_llm_model == "gpt-4o-mini"
+    assert settings.query_planner_llm_confidence_threshold == 0.75
+    assert settings.query_planner_llm_timeout_seconds == 8.0
 
 
 def test_required_sec_user_agent_returns_trimmed_value() -> None:

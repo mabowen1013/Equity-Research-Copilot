@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from hashlib import sha256
@@ -94,7 +94,8 @@ class NormalizedXbrlFact:
     label: str
     period_start: date | None
     period_end: date
-    fiscal_year: int | None
+    source_fiscal_year: int | None
+    fact_fiscal_year: int | None
     fiscal_period: str | None
     form_type: str | None
     filed_date: date | None
@@ -116,7 +117,8 @@ class SkippedXbrlFact:
     form_type: str | None = None
     period_start: date | None = None
     period_end: date | None = None
-    fiscal_year: int | None = None
+    source_fiscal_year: int | None = None
+    fact_fiscal_year: int | None = None
     fiscal_period: str | None = None
 
 
@@ -127,7 +129,8 @@ class ComputedMetricDiagnostic:
     message: str
     period_start: date | None = None
     period_end: date | None = None
-    fiscal_year: int | None = None
+    source_fiscal_year: int | None = None
+    fact_fiscal_year: int | None = None
     fiscal_period: str | None = None
     unit: str | None = None
     source_accession_number: str | None = None
@@ -373,7 +376,8 @@ class XbrlMetricsService:
                 label=normalized_fact.label,
                 period_start=normalized_fact.period_start,
                 period_end=normalized_fact.period_end,
-                fiscal_year=normalized_fact.fiscal_year,
+                source_fiscal_year=normalized_fact.source_fiscal_year,
+                fact_fiscal_year=normalized_fact.fact_fiscal_year,
                 fiscal_period=normalized_fact.fiscal_period,
                 form_type=normalized_fact.form_type,
                 filed_date=normalized_fact.filed_date,
@@ -604,7 +608,7 @@ def _parse_raw_fact_with_skip_reason(
             fact_payload=fact_payload,
         )
 
-    fiscal_year = _parse_int(fact_payload.get("fy"))
+    source_fiscal_year = _parse_int(fact_payload.get("fy"))
     fiscal_period = _parse_optional_string(fact_payload.get("fp"))
     if fiscal_period is not None:
         fiscal_period = fiscal_period.upper()
@@ -618,7 +622,7 @@ def _parse_raw_fact_with_skip_reason(
         accession_number=accession_number,
         period_start=period_start,
         period_end=period_end,
-        fiscal_year=fiscal_year,
+        source_fiscal_year=source_fiscal_year,
         fiscal_period=fiscal_period,
         filed_date=filed_date,
         value=value,
@@ -631,7 +635,8 @@ def _parse_raw_fact_with_skip_reason(
             label=label,
             period_start=period_start,
             period_end=period_end,
-            fiscal_year=fiscal_year,
+            source_fiscal_year=source_fiscal_year,
+            fact_fiscal_year=source_fiscal_year,
             fiscal_period=fiscal_period,
             form_type=form_type,
             filed_date=filed_date,
@@ -666,7 +671,8 @@ def _build_skipped_fact(
         form_type=form_type.upper() if form_type is not None else None,
         period_start=_parse_date(payload.get("start")),
         period_end=_parse_date(payload.get("end")),
-        fiscal_year=_parse_int(payload.get("fy")),
+        source_fiscal_year=_parse_int(payload.get("fy")),
+        fact_fiscal_year=None,
         fiscal_period=fiscal_period.upper() if fiscal_period is not None else None,
     )
 
@@ -674,7 +680,8 @@ def _build_skipped_fact(
 def _select_preferred_raw_facts(
     candidates: list[NormalizedXbrlFact],
 ) -> list[NormalizedXbrlFact]:
-    selected: dict[tuple, NormalizedXbrlFact] = {}
+    grouped: dict[tuple, list[NormalizedXbrlFact]] = {}
+    fact_fiscal_year_by_period = _derive_fact_fiscal_years_by_period(candidates)
 
     for candidate in candidates:
         key = (
@@ -683,12 +690,24 @@ def _select_preferred_raw_facts(
             candidate.period_end,
             candidate.unit,
         )
-        current = selected.get(key)
-        if current is None or _raw_fact_rank(candidate) > _raw_fact_rank(current):
-            selected[key] = candidate
+        grouped.setdefault(key, []).append(candidate)
+
+    selected: list[NormalizedXbrlFact] = []
+    for group_candidates in grouped.values():
+        preferred = max(group_candidates, key=_raw_fact_rank)
+        selected.append(
+            replace(
+                preferred,
+                fact_fiscal_year=_derive_fact_fiscal_year(
+                    preferred,
+                    group_candidates,
+                    fact_fiscal_year_by_period=fact_fiscal_year_by_period,
+                ),
+            )
+        )
 
     return sorted(
-        selected.values(),
+        selected,
         key=lambda fact: (
             fact.canonical_metric_key,
             fact.period_end,
@@ -696,6 +715,59 @@ def _select_preferred_raw_facts(
             fact.source_fact_id,
         ),
     )
+
+
+def _derive_fact_fiscal_years_by_period(
+    candidates: list[NormalizedXbrlFact],
+) -> dict[tuple, int]:
+    years_by_period: dict[tuple, list[int]] = {}
+    for candidate in candidates:
+        if candidate.source_fiscal_year is None:
+            continue
+        years_by_period.setdefault(_fact_period_key(candidate), []).append(
+            candidate.source_fiscal_year
+        )
+    return {
+        period_key: min(source_years)
+        for period_key, source_years in years_by_period.items()
+        if source_years
+    }
+
+
+def _fact_period_key(fact: NormalizedXbrlFact) -> tuple:
+    return (fact.period_start, fact.period_end, fact.fiscal_period)
+
+
+def _derive_fact_fiscal_year(
+    preferred: NormalizedXbrlFact,
+    candidates: list[NormalizedXbrlFact],
+    *,
+    fact_fiscal_year_by_period: dict[tuple, int],
+) -> int | None:
+    # Later filings often repeat prior-year comparison facts with the current filing's FY.
+    # The earliest FY attached to the same exact period is the fact's own fiscal year.
+    period_year = fact_fiscal_year_by_period.get(_fact_period_key(preferred))
+    if period_year is not None:
+        return period_year
+
+    matching_period_years = [
+        candidate.source_fiscal_year
+        for candidate in candidates
+        if candidate.source_fiscal_year is not None
+        and candidate.fiscal_period == preferred.fiscal_period
+    ]
+    if matching_period_years:
+        return min(matching_period_years)
+
+    source_years = [
+        candidate.source_fiscal_year
+        for candidate in candidates
+        if candidate.source_fiscal_year is not None
+    ]
+    if source_years:
+        return min(source_years)
+
+    return preferred.period_end.year
 
 
 def _raw_fact_rank(fact: NormalizedXbrlFact) -> tuple[int, date, str]:
@@ -900,7 +972,8 @@ def _build_computed_metric_diagnostic(
         message=message,
         period_start=anchor.period_start if anchor is not None else None,
         period_end=anchor.period_end if anchor is not None else None,
-        fiscal_year=anchor.fiscal_year if anchor is not None else None,
+        source_fiscal_year=anchor.source_fiscal_year if anchor is not None else None,
+        fact_fiscal_year=anchor.fact_fiscal_year if anchor is not None else None,
         fiscal_period=anchor.fiscal_period if anchor is not None else None,
         unit=anchor.unit if anchor is not None else None,
         source_accession_number=(
@@ -934,7 +1007,8 @@ def _build_computed_fact(
         label=METRIC_LABELS[metric_key],
         period_start=anchor.period_start,
         period_end=anchor.period_end,
-        fiscal_year=anchor.fiscal_year,
+        source_fiscal_year=anchor.source_fiscal_year,
+        fact_fiscal_year=anchor.fact_fiscal_year,
         fiscal_period=anchor.fiscal_period,
         form_type=anchor.form_type,
         filed_date=anchor.filed_date,
@@ -949,8 +1023,11 @@ def _build_computed_fact(
 
 
 def _format_fact_period(fact: NormalizedXbrlFact) -> str:
-    if fact.fiscal_year is not None and fact.fiscal_period:
-        return f"FY{fact.fiscal_year} {fact.fiscal_period} ending {fact.period_end.isoformat()}"
+    if fact.fact_fiscal_year is not None and fact.fiscal_period:
+        return (
+            f"FY{fact.fact_fiscal_year} {fact.fiscal_period} "
+            f"ending {fact.period_end.isoformat()}"
+        )
     if fact.period_start is not None:
         return f"period {fact.period_start.isoformat()} to {fact.period_end.isoformat()}"
     return f"period ending {fact.period_end.isoformat()}"
@@ -964,7 +1041,7 @@ def _build_source_fact_id(
     accession_number: str | None,
     period_start: date,
     period_end: date,
-    fiscal_year: int | None,
+    source_fiscal_year: int | None,
     fiscal_period: str | None,
     filed_date: date | None,
     value: Decimal,
@@ -978,7 +1055,7 @@ def _build_source_fact_id(
             accession_number or "no-accn",
             period_start.isoformat(),
             period_end.isoformat(),
-            str(fiscal_year) if fiscal_year is not None else "no-fy",
+            str(source_fiscal_year) if source_fiscal_year is not None else "no-fy",
             fiscal_period or "no-fp",
             filed_date.isoformat() if filed_date is not None else "no-filed",
             format(value, "f"),
@@ -1034,7 +1111,8 @@ def serialize_skipped_fact_samples(
                 if skipped_fact.period_end is not None
                 else None
             ),
-            "fiscal_year": skipped_fact.fiscal_year,
+            "source_fiscal_year": skipped_fact.source_fiscal_year,
+            "fact_fiscal_year": skipped_fact.fact_fiscal_year,
             "fiscal_period": skipped_fact.fiscal_period,
         }
         for skipped_fact in skipped_facts[:limit]
@@ -1062,7 +1140,8 @@ def serialize_computed_metric_diagnostic_samples(
                 if diagnostic.period_end is not None
                 else None
             ),
-            "fiscal_year": diagnostic.fiscal_year,
+            "source_fiscal_year": diagnostic.source_fiscal_year,
+            "fact_fiscal_year": diagnostic.fact_fiscal_year,
             "fiscal_period": diagnostic.fiscal_period,
             "unit": diagnostic.unit,
             "source_fact_ids": list(diagnostic.source_fact_ids),

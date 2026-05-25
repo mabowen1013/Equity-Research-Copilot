@@ -219,7 +219,15 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve" `
   -Body '{"ticker":"AAPL","question":"What are Apple latest risk factors?"}'
 ```
 
-The response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `source_coverage_summary`, and `retrieval_trace`. Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible.
+The full response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, and `retrieval_trace`. Ambiguous growth questions return comparison-basis metadata and multiple XBRL fact pairs, such as latest quarter YoY, YTD YoY, and FY YoY. Use the compact analysis view when inspecting retrieval from a terminal:
+
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve?view=analysis" `
+  -ContentType "application/json" `
+  -Body '{"ticker":"AAPL","question":"What are Apple latest risk factors?"}'
+```
+
+Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible.
 
 The small M5A retrieval eval seed set lives at `backend/evals/m5a_retrieval_eval.json`.
 

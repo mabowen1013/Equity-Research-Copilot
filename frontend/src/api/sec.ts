@@ -93,7 +93,8 @@ export type FinancialFact = {
   label: string;
   period_start: string | null;
   period_end: string;
-  fiscal_year: number | null;
+  source_fiscal_year: number | null;
+  fact_fiscal_year: number | null;
   fiscal_period: string | null;
   form_type: string | null;
   filed_date: string | null;
@@ -107,6 +108,105 @@ export type FinancialFact = {
   calculation_notes: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type RetrievalPlan = {
+  question_type: string;
+  target_sections: string[];
+  metric_keys: string[];
+  time_scope: string;
+  comparison_basis: string;
+  comparison_candidates: string[];
+  default_comparison_basis: string | null;
+  ambiguities: string[];
+  forms: string[];
+  preferred_forms: string[];
+  dense_queries: string[];
+  dense_query_specs: Record<string, unknown>[];
+  lexical_queries: string[];
+  rule_confidence: number;
+  matched_rules: string[];
+  planner_source: string;
+  confidence_breakdown: Record<string, number>;
+  needs_financial_facts: boolean;
+  needs_text_chunks: boolean;
+  needs_metric_comparisons: boolean;
+  evidence_roles: string[];
+  requires_llm_fallback_reason: string | null;
+};
+
+export type RetrievalAnalysisChunk = {
+  evidence_id: string;
+  chunk_id: number;
+  filing_id: number;
+  score: number;
+  fusion_score: number;
+  source_ranks: Record<string, number>;
+  rerank_boosts: Record<string, number>;
+  form_type: string;
+  filing_date: string;
+  section_label: string;
+  pages: string | null;
+  snippet: string;
+  sec_url: string;
+};
+
+export type RetrievalAnalysisFact = {
+  evidence_id: string;
+  score: number;
+  canonical_metric_key: string;
+  label: string;
+  period_start: string | null;
+  period_end: string;
+  duration_class: string | null;
+  period_label: string | null;
+  source_fiscal_year: number | null;
+  fact_fiscal_year: number | null;
+  fiscal_period: string | null;
+  value: string;
+  unit: string;
+  source_filing_url: string | null;
+};
+
+export type RetrievalAnalysisComparison = {
+  evidence_id: string;
+  basis: string;
+  canonical_metric_key: string;
+  current_fact_id: number;
+  prior_fact_id: number;
+  current_period_end: string;
+  prior_period_end: string;
+  current_period_label: string | null;
+  prior_period_label: string | null;
+  current_source_fiscal_year: number | null;
+  current_fact_fiscal_year: number | null;
+  prior_source_fiscal_year: number | null;
+  prior_fact_fiscal_year: number | null;
+  current_value: string;
+  prior_value: string;
+  growth_rate: string | null;
+};
+
+export type RetrievalAnalysisResponse = {
+  retrieval_plan: RetrievalPlan;
+  source_coverage_summary: Record<string, unknown>;
+  final_evidence_pack: {
+    metric_comparisons: RetrievalAnalysisComparison[];
+    primary_financial_statement_chunks: RetrievalAnalysisChunk[];
+    mda_explanation_chunks: RetrievalAnalysisChunk[];
+    segment_or_product_breakdown_chunks: RetrievalAnalysisChunk[];
+    annual_context_chunks: RetrievalAnalysisChunk[];
+  };
+  top_chunks: RetrievalAnalysisChunk[];
+  top_facts: RetrievalAnalysisFact[];
+  metric_comparisons: RetrievalAnalysisComparison[];
+  analysis_trace: {
+    candidate_counts: Record<string, number>;
+    timing_ms: Record<string, number>;
+    degraded: { stage: string; reason: string }[];
+    retrieval_config: Record<string, unknown>;
+    top_score_breakdown: Record<string, unknown>[];
+  };
 };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -138,6 +238,13 @@ export function fetchCompanyFilings(ticker: string): Promise<Filing[]> {
 export function loadCompanyMetrics(ticker: string, refresh = false): Promise<Job> {
   const query = refresh ? "?refresh=true" : "";
   return requestJson<Job>(`/companies/${encodeURIComponent(ticker)}/metrics/load${query}`, {
+    method: "POST",
+  });
+}
+
+export function generateCompanyEmbeddings(ticker: string, refresh = false): Promise<Job> {
+  const query = refresh ? "?refresh=true" : "";
+  return requestJson<Job>(`/companies/${encodeURIComponent(ticker)}/embeddings/generate${query}`, {
     method: "POST",
   });
 }
@@ -184,4 +291,17 @@ export function fetchFilingChunks(
 
 export function fetchJob(jobId: number): Promise<Job> {
   return requestJson<Job>(`/jobs/${jobId}`);
+}
+
+export function retrieveEvidence(request: {
+  ticker: string;
+  question: string;
+  form_type?: string;
+  section?: string;
+}): Promise<RetrievalAnalysisResponse> {
+  return requestJson<RetrievalAnalysisResponse>("/research/retrieve?view=analysis", {
+    body: JSON.stringify(request),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
 }

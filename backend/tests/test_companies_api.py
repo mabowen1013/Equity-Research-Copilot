@@ -94,7 +94,8 @@ def make_financial_fact(*, company_id: int = 1) -> FinancialFact:
         label="Revenue",
         period_start=datetime(2023, 10, 1, tzinfo=UTC).date(),
         period_end=datetime(2024, 9, 28, tzinfo=UTC).date(),
-        fiscal_year=2024,
+        source_fiscal_year=2024,
+        fact_fiscal_year=2024,
         fiscal_period="FY",
         form_type="10-K",
         filed_date=datetime(2024, 11, 1, tzinfo=UTC).date(),
@@ -303,6 +304,27 @@ def test_load_company_metrics_creates_job_and_schedules_background_task(monkeypa
         "refresh": True,
         "stage": "queued",
     }
+    assert session.commit_calls == 1
+    assert session.refresh_calls == 1
+    assert scheduled_job_ids == [123]
+
+
+def test_generate_company_embeddings_creates_job_and_schedules_background_task(monkeypatch) -> None:
+    session = FakeSession(company=make_company())
+    scheduled_job_ids: list[int] = []
+    monkeypatch.setattr(companies_route, "run_chunk_embedding_job", scheduled_job_ids.append)
+    override_db_session(session)
+    client = TestClient(app)
+
+    response = client.post("/companies/aapl/embeddings/generate?refresh=true")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 202
+    assert response.json()["id"] == 123
+    assert response.json()["job_type"] == "chunk_embedding"
+    assert response.json()["payload"]["ticker"] == "AAPL"
+    assert response.json()["payload"]["refresh"] is True
+    assert response.json()["payload"]["embedding_input_version"] == "v1"
     assert session.commit_calls == 1
     assert session.refresh_calls == 1
     assert scheduled_job_ids == [123]

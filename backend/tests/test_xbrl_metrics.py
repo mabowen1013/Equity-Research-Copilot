@@ -281,6 +281,9 @@ def test_normalize_company_facts_computes_margins_across_comparative_accessions(
     summary = summarize_computed_metric_diagnostics(result.computed_metric_diagnostics)
 
     assert metrics["gross_margin"][0].value == Decimal("0.400000")
+    assert metrics["gross_profit"][0].source_fiscal_year == 2025
+    assert metrics["gross_profit"][0].fact_fiscal_year == 2024
+    assert metrics["gross_margin"][0].fact_fiscal_year == 2024
     assert "0000320193-24-000456" in (metrics["gross_margin"][0].calculation_notes or "")
     assert "0000320193-24-000123" in (metrics["gross_margin"][0].calculation_notes or "")
     assert summary == {}
@@ -327,7 +330,8 @@ def test_normalize_company_facts_deduplicates_comparative_filing_facts_by_period
     assert facts[0].canonical_metric_key == "capital_expenditures"
     assert facts[0].period_start == date(2022, 9, 25)
     assert facts[0].period_end == date(2022, 12, 31)
-    assert facts[0].fiscal_year == 2024
+    assert facts[0].source_fiscal_year == 2024
+    assert facts[0].fact_fiscal_year == 2023
     assert facts[0].source_accession_number == "0000320193-24-000006"
 
 

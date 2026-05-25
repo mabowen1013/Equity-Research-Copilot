@@ -12,7 +12,8 @@ class FinancialFactRead(BaseModel):
     label: str
     period_start: date | None
     period_end: date
-    fiscal_year: int | None
+    source_fiscal_year: int | None
+    fact_fiscal_year: int | None
     fiscal_period: str | None
     form_type: str | None
     filed_date: date | None
