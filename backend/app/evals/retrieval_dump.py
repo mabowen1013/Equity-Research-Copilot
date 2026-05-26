@@ -185,12 +185,14 @@ def format_evidence_pack(pack: EvidencePackRead) -> list[str]:
         "primary_financial_statement_chunks": pack.primary_financial_statement_chunks,
         "mda_explanation_chunks": pack.mda_explanation_chunks,
         "segment_or_product_breakdown_chunks": pack.segment_or_product_breakdown_chunks,
+        "risk_factor_chunks": pack.risk_factor_chunks,
         "annual_context_chunks": pack.annual_context_chunks,
     }
     role_spans = {
         "primary_financial_statement_spans": pack.primary_financial_statement_spans,
         "mda_explanation_spans": pack.mda_explanation_spans,
         "segment_or_product_breakdown_spans": pack.segment_or_product_breakdown_spans,
+        "risk_factor_spans": pack.risk_factor_spans,
         "annual_context_spans": pack.annual_context_spans,
     }
     lines = [

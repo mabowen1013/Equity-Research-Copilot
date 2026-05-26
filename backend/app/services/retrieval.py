@@ -38,14 +38,17 @@ EVIDENCE_PACK_CHUNK_QUOTAS = {
     "primary_financial_statement_chunks": 2,
     "mda_explanation_chunks": 3,
     "segment_or_product_breakdown_chunks": 2,
+    "risk_factor_chunks": 3,
     "annual_context_chunks": 1,
 }
 EVIDENCE_PACK_SPAN_QUOTAS = {
     "primary_financial_statement_chunks": 2,
     "mda_explanation_chunks": 4,
     "segment_or_product_breakdown_chunks": 3,
+    "risk_factor_chunks": 4,
     "annual_context_chunks": 1,
 }
+EVIDENCE_PACK_CHUNK_ROLE_ORDER = tuple(EVIDENCE_PACK_CHUNK_QUOTAS)
 MAX_EVIDENCE_SPAN_CHARS = 700
 MAX_EVIDENCE_SPANS_PER_CHUNK_ROLE = 2
 MIN_EVIDENCE_SPAN_SCORE = 0.28
@@ -217,7 +220,7 @@ class RetrievalService:
             degraded.append(
                 {
                     "stage": "evidence_pack",
-                    "reason": "empty_metric_evidence_pack",
+                    "reason": "empty_evidence_pack",
                 }
             )
         timings["evidence_pack_ms"] = _elapsed_ms(pack_at)
@@ -999,17 +1002,12 @@ def build_selected_evidence_spans(
     chunk_text_by_id: dict[int, str] | None = None,
 ) -> tuple[dict[str, list[EvidenceSpanRead]], dict[str, Any]]:
     selected_by_span_role: dict[str, list[EvidenceSpanRead]] = {
-        role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS
+        role: [] for role in EVIDENCE_PACK_CHUNK_ROLE_ORDER
     }
     skipped: list[dict[str, str]] = []
-    seen_span_texts: set[str] = set()
+    seen_span_texts: set[tuple[str, str]] = set()
 
-    for role in (
-        "primary_financial_statement_chunks",
-        "mda_explanation_chunks",
-        "segment_or_product_breakdown_chunks",
-        "annual_context_chunks",
-    ):
+    for role in EVIDENCE_PACK_CHUNK_ROLE_ORDER:
         quota = EVIDENCE_PACK_SPAN_QUOTAS[role]
         for chunk in selected_by_role[role]:
             spans = span_candidates_by_chunk_role.get((chunk.chunk_id, role))
@@ -1041,7 +1039,7 @@ def build_selected_evidence_spans(
                     )
                     continue
 
-                span_key = evidence_span_text_key(span.text)
+                span_key = (role, evidence_span_text_key(span.text))
                 if span_key in seen_span_texts:
                     skipped.append(
                         {
@@ -1221,6 +1219,13 @@ def score_evidence_text_unit(
         if chunk.has_table:
             score += 0.05
             reasons.append("table_context")
+    elif role == "risk_factor_chunks":
+        if is_risk_section_text(section_label):
+            score += 0.20
+            reasons.append("risk_section")
+        if has_risk_factor_language(normalized):
+            score += 0.22
+            reasons.append("risk_factor_language")
     elif role == "annual_context_chunks" and chunk.form_type == "10-K":
         score += 0.08
         reasons.append("annual_filing")
@@ -1267,6 +1272,8 @@ def infer_support_kind(role: str, reasons: list[str]) -> str:
         return "metric_driver"
     if role == "segment_or_product_breakdown_chunks":
         return "segment_breakdown"
+    if role == "risk_factor_chunks":
+        return "risk_factor"
     if role == "annual_context_chunks":
         return "annual_context"
     return "supporting_text"
@@ -1310,6 +1317,32 @@ def has_period_language(text_value: str) -> bool:
     )
 
 
+def has_risk_factor_language(text_value: str) -> bool:
+    return _contains_any(
+        text_value,
+        (
+            "risk",
+            "risks",
+            "could adversely affect",
+            "material adverse",
+            "subject to",
+            "uncertain",
+            "may not",
+            "could fail",
+            "competition",
+            "regulatory",
+            "macroeconomic",
+            "supply chain",
+            "privacy",
+            "cybersecurity",
+            "litigation",
+            "geopolitical",
+            "tariff",
+            "foreign exchange",
+        ),
+    )
+
+
 def normalize_evidence_span_text(text_value: str) -> str:
     return " ".join(text_value.split())
 
@@ -1330,6 +1363,7 @@ def evidence_spans_for_pack(pack: EvidencePackRead) -> list[EvidenceSpanRead]:
         *pack.primary_financial_statement_spans,
         *pack.mda_explanation_spans,
         *pack.segment_or_product_breakdown_spans,
+        *pack.risk_factor_spans,
         *pack.annual_context_spans,
     ]
 
@@ -1349,17 +1383,19 @@ def build_final_evidence_pack(
 
     selected_chunk_ids: set[int] = set()
     selected_by_role: dict[str, list[RetrievedChunkRead]] = {
-        role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS
+        role: [] for role in EVIDENCE_PACK_CHUNK_ROLE_ORDER
     }
-    candidate_roles: dict[str, list[str]] = {role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS}
+    candidate_roles: dict[str, list[str]] = {
+        role: [] for role in EVIDENCE_PACK_CHUNK_ROLE_ORDER
+    }
     skipped: list[dict[str, str]] = []
 
     role_candidates: dict[str, list[tuple[float, int, int, RetrievedChunkRead]]] = {
-        role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS
+        role: [] for role in EVIDENCE_PACK_CHUNK_ROLE_ORDER
     }
     span_candidates_by_chunk_role: dict[tuple[int, str], list[EvidenceSpanRead]] = {}
     span_candidate_trace: dict[str, list[dict[str, Any]]] = {
-        role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS
+        role: [] for role in EVIDENCE_PACK_CHUNK_ROLE_ORDER
     }
     for rank, chunk in enumerate(chunks, start=1):
         roles = classify_evidence_roles(chunk, plan, chunk_text_by_id=chunk_text_by_id)
@@ -1400,15 +1436,11 @@ def build_final_evidence_pack(
             )
             candidate_roles[role].append(chunk.evidence_id)
 
-    for role in (
-        "primary_financial_statement_chunks",
-        "mda_explanation_chunks",
-        "segment_or_product_breakdown_chunks",
-        "annual_context_chunks",
-    ):
+    for role in EVIDENCE_PACK_CHUNK_ROLE_ORDER:
         quota = chunk_quotas[role]
+        ordered_candidates = sorted(role_candidates[role], reverse=True)
         if quota <= 0:
-            for _, _, _, chunk in role_candidates[role]:
+            for _, _, _, chunk in ordered_candidates:
                 skipped.append(
                     {
                         "evidence_id": chunk.evidence_id,
@@ -1418,28 +1450,46 @@ def build_final_evidence_pack(
                 )
             continue
 
-        ordered_candidates = sorted(role_candidates[role], reverse=True)
+        selected_for_role: set[int] = set()
         for _, _, _, chunk in ordered_candidates:
-            if chunk.chunk_id in selected_chunk_ids:
-                skipped.append(
-                    {
-                        "evidence_id": chunk.evidence_id,
-                        "role": role,
-                        "reason": "already_selected_for_higher_priority_role",
-                    }
-                )
-                continue
             if len(selected_by_role[role]) >= quota:
-                skipped.append(
-                    {
-                        "evidence_id": chunk.evidence_id,
-                        "role": role,
-                        "reason": "role_quota_full",
-                    }
-                )
+                break
+            if chunk.chunk_id in selected_chunk_ids:
                 continue
             selected_by_role[role].append(chunk)
+            selected_for_role.add(chunk.chunk_id)
             selected_chunk_ids.add(chunk.chunk_id)
+
+        if len(selected_by_role[role]) < quota:
+            for _, _, _, chunk in ordered_candidates:
+                if len(selected_by_role[role]) >= quota:
+                    break
+                if chunk.chunk_id in selected_for_role:
+                    continue
+                if chunk.chunk_id not in selected_chunk_ids:
+                    continue
+                if not span_candidates_by_chunk_role.get((chunk.chunk_id, role)):
+                    continue
+                selected_by_role[role].append(chunk)
+                selected_for_role.add(chunk.chunk_id)
+
+        for _, _, _, chunk in ordered_candidates:
+            if chunk.chunk_id in selected_for_role:
+                continue
+            reason = (
+                "role_quota_full"
+                if len(selected_by_role[role]) >= quota
+                else "already_selected_for_higher_priority_role"
+                if chunk.chunk_id in selected_chunk_ids
+                else "not_selected"
+            )
+            skipped.append(
+                {
+                    "evidence_id": chunk.evidence_id,
+                    "role": role,
+                    "reason": reason,
+                }
+            )
 
     if plan.metric_keys and not selected_by_role["primary_financial_statement_chunks"]:
         fallback = best_primary_statement_fallback(
@@ -1447,11 +1497,16 @@ def build_final_evidence_pack(
             chunk_text_by_id=chunk_text_by_id,
         )
         if fallback is not None:
-            for role_chunks in selected_by_role.values():
-                role_chunks[:] = [
-                    chunk for chunk in role_chunks if chunk.chunk_id != fallback.chunk_id
-                ]
-            selected_by_role["primary_financial_statement_chunks"].append(fallback)
+            selected_by_role["annual_context_chunks"] = [
+                chunk
+                for chunk in selected_by_role["annual_context_chunks"]
+                if chunk.chunk_id != fallback.chunk_id
+            ]
+            if all(
+                chunk.chunk_id != fallback.chunk_id
+                for chunk in selected_by_role["primary_financial_statement_chunks"]
+            ):
+                selected_by_role["primary_financial_statement_chunks"].append(fallback)
             selected_chunk_ids.add(fallback.chunk_id)
 
     selected_spans_by_role, selected_span_trace = build_selected_evidence_spans(
@@ -1470,6 +1525,7 @@ def build_final_evidence_pack(
         segment_or_product_breakdown_chunks=selected_by_role[
             "segment_or_product_breakdown_chunks"
         ],
+        risk_factor_chunks=selected_by_role["risk_factor_chunks"],
         annual_context_chunks=selected_by_role["annual_context_chunks"],
         primary_financial_statement_spans=selected_spans_by_role[
             "primary_financial_statement_chunks"
@@ -1478,6 +1534,7 @@ def build_final_evidence_pack(
         segment_or_product_breakdown_spans=selected_spans_by_role[
             "segment_or_product_breakdown_chunks"
         ],
+        risk_factor_spans=selected_spans_by_role["risk_factor_chunks"],
         annual_context_spans=selected_spans_by_role["annual_context_chunks"],
     )
     trace = {
@@ -1565,7 +1622,20 @@ def should_warn_empty_evidence_pack(
     plan: RetrievalPlan,
     pack: EvidencePackRead,
 ) -> bool:
-    if not plan.metric_keys:
+    expects_role_evidence = bool(
+        plan.metric_keys
+        or set(plan.evidence_roles).intersection(EVIDENCE_PACK_CHUNK_QUOTAS)
+        or set(plan.target_sections).intersection(
+            {
+                "Financial Statements",
+                "Management's Discussion and Analysis",
+                "Risk Factors",
+                "Liquidity",
+                "Cash Flows",
+            }
+        )
+    )
+    if not expects_role_evidence:
         return False
     return not any(
         (
@@ -1573,6 +1643,7 @@ def should_warn_empty_evidence_pack(
             pack.primary_financial_statement_chunks,
             pack.mda_explanation_chunks,
             pack.segment_or_product_breakdown_chunks,
+            pack.risk_factor_chunks,
             pack.annual_context_chunks,
         )
     )
@@ -1584,9 +1655,7 @@ def classify_evidence_roles(
     *,
     chunk_text_by_id: dict[int, str] | None = None,
 ) -> list[str]:
-    if not plan.metric_keys:
-        return []
-
+    candidate_roles = evidence_pack_candidate_roles(plan)
     roles: list[str] = []
     annual_context = is_annual_context_chunk(
         chunk,
@@ -1602,15 +1671,54 @@ def classify_evidence_roles(
         chunk,
         chunk_text_by_id=chunk_text_by_id,
     )
+    risk_factor = is_risk_factor_chunk(chunk)
 
-    if primary_statement and not annual_context:
+    if (
+        primary_statement
+        and not annual_context
+        and "primary_financial_statement_chunks" in candidate_roles
+    ):
         roles.append("primary_financial_statement_chunks")
-    if mda:
+    if mda and "mda_explanation_chunks" in candidate_roles:
         roles.append("mda_explanation_chunks")
-    if segment_breakdown:
+    if segment_breakdown and "segment_or_product_breakdown_chunks" in candidate_roles:
         roles.append("segment_or_product_breakdown_chunks")
-    if annual_context:
+    if risk_factor and "risk_factor_chunks" in candidate_roles:
+        roles.append("risk_factor_chunks")
+    if annual_context and "annual_context_chunks" in candidate_roles:
         roles.append("annual_context_chunks")
+    return roles
+
+
+def evidence_pack_candidate_roles(plan: RetrievalPlan) -> set[str]:
+    roles = {
+        role
+        for role in plan.evidence_roles
+        if role in EVIDENCE_PACK_CHUNK_QUOTAS
+    }
+    if not roles:
+        if plan.metric_keys:
+            roles.update(
+                {
+                    "primary_financial_statement_chunks",
+                    "mda_explanation_chunks",
+                    "segment_or_product_breakdown_chunks",
+                }
+            )
+        if (
+            "Financial Statements" in plan.target_sections
+            or "Cash Flows" in plan.target_sections
+        ):
+            roles.add("primary_financial_statement_chunks")
+        if "Management's Discussion and Analysis" in plan.target_sections:
+            roles.add("mda_explanation_chunks")
+        if plan.question_type in {"broad_comparison", "performance_overview"}:
+            roles.add("segment_or_product_breakdown_chunks")
+        if "Risk Factors" in plan.target_sections or plan.question_type == "risk":
+            roles.add("risk_factor_chunks")
+
+    if should_include_annual_context(plan):
+        roles.add("annual_context_chunks")
     return roles
 
 
@@ -1634,6 +1742,11 @@ def evidence_role_score(
             score += 0.04
         if chunk.has_table:
             score += 0.02
+    if role == "risk_factor_chunks":
+        if is_risk_factor_chunk(chunk):
+            score += 0.08
+        if has_risk_factor_language(text_value):
+            score += 0.05
     if role == "annual_context_chunks" and chunk.form_type == "10-K":
         score += 0.04
     return score
@@ -1688,6 +1801,14 @@ def is_mda_chunk(chunk: RetrievedChunkRead) -> bool:
         or "md&a" in section_label
         or "item 2" in section_label
     )
+
+
+def is_risk_factor_chunk(chunk: RetrievedChunkRead) -> bool:
+    return is_risk_section_text(normalize_match_text(chunk.section_label))
+
+
+def is_risk_section_text(section_label: str) -> bool:
+    return "risk factors" in section_label or "item 1a" in section_label
 
 
 def is_statement_context(text_value: str) -> bool:

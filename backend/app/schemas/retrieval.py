@@ -152,10 +152,12 @@ class EvidencePackRead(BaseModel):
     primary_financial_statement_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
     mda_explanation_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
     segment_or_product_breakdown_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
+    risk_factor_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
     annual_context_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
     primary_financial_statement_spans: list[EvidenceSpanRead] = Field(default_factory=list)
     mda_explanation_spans: list[EvidenceSpanRead] = Field(default_factory=list)
     segment_or_product_breakdown_spans: list[EvidenceSpanRead] = Field(default_factory=list)
+    risk_factor_spans: list[EvidenceSpanRead] = Field(default_factory=list)
     annual_context_spans: list[EvidenceSpanRead] = Field(default_factory=list)
 
 
@@ -254,10 +256,12 @@ class RetrievalAnalysisEvidencePackRead(BaseModel):
     primary_financial_statement_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     mda_explanation_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     segment_or_product_breakdown_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
+    risk_factor_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     annual_context_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     primary_financial_statement_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
     mda_explanation_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
     segment_or_product_breakdown_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
+    risk_factor_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
     annual_context_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
 
 
