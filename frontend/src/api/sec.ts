@@ -151,6 +151,24 @@ export type RetrievalAnalysisChunk = {
   sec_url: string;
 };
 
+export type RetrievalAnalysisSpan = {
+  evidence_id: string;
+  chunk_id: number;
+  source_chunk_evidence_id: string;
+  role: string;
+  score: number;
+  support_kind: string;
+  text: string;
+  start_char: number | null;
+  end_char: number | null;
+  reasons: string[];
+  form_type: string;
+  filing_date: string;
+  section_label: string;
+  pages: string | null;
+  sec_url: string;
+};
+
 export type RetrievalAnalysisFact = {
   evidence_id: string;
   score: number;
@@ -196,6 +214,10 @@ export type RetrievalAnalysisResponse = {
     mda_explanation_chunks: RetrievalAnalysisChunk[];
     segment_or_product_breakdown_chunks: RetrievalAnalysisChunk[];
     annual_context_chunks: RetrievalAnalysisChunk[];
+    primary_financial_statement_spans: RetrievalAnalysisSpan[];
+    mda_explanation_spans: RetrievalAnalysisSpan[];
+    segment_or_product_breakdown_spans: RetrievalAnalysisSpan[];
+    annual_context_spans: RetrievalAnalysisSpan[];
   };
   top_chunks: RetrievalAnalysisChunk[];
   top_facts: RetrievalAnalysisFact[];

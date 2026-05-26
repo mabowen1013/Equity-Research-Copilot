@@ -12,6 +12,7 @@ import {
   RetrievalAnalysisChunk,
   RetrievalAnalysisComparison,
   RetrievalAnalysisResponse,
+  RetrievalAnalysisSpan,
   fetchCompany,
   fetchCompanyFilings,
   fetchCompanyMetrics,
@@ -453,8 +454,14 @@ export function App() {
     try {
       const job = await generateCompanyEmbeddings(company.ticker);
       setEmbeddingJob(job);
-      pollJob(job.id, setEmbeddingJob, async () => {
-        setMessage(`Chunk embeddings generated for ${company.ticker}.`);
+      pollJob(job.id, setEmbeddingJob, async (completedJob) => {
+        const totalChunks = Number(completedJob.payload.total_chunks ?? 0);
+        const embeddedCount = Number(completedJob.payload.embedded_count ?? 0);
+        const skippedCount = Number(completedJob.payload.skipped_count ?? 0);
+        const staleUpdatedCount = Number(completedJob.payload.stale_updated_count ?? 0);
+        setMessage(
+          `Chunk embeddings ready for ${company.ticker}: ${embeddedCount} new, ${staleUpdatedCount} refreshed, ${skippedCount} unchanged across ${totalChunks} chunks.`,
+        );
       });
     } catch (embeddingError) {
       setError(getErrorMessage(embeddingError));
@@ -851,23 +858,31 @@ function ResearchPage({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
   const plan = result?.retrieval_plan;
-  const evidenceSections: { title: string; chunks: RetrievalAnalysisChunk[] }[] = result
+  const evidenceSections: {
+    title: string;
+    chunks: RetrievalAnalysisChunk[];
+    spans: RetrievalAnalysisSpan[];
+  }[] = result
     ? [
         {
           title: "Primary Statements",
           chunks: result.final_evidence_pack.primary_financial_statement_chunks,
+          spans: result.final_evidence_pack.primary_financial_statement_spans,
         },
         {
           title: "MD&A Explanations",
           chunks: result.final_evidence_pack.mda_explanation_chunks,
+          spans: result.final_evidence_pack.mda_explanation_spans,
         },
         {
           title: "Segment / Product",
           chunks: result.final_evidence_pack.segment_or_product_breakdown_chunks,
+          spans: result.final_evidence_pack.segment_or_product_breakdown_spans,
         },
         {
           title: "Annual Context",
           chunks: result.final_evidence_pack.annual_context_chunks,
+          spans: result.final_evidence_pack.annual_context_spans,
         },
       ]
     : [];
@@ -955,6 +970,9 @@ function ResearchPage({
                   <h4>{section.title}</h4>
                   {section.chunks.length > 0 ? (
                     <div className="evidence-list">
+                      {section.spans.map((span) => (
+                        <EvidenceSpanCard span={span} key={span.evidence_id} />
+                      ))}
                       {section.chunks.map((chunk) => (
                         <EvidenceChunkCard chunk={chunk} key={chunk.evidence_id} />
                       ))}
@@ -1054,6 +1072,31 @@ function ComparisonCard({ comparison }: { comparison: RetrievalAnalysisCompariso
         {comparison.current_period_label ?? comparison.current_period_end} /{" "}
         {comparison.prior_period_label ?? comparison.prior_period_end} | {comparison.basis}
       </small>
+    </article>
+  );
+}
+
+function EvidenceSpanCard({ span }: { span: RetrievalAnalysisSpan }) {
+  return (
+    <article className="evidence-span-card">
+      <div className="evidence-card__top">
+        <span>{span.support_kind}</span>
+        <strong>{span.score.toFixed(2)}</strong>
+      </div>
+      <p>{span.text}</p>
+      <div className="evidence-meta">
+        <span>{span.form_type}</span>
+        <span>{span.filing_date}</span>
+        <span>Pages {span.pages ?? "n/a"}</span>
+        <span>chunk:{span.chunk_id}</span>
+      </div>
+      {span.reasons.length > 0 && (
+        <div className="evidence-reasons">
+          {span.reasons.slice(0, 4).map((reason) => (
+            <span key={reason}>{reason}</span>
+          ))}
+        </div>
+      )}
     </article>
   );
 }

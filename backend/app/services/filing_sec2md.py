@@ -11,7 +11,7 @@ import sec2md
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import DocumentChunk, Filing, FilingDocument, FilingSection, Job
+from app.models import ChunkEmbedding, DocumentChunk, Filing, FilingDocument, FilingSection, Job
 from app.services.sec_client import SecClient
 
 FILING_PARSE_JOB_TYPE = "filing_parse"
@@ -195,6 +195,7 @@ class FilingSec2MdService:
 
         parsed_sections = self._extract_sections(pages, filing.form_type)
 
+        self._db.execute(delete(ChunkEmbedding).where(ChunkEmbedding.filing_id == filing.id))
         self._db.execute(delete(DocumentChunk).where(DocumentChunk.filing_id == filing.id))
         self._db.execute(delete(FilingSection).where(FilingSection.filing_id == filing.id))
 

@@ -132,6 +132,10 @@ class ChunkEmbeddingService:
         batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE,
     ) -> ChunkEmbeddingRunResult:
         chunks = self._load_chunks(company.id)
+        if not chunks:
+            raise ChunkEmbeddingError(
+                f"No parsed document chunks found for {company.ticker}. Parse filings before generating embeddings."
+            )
         existing_by_chunk_id = self._load_existing_embeddings([chunk.id for chunk in chunks])
 
         work_items: list[ChunkEmbeddingInput] = []

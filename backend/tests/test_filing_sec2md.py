@@ -192,6 +192,17 @@ def test_parse_and_store_document_extracts_sections_and_chunks() -> None:
     assert chunks[0].element_ids
     assert document.annotated_html is not None
     assert document.parsed_at == NOW
+    embedding_delete_index = next(
+        index
+        for index, call in enumerate(session.execute_calls)
+        if "DELETE FROM chunk_embeddings" in call
+    )
+    chunk_delete_index = next(
+        index
+        for index, call in enumerate(session.execute_calls)
+        if "DELETE FROM document_chunks" in call
+    )
+    assert embedding_delete_index < chunk_delete_index
     assert any("DELETE FROM document_chunks" in call for call in session.execute_calls)
     assert any("DELETE FROM filing_sections" in call for call in session.execute_calls)
 

@@ -68,6 +68,22 @@ def build_analysis_response(response: RetrievalResponse) -> RetrievalAnalysisRes
                 build_analysis_chunk(chunk)
                 for chunk in response.final_evidence_pack.annual_context_chunks
             ],
+            "primary_financial_statement_spans": [
+                build_analysis_span(span)
+                for span in response.final_evidence_pack.primary_financial_statement_spans
+            ],
+            "mda_explanation_spans": [
+                build_analysis_span(span)
+                for span in response.final_evidence_pack.mda_explanation_spans
+            ],
+            "segment_or_product_breakdown_spans": [
+                build_analysis_span(span)
+                for span in response.final_evidence_pack.segment_or_product_breakdown_spans
+            ],
+            "annual_context_spans": [
+                build_analysis_span(span)
+                for span in response.final_evidence_pack.annual_context_spans
+            ],
         },
         top_chunks=[build_analysis_chunk(chunk) for chunk in response.retrieved_chunks],
         top_facts=[
@@ -139,6 +155,26 @@ def build_analysis_comparison(comparison) -> dict:
         "current_value": comparison.current_value,
         "prior_value": comparison.prior_value,
         "growth_rate": comparison.growth_rate,
+    }
+
+
+def build_analysis_span(span) -> dict:
+    return {
+        "evidence_id": span.evidence_id,
+        "chunk_id": span.chunk_id,
+        "source_chunk_evidence_id": span.source_chunk_evidence_id,
+        "role": span.role,
+        "score": span.score,
+        "support_kind": span.support_kind,
+        "text": span.text,
+        "start_char": span.start_char,
+        "end_char": span.end_char,
+        "reasons": span.reasons,
+        "form_type": span.form_type,
+        "filing_date": span.filing_date,
+        "section_label": span.section_label,
+        "pages": format_pages(span.start_page, span.end_page),
+        "sec_url": span.sec_url,
     }
 
 
