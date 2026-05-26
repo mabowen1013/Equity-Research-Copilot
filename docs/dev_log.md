@@ -93,3 +93,7 @@
 - 添加 evaluation set，对query planner进行performance evaluation，如果expected和代码分析出来的一致，计算通过。
 - 加入中文版README
 - 对于明确”时间点“的query，为了防止选取chunk的时候把不同时间点的file chunk也选进来，在retrieval.py添加过滤层
+
+
+# 2026/5/26
+- 在所选择的top 10 chunks中加入关键词span，更精准的找出chunks内真正和query相关的部分。
