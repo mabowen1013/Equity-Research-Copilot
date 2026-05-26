@@ -14,6 +14,7 @@ from app.core import Settings, get_settings
 from app.models import ChunkEmbedding, Company, DocumentChunk, Filing, FinancialFact
 from app.schemas.retrieval import (
     EvidencePackRead,
+    EvidenceSpanRead,
     RetrievedChunkRead,
     RetrievedFinancialFactRead,
     MetricComparisonRead,
@@ -39,6 +40,20 @@ EVIDENCE_PACK_CHUNK_QUOTAS = {
     "segment_or_product_breakdown_chunks": 2,
     "annual_context_chunks": 1,
 }
+EVIDENCE_PACK_SPAN_QUOTAS = {
+    "primary_financial_statement_chunks": 2,
+    "mda_explanation_chunks": 4,
+    "segment_or_product_breakdown_chunks": 3,
+    "annual_context_chunks": 1,
+}
+MAX_EVIDENCE_SPAN_CHARS = 700
+MAX_EVIDENCE_SPANS_PER_CHUNK_ROLE = 2
+MIN_EVIDENCE_SPAN_SCORE = 0.28
+LATEST_FILING_COMPARISON_BASES = {
+    "latest_quarter_yoy",
+    "latest_ytd_yoy",
+    "latest_fy_yoy",
+}
 
 
 class RetrievalError(ValueError):
@@ -62,6 +77,19 @@ class DenseQuerySpec:
     source_name: str
     text: str
     weight: float
+
+
+@dataclass(frozen=True)
+class ChunkScope:
+    latest_filing_date: date | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceTextUnit:
+    text: str
+    start_char: int
+    end_char: int
 
 
 class RetrievalService:
@@ -91,10 +119,17 @@ class RetrievalService:
             form_type=request.form_type,
             section=request.section,
         )
+        chunk_scope = self._chunk_scope(company, plan, request)
         timings["planner_ms"] = _elapsed_ms(planned_at)
 
         dense_at = perf_counter()
-        dense_sources = self._dense_candidate_sources(company, plan, request, degraded)
+        dense_sources = self._dense_candidate_sources(
+            company,
+            plan,
+            request,
+            degraded,
+            chunk_scope=chunk_scope,
+        )
         dense_candidates = aggregate_source_candidates(
             dense_sources,
             limit=self._settings.retrieval_dense_candidates,
@@ -102,7 +137,13 @@ class RetrievalService:
         timings["dense_ms"] = _elapsed_ms(dense_at)
 
         lexical_at = perf_counter()
-        lexical_candidates = self._lexical_candidates(company, plan, request, degraded)
+        lexical_candidates = self._lexical_candidates(
+            company,
+            plan,
+            request,
+            degraded,
+            chunk_scope=chunk_scope,
+        )
         timings["lexical_ms"] = _elapsed_ms(lexical_at)
 
         fact_at = perf_counter()
@@ -192,6 +233,11 @@ class RetrievalService:
                 "metric_comparisons": len(metric_comparisons),
                 "fused_chunks": len(fused),
                 "evidence_chunk_candidates": len(evidence_chunk_reads),
+                "evidence_span_candidates": sum(
+                    len(items)
+                    for items in evidence_pack_trace.get("span_candidates", {}).values()
+                ),
+                "selected_evidence_spans": len(evidence_spans_for_pack(final_evidence_pack)),
             },
             "metric_comparisons": [comparison.model_dump(mode="json") for comparison in metric_comparisons],
             "dense_query_sources": [
@@ -212,6 +258,14 @@ class RetrievalService:
             },
             "rerank_boosts": {
                 str(chunk_id): boosts for chunk_id, boosts in rerank_trace.items()
+            },
+            "chunk_scope": {
+                "latest_filing_date": (
+                    chunk_scope.latest_filing_date.isoformat()
+                    if chunk_scope.latest_filing_date is not None
+                    else None
+                ),
+                "reason": chunk_scope.reason,
             },
             "evidence_pack": evidence_pack_trace,
             "timing_ms": timings,
@@ -239,6 +293,7 @@ class RetrievalService:
                 chunk_reads,
                 fact_reads,
                 metric_comparisons,
+                final_evidence_pack,
             ),
             retrieval_trace=trace,
         )
@@ -249,6 +304,8 @@ class RetrievalService:
         plan: RetrievalPlan,
         request: RetrievalRequest,
         degraded: list[dict[str, str]],
+        *,
+        chunk_scope: ChunkScope,
     ) -> list[tuple[str, list[tuple[int, float]], float]]:
         embeddings_count = self._db.scalar(
             select(func.count())
@@ -301,7 +358,12 @@ class RetrievalService:
                 "query_embedding": vector_literal(query_embedding),
                 "limit": self._settings.retrieval_dense_candidates,
             }
-            filters = build_chunk_filter_sql(request, params, plan=plan)
+            filters = build_chunk_filter_sql(
+                request,
+                params,
+                plan=plan,
+                latest_filing_date=chunk_scope.latest_filing_date,
+            )
             sql = text(
                 f"""
                 SELECT ce.chunk_id, ce.embedding <=> CAST(:query_embedding AS vector) AS distance
@@ -337,6 +399,8 @@ class RetrievalService:
         plan: RetrievalPlan,
         request: RetrievalRequest,
         degraded: list[dict[str, str]],
+        *,
+        chunk_scope: ChunkScope,
     ) -> list[tuple[int, float]]:
         best_scores: dict[int, float] = {}
         for query in plan.lexical_queries:
@@ -345,7 +409,13 @@ class RetrievalService:
                 "query": query,
                 "limit": self._settings.retrieval_lexical_candidates,
             }
-            filters = build_chunk_filter_sql(request, params, table_alias="dc", plan=plan)
+            filters = build_chunk_filter_sql(
+                request,
+                params,
+                table_alias="dc",
+                plan=plan,
+                latest_filing_date=chunk_scope.latest_filing_date,
+            )
             sql = text(
                 f"""
                 WITH q AS (SELECT websearch_to_tsquery('english', :query) AS query)
@@ -439,6 +509,38 @@ class RetrievalService:
         if form_types:
             statement = statement.where(FinancialFact.form_type.in_(form_types))
         return list(self._db.scalars(statement).all())
+
+    def _chunk_scope(
+        self,
+        company: Company,
+        plan: RetrievalPlan,
+        request: RetrievalRequest,
+    ) -> ChunkScope:
+        reason = latest_filing_scope_reason(plan)
+        if reason is None:
+            return ChunkScope()
+
+        statement = (
+            select(func.max(DocumentChunk.filing_date))
+            .join(Filing, DocumentChunk.filing_id == Filing.id)
+            .where(Filing.company_id == company.id)
+        )
+        form_types = effective_form_types(request, plan)
+        if form_types:
+            statement = statement.where(DocumentChunk.form_type.in_(form_types))
+        if request.date_from is not None:
+            statement = statement.where(DocumentChunk.filing_date >= request.date_from)
+        if request.date_to is not None:
+            statement = statement.where(DocumentChunk.filing_date <= request.date_to)
+        if request.section is not None and request.section.strip():
+            statement = statement.where(
+                DocumentChunk.section_label.ilike(f"%{request.section.strip()}%")
+            )
+
+        latest_filing_date = self._db.scalar(statement)
+        if latest_filing_date is None:
+            return ChunkScope(reason=f"{reason}:no_matching_filing")
+        return ChunkScope(latest_filing_date=latest_filing_date, reason=reason)
 
     def _load_chunks(self, chunk_ids: list[int]) -> dict[int, DocumentChunk]:
         if not chunk_ids:
@@ -844,6 +946,394 @@ def build_metric_comparisons(
     return comparisons
 
 
+def select_evidence_spans_for_chunk(
+    chunk: RetrievedChunkRead,
+    role: str,
+    plan: RetrievalPlan,
+    *,
+    chunk_text_by_id: dict[int, str] | None = None,
+    max_spans: int = MAX_EVIDENCE_SPANS_PER_CHUNK_ROLE,
+) -> list[EvidenceSpanRead]:
+    text_value = (
+        chunk_text_by_id.get(chunk.chunk_id, chunk.snippet)
+        if chunk_text_by_id
+        else chunk.snippet
+    )
+    candidates: list[tuple[float, int, EvidenceTextUnit, list[str], str]] = []
+    seen_units: set[str] = set()
+    for unit in split_evidence_units(text_value):
+        key = evidence_span_text_key(unit.text)
+        if key in seen_units:
+            continue
+        seen_units.add(key)
+        score, reasons, support_kind = score_evidence_text_unit(unit.text, chunk, role, plan)
+        if score < MIN_EVIDENCE_SPAN_SCORE:
+            continue
+        candidates.append(
+            (score, -(unit.end_char - unit.start_char), unit, reasons, support_kind)
+        )
+
+    selected = sorted(
+        candidates,
+        key=lambda item: (item[0], item[1], -item[2].start_char),
+        reverse=True,
+    )
+    return [
+        build_evidence_span_read(
+            chunk,
+            role,
+            unit,
+            score=score,
+            reasons=reasons,
+            support_kind=support_kind,
+        )
+        for score, _, unit, reasons, support_kind in selected[:max_spans]
+    ]
+
+
+def build_selected_evidence_spans(
+    selected_by_role: dict[str, list[RetrievedChunkRead]],
+    span_candidates_by_chunk_role: dict[tuple[int, str], list[EvidenceSpanRead]],
+    plan: RetrievalPlan,
+    *,
+    chunk_text_by_id: dict[int, str] | None = None,
+) -> tuple[dict[str, list[EvidenceSpanRead]], dict[str, Any]]:
+    selected_by_span_role: dict[str, list[EvidenceSpanRead]] = {
+        role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS
+    }
+    skipped: list[dict[str, str]] = []
+    seen_span_texts: set[str] = set()
+
+    for role in (
+        "primary_financial_statement_chunks",
+        "mda_explanation_chunks",
+        "segment_or_product_breakdown_chunks",
+        "annual_context_chunks",
+    ):
+        quota = EVIDENCE_PACK_SPAN_QUOTAS[role]
+        for chunk in selected_by_role[role]:
+            spans = span_candidates_by_chunk_role.get((chunk.chunk_id, role))
+            if spans is None:
+                spans = select_evidence_spans_for_chunk(
+                    chunk,
+                    role,
+                    plan,
+                    chunk_text_by_id=chunk_text_by_id,
+                )
+            if not spans:
+                skipped.append(
+                    {
+                        "evidence_id": chunk.evidence_id,
+                        "role": role,
+                        "reason": "no_qualifying_spans",
+                    }
+                )
+                continue
+
+            for span in spans:
+                if len(selected_by_span_role[role]) >= quota:
+                    skipped.append(
+                        {
+                            "evidence_id": span.evidence_id,
+                            "role": role,
+                            "reason": "span_quota_full",
+                        }
+                    )
+                    continue
+
+                span_key = evidence_span_text_key(span.text)
+                if span_key in seen_span_texts:
+                    skipped.append(
+                        {
+                            "evidence_id": span.evidence_id,
+                            "role": role,
+                            "reason": "duplicate_span_text",
+                        }
+                    )
+                    continue
+
+                selected_by_span_role[role].append(span)
+                seen_span_texts.add(span_key)
+
+    return selected_by_span_role, {"skipped": skipped}
+
+
+def build_evidence_span_read(
+    chunk: RetrievedChunkRead,
+    role: str,
+    unit: EvidenceTextUnit,
+    *,
+    score: float,
+    reasons: list[str],
+    support_kind: str,
+) -> EvidenceSpanRead:
+    return EvidenceSpanRead(
+        evidence_id=f"span:{chunk.chunk_id}:{role}:{unit.start_char}:{unit.end_char}",
+        chunk_id=chunk.chunk_id,
+        source_chunk_evidence_id=chunk.evidence_id,
+        role=role,
+        score=round(score, 6),
+        support_kind=support_kind,
+        text=truncate_evidence_span_text(unit.text),
+        start_char=unit.start_char,
+        end_char=unit.end_char,
+        reasons=reasons,
+        form_type=chunk.form_type,
+        filing_date=chunk.filing_date,
+        section_label=chunk.section_label,
+        sec_url=chunk.sec_url,
+        accession_number=chunk.accession_number,
+        start_page=chunk.start_page,
+        end_page=chunk.end_page,
+    )
+
+
+def split_evidence_units(text_value: str) -> list[EvidenceTextUnit]:
+    units: list[EvidenceTextUnit] = []
+    add_text_units_from_lines(text_value, units)
+    add_text_units_from_paragraphs(text_value, units)
+    add_text_units_from_sentences(text_value, units)
+
+    deduped: list[EvidenceTextUnit] = []
+    seen: set[str] = set()
+    for unit in units:
+        key = evidence_span_text_key(unit.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(unit)
+    return deduped
+
+
+def add_text_units_from_lines(text_value: str, units: list[EvidenceTextUnit]) -> None:
+    offset = 0
+    for line in text_value.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped:
+            start = offset + line.find(stripped)
+            add_evidence_text_unit(units, text_value, start, start + len(stripped))
+        offset += len(line)
+
+
+def add_text_units_from_paragraphs(text_value: str, units: list[EvidenceTextUnit]) -> None:
+    for match in re.finditer(r"\S[\s\S]*?(?=(?:\r?\n\s*){2,}\S|\Z)", text_value):
+        start, end = trim_text_bounds(text_value, match.start(), match.end())
+        add_evidence_text_unit(units, text_value, start, end)
+
+
+def add_text_units_from_sentences(text_value: str, units: list[EvidenceTextUnit]) -> None:
+    for match in re.finditer(r"[^.!?;\n]+(?:[.!?;]+|$)", text_value):
+        start, end = trim_text_bounds(text_value, match.start(), match.end())
+        add_evidence_text_unit(units, text_value, start, end)
+
+
+def add_evidence_text_unit(
+    units: list[EvidenceTextUnit],
+    text_value: str,
+    start: int,
+    end: int,
+) -> None:
+    if start >= end:
+        return
+    raw = text_value[start:end]
+    normalized = normalize_evidence_span_text(raw)
+    if len(normalized) < 24:
+        return
+    if len(normalized) > MAX_EVIDENCE_SPAN_CHARS * 2:
+        for window_start, window_end in split_long_evidence_unit(text_value, start, end):
+            add_evidence_text_unit(units, text_value, window_start, window_end)
+        return
+    units.append(EvidenceTextUnit(text=normalized, start_char=start, end_char=end))
+
+
+def split_long_evidence_unit(
+    text_value: str,
+    start: int,
+    end: int,
+) -> list[tuple[int, int]]:
+    windows: list[tuple[int, int]] = []
+    cursor = start
+    while cursor < end:
+        window_end = min(end, cursor + MAX_EVIDENCE_SPAN_CHARS)
+        if window_end < end:
+            break_at = text_value.rfind(" ", cursor, window_end)
+            if break_at > cursor + 120:
+                window_end = break_at
+        windows.append(trim_text_bounds(text_value, cursor, window_end))
+        cursor = window_end
+        while cursor < end and text_value[cursor].isspace():
+            cursor += 1
+    return windows
+
+
+def trim_text_bounds(text_value: str, start: int, end: int) -> tuple[int, int]:
+    while start < end and text_value[start].isspace():
+        start += 1
+    while end > start and text_value[end - 1].isspace():
+        end -= 1
+    return start, end
+
+
+def score_evidence_text_unit(
+    text_value: str,
+    chunk: RetrievedChunkRead,
+    role: str,
+    plan: RetrievalPlan,
+) -> tuple[float, list[str], str]:
+    normalized = normalize_match_text(text_value)
+    section_label = normalize_match_text(chunk.section_label)
+    score = 0.0
+    reasons: list[str] = []
+
+    for metric_key in plan.metric_keys:
+        metric_score, metric_reasons = metric_evidence_score(normalized, metric_key)
+        score += metric_score
+        reasons.extend(metric_reasons)
+
+    if has_numeric_evidence(normalized):
+        score += 0.12
+        reasons.append("numeric_value")
+    if has_comparison_language(normalized):
+        score += 0.12
+        reasons.append("comparison_language")
+    if has_period_language(normalized):
+        score += 0.06
+        reasons.append("period_context")
+
+    if role == "primary_financial_statement_chunks":
+        if is_statement_context(normalized):
+            score += 0.24
+            reasons.append("statement_context")
+        if chunk.has_table:
+            score += 0.06
+            reasons.append("table_context")
+    elif role == "mda_explanation_chunks":
+        if has_explanatory_language(normalized):
+            score += 0.24
+            reasons.append("explanatory_language")
+        if is_mda_section_text(section_label):
+            score += 0.05
+            reasons.append("mda_section")
+    elif role == "segment_or_product_breakdown_chunks":
+        if has_business_breakdown_context(normalized):
+            score += 0.22
+            reasons.append("segment_or_product_context")
+        if chunk.has_table:
+            score += 0.05
+            reasons.append("table_context")
+    elif role == "annual_context_chunks" and chunk.form_type == "10-K":
+        score += 0.08
+        reasons.append("annual_filing")
+
+    if is_broad_comparison_noise_text(section_label, normalized):
+        score -= 0.35
+        reasons.append("noise_context")
+
+    if not plan.metric_keys and role in plan.evidence_roles:
+        score += 0.10
+        reasons.append("planned_role")
+
+    return max(0.0, min(score, 1.0)), _dedupe(reasons), infer_support_kind(role, reasons)
+
+
+def metric_evidence_score(text_value: str, metric_key: str) -> tuple[float, list[str]]:
+    profile = get_metric_profile(metric_key)
+    if profile is None:
+        generic_phrase = metric_key.replace("_", " ")
+        return (0.16, [f"metric:{metric_key}"]) if generic_phrase in text_value else (0.0, [])
+
+    score = 0.0
+    reasons: list[str] = []
+    if _contains_any(text_value, profile.strong_terms):
+        score += 0.28
+        reasons.append(f"strong_metric:{metric_key}")
+    elif _contains_any(text_value, (*profile.weak_terms, *profile.aliases)):
+        score += 0.14
+        reasons.append(f"weak_metric:{metric_key}")
+
+    if _contains_any(text_value, profile.statement_terms):
+        score += 0.12
+        reasons.append(f"statement_metric_context:{metric_key}")
+    if _contains_any(text_value, profile.negative_terms):
+        score -= 0.24
+        reasons.append(f"negative_metric_context:{metric_key}")
+    return score, reasons
+
+
+def infer_support_kind(role: str, reasons: list[str]) -> str:
+    if role == "primary_financial_statement_chunks":
+        return "statement_value"
+    if role == "mda_explanation_chunks" and "explanatory_language" in reasons:
+        return "metric_driver"
+    if role == "segment_or_product_breakdown_chunks":
+        return "segment_breakdown"
+    if role == "annual_context_chunks":
+        return "annual_context"
+    return "supporting_text"
+
+
+def has_numeric_evidence(text_value: str) -> bool:
+    return re.search(r"(?:[$€£]\s*)?\(?\d[\d,]*(?:\.\d+)?\)?%?", text_value) is not None
+
+
+def has_comparison_language(text_value: str) -> bool:
+    return _contains_any(
+        text_value,
+        (
+            "increased",
+            "decreased",
+            "higher",
+            "lower",
+            "compared to",
+            "compared with",
+            "year-over-year",
+            "year over year",
+            "versus",
+            "vs.",
+        ),
+    )
+
+
+def has_period_language(text_value: str) -> bool:
+    return _contains_any(
+        text_value,
+        (
+            "three months ended",
+            "six months ended",
+            "nine months ended",
+            "year ended",
+            "years ended",
+            "quarter",
+            "fiscal year",
+            "202",
+        ),
+    )
+
+
+def normalize_evidence_span_text(text_value: str) -> str:
+    return " ".join(text_value.split())
+
+
+def truncate_evidence_span_text(text_value: str) -> str:
+    normalized = normalize_evidence_span_text(text_value)
+    if len(normalized) <= MAX_EVIDENCE_SPAN_CHARS:
+        return normalized
+    return f"{normalized[: MAX_EVIDENCE_SPAN_CHARS - 1].rstrip()}..."
+
+
+def evidence_span_text_key(text_value: str) -> str:
+    return re.sub(r"\W+", " ", normalize_evidence_span_text(text_value).lower()).strip()
+
+
+def evidence_spans_for_pack(pack: EvidencePackRead) -> list[EvidenceSpanRead]:
+    return [
+        *pack.primary_financial_statement_spans,
+        *pack.mda_explanation_spans,
+        *pack.segment_or_product_breakdown_spans,
+        *pack.annual_context_spans,
+    ]
+
+
 def build_final_evidence_pack(
     chunks: list[RetrievedChunkRead],
     metric_comparisons: list[MetricComparisonRead],
@@ -867,14 +1357,42 @@ def build_final_evidence_pack(
     role_candidates: dict[str, list[tuple[float, int, int, RetrievedChunkRead]]] = {
         role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS
     }
+    span_candidates_by_chunk_role: dict[tuple[int, str], list[EvidenceSpanRead]] = {}
+    span_candidate_trace: dict[str, list[dict[str, Any]]] = {
+        role: [] for role in EVIDENCE_PACK_CHUNK_QUOTAS
+    }
     for rank, chunk in enumerate(chunks, start=1):
         roles = classify_evidence_roles(chunk, plan, chunk_text_by_id=chunk_text_by_id)
         for role in roles:
             if role not in role_candidates:
                 continue
+            spans = select_evidence_spans_for_chunk(
+                chunk,
+                role,
+                plan,
+                chunk_text_by_id=chunk_text_by_id,
+            )
+            span_candidates_by_chunk_role[(chunk.chunk_id, role)] = spans
+            span_candidate_trace[role].extend(
+                {
+                    "evidence_id": span.evidence_id,
+                    "chunk_id": span.chunk_id,
+                    "score": span.score,
+                    "support_kind": span.support_kind,
+                    "reasons": span.reasons,
+                }
+                for span in spans
+            )
+            role_score = evidence_role_score(
+                chunk,
+                role,
+                chunk_text_by_id=chunk_text_by_id,
+            )
+            if spans:
+                role_score += min(spans[0].score, 1.0) * 0.08
             role_candidates[role].append(
                 (
-                    evidence_role_score(chunk, role, chunk_text_by_id=chunk_text_by_id),
+                    role_score,
                     -rank,
                     chunk.chunk_id,
                     chunk,
@@ -936,6 +1454,12 @@ def build_final_evidence_pack(
             selected_by_role["primary_financial_statement_chunks"].append(fallback)
             selected_chunk_ids.add(fallback.chunk_id)
 
+    selected_spans_by_role, selected_span_trace = build_selected_evidence_spans(
+        selected_by_role,
+        span_candidates_by_chunk_role,
+        plan,
+        chunk_text_by_id=chunk_text_by_id,
+    )
     selected_comparisons = metric_comparisons[:comparison_limit]
     pack = EvidencePackRead(
         metric_comparisons=selected_comparisons,
@@ -947,11 +1471,21 @@ def build_final_evidence_pack(
             "segment_or_product_breakdown_chunks"
         ],
         annual_context_chunks=selected_by_role["annual_context_chunks"],
+        primary_financial_statement_spans=selected_spans_by_role[
+            "primary_financial_statement_chunks"
+        ],
+        mda_explanation_spans=selected_spans_by_role["mda_explanation_chunks"],
+        segment_or_product_breakdown_spans=selected_spans_by_role[
+            "segment_or_product_breakdown_chunks"
+        ],
+        annual_context_spans=selected_spans_by_role["annual_context_chunks"],
     )
     trace = {
         "comparison_limit": comparison_limit,
         "chunk_quotas": chunk_quotas,
+        "span_quotas": EVIDENCE_PACK_SPAN_QUOTAS,
         "candidate_roles": candidate_roles,
+        "span_candidates": span_candidate_trace,
         "selected": {
             "metric_comparisons": [
                 comparison.evidence_id for comparison in selected_comparisons
@@ -961,6 +1495,11 @@ def build_final_evidence_pack(
                 for role, selected_chunks in selected_by_role.items()
             },
         },
+        "selected_spans": {
+            role: [span.evidence_id for span in selected_spans]
+            for role, selected_spans in selected_spans_by_role.items()
+        },
+        "span_skipped": selected_span_trace["skipped"],
         "skipped": skipped,
     }
     return pack, trace
@@ -1349,6 +1888,7 @@ def build_source_coverage_summary(
     chunks: list[RetrievedChunkRead],
     facts: list[RetrievedFinancialFactRead],
     metric_comparisons: list[MetricComparisonRead] | None = None,
+    evidence_pack: EvidencePackRead | None = None,
 ) -> dict[str, Any]:
     metric_comparisons = metric_comparisons or []
     filing_dates = [chunk.filing_date for chunk in chunks]
@@ -1356,6 +1896,9 @@ def build_source_coverage_summary(
         "chunk_count": len(chunks),
         "fact_count": len(facts),
         "metric_comparison_count": len(metric_comparisons),
+        "evidence_span_count": (
+            len(evidence_spans_for_pack(evidence_pack)) if evidence_pack is not None else 0
+        ),
         "forms": sorted({chunk.form_type for chunk in chunks}),
         "sections": sorted({chunk.section_label for chunk in chunks}),
         "latest_chunk_filing_date": max(filing_dates).isoformat() if filing_dates else None,
@@ -1370,6 +1913,7 @@ def build_chunk_filter_sql(
     *,
     table_alias: str = "dc",
     plan: RetrievalPlan | None = None,
+    latest_filing_date: date | None = None,
 ) -> str:
     clauses: list[str] = []
     form_types = effective_form_types(request, plan)
@@ -1389,6 +1933,9 @@ def build_chunk_filter_sql(
     if request.date_to is not None:
         params["date_to"] = request.date_to
         clauses.append(f"AND {table_alias}.filing_date <= :date_to")
+    if latest_filing_date is not None:
+        params["latest_filing_date"] = latest_filing_date
+        clauses.append(f"AND {table_alias}.filing_date = :latest_filing_date")
     if request.section is not None and request.section.strip():
         params["section_like"] = f"%{request.section.strip()}%"
         clauses.append(f"AND {table_alias}.section_label ILIKE :section_like")
@@ -1408,6 +1955,19 @@ def effective_form_types(
         for form_type in dict.fromkeys(form.strip().upper() for form in plan.forms)
         if form_type
     ]
+
+
+def latest_filing_scope_reason(plan: RetrievalPlan) -> str | None:
+    if plan.time_scope == "latest":
+        return "time_scope:latest"
+
+    if (
+        plan.comparison_basis in LATEST_FILING_COMPARISON_BASES
+        and plan.comparison_candidates == [plan.comparison_basis]
+    ):
+        return f"comparison_basis:{plan.comparison_basis}"
+
+    return None
 
 
 def should_build_metric_comparisons(plan: RetrievalPlan) -> bool:
@@ -1486,6 +2046,10 @@ def vector_literal(values: list[float]) -> str:
 
 def _contains_any(text_value: str, terms: tuple[str, ...]) -> bool:
     return any(term in text_value for term in terms)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 def _elapsed_ms(started: float) -> float:

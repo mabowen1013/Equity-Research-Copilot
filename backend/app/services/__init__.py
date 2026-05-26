@@ -1,5 +1,10 @@
 """Business service package."""
 
+from app.services.answer_context import (
+    build_answer_evidence_context,
+    collect_answer_evidence_ids,
+    collect_evidence_pack_ids,
+)
 from app.services.company_lookup import (
     CompanyLookupError,
     CompanyLookupService,
@@ -92,6 +97,7 @@ from app.services.retrieval import (
     RetrievalService,
     build_final_evidence_pack,
     build_metric_comparisons,
+    select_evidence_spans_for_chunk,
     classify_fact_duration,
     metadata_boosts,
     metric_text_boosts,
@@ -122,6 +128,9 @@ from app.services.xbrl_metrics import (
 __all__ = [
     "CompanyLookupError",
     "CompanyLookupService",
+    "build_answer_evidence_context",
+    "collect_answer_evidence_ids",
+    "collect_evidence_pack_ids",
     "CHUNK_EMBEDDING_JOB_TYPE",
     "ChunkEmbeddingCompanyNotFoundError",
     "ChunkEmbeddingError",
@@ -193,6 +202,7 @@ __all__ = [
     "build_embedding_provider",
     "build_final_evidence_pack",
     "build_metric_comparisons",
+    "select_evidence_spans_for_chunk",
     "build_sec_filing_detail_url",
     "build_sec_primary_document_url",
     "build_sec_submissions_url",

@@ -1,6 +1,8 @@
 # Equity Research Copilot
 
-Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings, normalized XBRL financial metrics from SEC company facts, and M5A retrieval over filing chunks and XBRL facts.
+[中文版本](./README.zh-CN.md)
+
+Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings, normalized XBRL financial metrics from SEC company facts, chunk embeddings, semantic retrieval, metric-aware retrieval, and evidence packaging for downstream answer generation.
 
 This project is for research assistance only. It is not investment advice.
 
@@ -9,7 +11,7 @@ This project is for research assistance only. It is not investment advice.
 Implemented:
 
 - FastAPI backend and React frontend foundation.
-- PostgreSQL setup with Alembic migrations.
+- PostgreSQL setup with Alembic migrations and pgvector support.
 - Health checks, request logging, and environment configuration.
 - Job status tracking API.
 - SEC ticker to CIK/company lookup.
@@ -18,20 +20,24 @@ Implemented:
 - SEC request User-Agent, rate limiting, retry, and failure handling.
 - Filing HTML download through the project SEC client.
 - Raw and annotated filing document cache.
-- `sec2md` parsing for filing sections and chunks.
+- `sec2md` parsing for filing sections and page-aware chunks.
 - Filing Explorer UI for metadata ingestion, filing parsing, sections, chunks, and source links.
 - XBRL company facts loading for the v1 financial metric set.
 - Computed free cash flow and margin metrics with source traceability.
 - Metrics UI with unavailable states for missing facts.
-- Batch chunk embedding generation with versioned embedding inputs.
-- Dense retrieval, lexical retrieval, XBRL fact retrieval, rule-based query planning, RRF fusion, metadata reranking, and retrieval trace output.
+- Embedding provider interface and batch chunk embedding generation with versioned embedding inputs.
+- Dense retrieval, lexical retrieval, XBRL fact retrieval, rule-based query planning, optional LLM planner fallback, RRF fusion, metadata reranking, and retrieval trace output.
+- Final evidence pack selection with role-based chunk groups, selected evidence spans, metric comparisons, and stable evidence ids.
+- Developer/debug retrieval API and frontend Evidence Retrieval view.
+- Answer evidence context contract (`answer_evidence_context.v1`) for future answer service and validator integration.
+- Retrieval dump and gold-eval utilities.
 - Company, filing, parsing, metrics, embedding, retrieval, and job read APIs.
 
 Not implemented yet:
 
-- Citation-grounded Q&A and citation validation.
-- Advanced retrieval features such as LLM planner fallback, HNSW auto mode, MMR diversity, neighbor expansion, learned reranking, and frontend retrieval debug UI.
-- Frontend views for Q&A.
+- Citation-grounded answer generation and citation validation.
+- Frontend Q&A workflow that turns retrieved evidence into final answers.
+- Production retrieval optimizations such as HNSW auto mode, MMR diversity, neighbor expansion, learned reranking, and broader eval coverage.
 
 ## Prerequisites
 
@@ -42,6 +48,14 @@ Not implemented yet:
 ## Required Environment Variables
 
 Backend environment variables are loaded from `backend/.env`. Start from the example file:
+
+macOS/Linux:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Windows PowerShell:
 
 ```powershell
 Copy-Item backend/.env.example backend/.env
@@ -55,7 +69,7 @@ Required values:
 | `SEC_USER_AGENT` | Yes | User-Agent sent to SEC APIs. Include app name and contact email. |
 | `SEC_RATE_LIMIT_PER_SECOND` | No | SEC request limit. Defaults to `10`, the maximum allowed by the app configuration. |
 | `SEC_CACHE_TTL_SECONDS` | No | SEC JSON response cache TTL. Defaults to `86400` seconds. |
-| `OPENAI_API_KEY` | Yes for embeddings | OpenAI API key used by the default embedding provider. Retrieval can still degrade to lexical and XBRL facts without dense embeddings. |
+| `OPENAI_API_KEY` | Yes for embeddings and optional LLM planning | OpenAI API key used by the default embedding provider and by `rule_with_llm_fallback` query planning. Retrieval can still degrade to lexical and XBRL facts without dense embeddings. |
 | `EMBEDDING_PROVIDER` | No | Embedding provider. Defaults to `openai`. |
 | `EMBEDDING_MODEL` | No | Embedding model. Defaults to `text-embedding-3-small`. |
 | `EMBEDDING_DIMENSIONS` | No | Embedding vector dimensions. Defaults to `1536`. |
@@ -64,7 +78,11 @@ Required values:
 | `RETRIEVAL_DENSE_CANDIDATES` | No | Dense candidate budget. Defaults to `40`. |
 | `RETRIEVAL_LEXICAL_CANDIDATES` | No | Lexical candidate budget. Defaults to `40`. |
 | `RETRIEVAL_FACT_CANDIDATES` | No | XBRL fact candidate budget. Defaults to `20`. |
-| `RETRIEVAL_TOP_K` | No | Final chunk evidence count. Defaults to `10`. |
+| `RETRIEVAL_TOP_K` | No | Final chunk evidence count before evidence-pack selection. Defaults to `10`. |
+| `QUERY_PLANNER_MODE` | No | Query planner mode. Defaults to `rule_only`; use `rule_with_llm_fallback` to call the LLM only when the rule planner is low-confidence. |
+| `QUERY_PLANNER_LLM_MODEL` | No | Model used by the optional LLM planner fallback. Defaults to `gpt-4o-mini`. |
+| `QUERY_PLANNER_LLM_CONFIDENCE_THRESHOLD` | No | Confidence threshold below which the LLM fallback may run. Defaults to `0.75`. |
+| `QUERY_PLANNER_LLM_TIMEOUT_SECONDS` | No | Timeout for the optional LLM planner call. Defaults to `8`. |
 
 Example:
 
@@ -83,37 +101,55 @@ RETRIEVAL_DENSE_CANDIDATES=40
 RETRIEVAL_LEXICAL_CANDIDATES=40
 RETRIEVAL_FACT_CANDIDATES=20
 RETRIEVAL_TOP_K=10
+QUERY_PLANNER_MODE="rule_only"
+QUERY_PLANNER_LLM_MODEL="gpt-4o-mini"
+QUERY_PLANNER_LLM_CONFIDENCE_THRESHOLD=0.75
+QUERY_PLANNER_LLM_TIMEOUT_SECONDS=8
 ```
 
 ## Local Development
 
-Start PostgreSQL:
+Start PostgreSQL from the repository root:
 
-```powershell
+```bash
 docker compose -f compose.yaml up -d postgres
 ```
 
-Install backend dependencies:
+Install backend dependencies and start the API.
+
+macOS/Linux:
+
+```bash
+cd backend
+python3 -m venv .venv
+./.venv/bin/python -m pip install -e ".[dev]"
+./.venv/bin/alembic upgrade head
+./.venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Windows PowerShell:
 
 ```powershell
 Set-Location backend
-python -m venv .venv
+py -3 -m venv .venv
 .\.venv\Scripts\python -m pip install -e .[dev]
-```
-
-Run database migrations:
-
-```powershell
 .\.venv\Scripts\alembic upgrade head
-```
-
-Start the backend API:
-
-```powershell
 .\.venv\Scripts\uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In another terminal, install and start the frontend:
+If the Windows Python launcher is unavailable, replace `py -3` with `python`.
+
+In another terminal, install and start the frontend.
+
+macOS/Linux:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Windows PowerShell:
 
 ```powershell
 Set-Location frontend
@@ -121,29 +157,29 @@ npm install
 npm run dev
 ```
 
-The frontend dev server proxies `/health`, `/companies`, `/filings`, and `/jobs` to the backend at `http://127.0.0.1:8000`.
+The frontend dev server proxies `/health`, `/companies`, `/filings`, `/jobs`, and `/research` to the backend at `http://127.0.0.1:8000`.
 
 ## SEC Ingestion
 
-Start the backend first, then trigger ingestion from another PowerShell session.
+Start the backend first, then trigger ingestion from another terminal.
 
-Fetch fresh SEC metadata for Apple. Filing metadata ingestion bypasses the SEC response
-cache by default so newly accepted 10-K, 10-Q, and 8-K filings are picked up promptly:
+Fetch fresh SEC metadata for Apple. Filing metadata ingestion bypasses the SEC response cache by default so newly accepted `10-K`, `10-Q`, and `8-K` filings are picked up promptly.
+
+macOS/Linux:
+
+```bash
+JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/companies/AAPL/ingest" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+curl "http://127.0.0.1:8000/jobs/$JOB_ID"
+curl "http://127.0.0.1:8000/companies/AAPL"
+curl "http://127.0.0.1:8000/companies/AAPL/filings"
+curl "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K"
+```
+
+Windows PowerShell:
 
 ```powershell
 $job = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest"
-$job
-```
-
-Check the job status:
-
-```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($job.id)"
-```
-
-Read stored company metadata and filings:
-
-```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL"
 Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings"
 Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K"
@@ -151,22 +187,27 @@ Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K"
 
 Run the demo tickers:
 
+macOS/Linux:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
+curl -X POST "http://127.0.0.1:8000/companies/TSLA/ingest?refresh=true"
+curl -X POST "http://127.0.0.1:8000/companies/NVDA/ingest?refresh=true"
+```
+
+Windows PowerShell:
+
 ```powershell
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/TSLA/ingest?refresh=true"
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/NVDA/ingest?refresh=true"
 ```
 
-Pass `refresh=false` only when you intentionally want to reuse unexpired SEC response
-cache:
-
-```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=false"
-```
+Pass `refresh=false` only when you intentionally want to reuse unexpired SEC response cache.
 
 To inspect cached SEC responses directly:
 
-```powershell
+```bash
 docker exec -it equity_research_copilot_postgres psql -U equity_research -d equity_research_copilot
 ```
 
@@ -180,17 +221,23 @@ ORDER BY fetched_at DESC;
 
 Milestone 3 uses [`sec2md`](https://github.com/lucasastorian/sec2md) to convert filing HTML into clean markdown pages, extracted sections, and page-aware chunks. The app still downloads SEC documents through its own SEC client so User-Agent, retry, rate limiting, and failure handling remain centralized.
 
-Parse a stored filing after metadata ingestion:
+Parse a stored filing after metadata ingestion.
+
+macOS/Linux:
+
+```bash
+FILING_ID=$(curl -s "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K&limit=1" | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')
+PARSE_JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/filings/$FILING_ID/parse" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+curl "http://127.0.0.1:8000/jobs/$PARSE_JOB_ID"
+curl "http://127.0.0.1:8000/filings/$FILING_ID/sections"
+curl "http://127.0.0.1:8000/filings/$FILING_ID/chunks?limit=10"
+```
+
+Windows PowerShell:
 
 ```powershell
 $filings = Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K&limit=1"
 $parseJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/parse"
-$parseJob
-```
-
-Check parse status and read sections/chunks:
-
-```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($parseJob.id)"
 Invoke-RestMethod "http://127.0.0.1:8000/filings/$($filings[0].id)/sections"
 Invoke-RestMethod "http://127.0.0.1:8000/filings/$($filings[0].id)/chunks?limit=10"
@@ -198,38 +245,126 @@ Invoke-RestMethod "http://127.0.0.1:8000/filings/$($filings[0].id)/chunks?limit=
 
 Force a fresh filing HTML download and re-parse:
 
+macOS/Linux:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/filings/$FILING_ID/parse?refresh=true"
+```
+
+Windows PowerShell:
+
 ```powershell
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/parse?refresh=true"
 ```
 
-## Retrieval
+## Retrieval and Evidence
 
-Milestone 5A adds retrieval without answer generation. Generate embeddings after filings are parsed:
+Milestone 5 retrieval is implemented. The system can embed parsed filing chunks, retrieve relevant filing evidence for a user question, include metric-aware XBRL facts and comparisons, and return stable evidence ids for later answer generation and validation.
+
+Generate embeddings after filings are parsed:
+
+macOS/Linux:
+
+```bash
+EMBED_JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/companies/AAPL/embeddings/generate" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+curl "http://127.0.0.1:8000/jobs/$EMBED_JOB_ID"
+```
+
+Windows PowerShell:
 
 ```powershell
 $embedJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/embeddings/generate"
 Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($embedJob.id)"
 ```
 
-Call the retrieval debug API:
+Load XBRL metrics for metric-related questions:
 
-```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve" `
-  -ContentType "application/json" `
-  -Body '{"ticker":"AAPL","question":"What are Apple latest risk factors?"}'
+macOS/Linux:
+
+```bash
+METRICS_JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/companies/AAPL/metrics/load?refresh=false" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+curl "http://127.0.0.1:8000/jobs/$METRICS_JOB_ID"
 ```
 
-The full response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, and `retrieval_trace`. Ambiguous growth questions return comparison-basis metadata and multiple XBRL fact pairs, such as latest quarter YoY, YTD YoY, and FY YoY. Use the compact analysis view when inspecting retrieval from a terminal:
+Windows PowerShell:
+
+```powershell
+$metricsJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/metrics/load?refresh=false"
+Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($metricsJob.id)"
+```
+
+Call the retrieval API:
+
+macOS/Linux:
+
+```bash
+curl -s -X POST "http://127.0.0.1:8000/research/retrieve?view=analysis" \
+  -H "Content-Type: application/json" \
+  -d '{"ticker":"AAPL","question":"What drove Apple revenue growth?"}'
+```
+
+Windows PowerShell:
 
 ```powershell
 Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve?view=analysis" `
   -ContentType "application/json" `
-  -Body '{"ticker":"AAPL","question":"What are Apple latest risk factors?"}'
+  -Body '{"ticker":"AAPL","question":"What drove Apple revenue growth?"}'
 ```
 
-Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible.
+The full response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, `final_evidence_pack`, and `retrieval_trace`. The compact `view=analysis` response keeps the same diagnostic shape but trims long payloads for terminal inspection.
 
-The small M5A retrieval eval seed set lives at `backend/evals/m5a_retrieval_eval.json`.
+`final_evidence_pack` groups selected evidence into primary financial statement chunks, MD&A explanation chunks, segment or product breakdown chunks, annual context chunks, metric comparisons, and selected evidence spans. Spans are short excerpts selected from retrieved chunks because they are the most directly useful text for answering the question; they retain their source chunk evidence id, page metadata, SEC URL, and selection reasons.
+
+Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible. The frontend includes an Evidence Retrieval view for inspecting the same evidence pack, spans, facts, comparisons, and retrieval trace.
+
+## Evaluation Utilities
+
+Run the query planner eval from the repository root:
+
+macOS/Linux:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.evals.query_planner_eval
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "backend"
+backend\.venv\Scripts\python -m app.evals.query_planner_eval
+```
+
+Dump retrieval diagnostics for a question:
+
+macOS/Linux:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.evals.retrieval_dump AAPL "What drove Apple revenue growth?"
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "backend"
+backend\.venv\Scripts\python -m app.evals.retrieval_dump AAPL "What drove Apple revenue growth?"
+```
+
+Run the retrieval gold eval:
+
+macOS/Linux:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.evals.retrieval_gold_eval
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "backend"
+backend\.venv\Scripts\python -m app.evals.retrieval_gold_eval
+```
+
+The current gold eval seed set lives at `backend/evals/retrieval_gold_eval.json`. It is intentionally small and should be refreshed when chunking, SEC data, or local fixture filings change.
 
 ## API Endpoints
 
@@ -250,24 +385,51 @@ The small M5A retrieval eval seed set lives at `backend/evals/m5a_retrieval_eval
 - `GET /filings/{filing_id}/chunks?section_id=&limit=`
 - `GET /filings/{filing_id}/chunks/{chunk_id}/source`
 - `POST /research/retrieve`
+- `POST /research/retrieve?view=analysis`
 
 ## Verification
 
-Backend tests:
+Backend tests.
+
+macOS/Linux:
+
+```bash
+cd backend
+./.venv/bin/python -m pytest
+```
+
+Windows PowerShell:
 
 ```powershell
 Set-Location backend
 .\.venv\Scripts\python -m pytest
 ```
 
-Frontend build:
+Frontend build.
+
+macOS/Linux:
+
+```bash
+cd frontend
+npm run build
+```
+
+Windows PowerShell:
 
 ```powershell
 Set-Location frontend
 npm run build
 ```
 
-Health check:
+Health check.
+
+macOS/Linux:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Windows PowerShell:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
@@ -275,12 +437,13 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ## Data Limitations
 
-- The system currently stores SEC filing metadata, raw filing HTML, parsed section markdown, and document chunks.
+- The system currently stores SEC filing metadata, raw filing HTML, parsed section markdown, document chunks, chunk embeddings, XBRL facts, computed metrics, and retrieval evidence diagnostics.
 - SEC data can be delayed, amended, incomplete, or inconsistent across forms and companies.
 - Filing date and report date are different concepts and should not be treated as interchangeable.
-- M3 parses the primary SEC HTML document only; 8-K exhibit files are not downloaded as separate documents yet.
+- M3 parses the primary SEC HTML document only; `8-K` exhibit files are not downloaded as separate documents yet.
 - `sec2md` only supports HTML input. PDF or non-HTML primary documents are marked as parse failures.
 - Chunk highlighted-source pages are generated dynamically from stored annotated HTML and chunk element ids.
 - XBRL metrics use a conservative US-GAAP tag mapping. Missing metrics are shown as unavailable rather than guessed.
-- M5A retrieval is deterministic and does not use an LLM planner. LLM planner fallback, HNSW auto mode, and advanced reranking are deferred until eval and latency data justify them.
-- Later milestones will add citations, answer generation, and answer validation.
+- Milestone 5 returns evidence, facts, spans, comparisons, and trace data. It does not generate final natural-language answers yet.
+- The LLM query planner fallback is optional and disabled by default. It may improve ambiguous questions but adds external API latency and cost.
+- HNSW auto mode, learned reranking, larger eval coverage, answer generation, and citation validation are deferred to later milestones.

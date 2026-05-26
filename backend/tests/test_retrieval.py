@@ -22,7 +22,9 @@ from app.services.retrieval import (
     evidence_pack_comparison_limit,
     effective_form_types,
     form_priority_boost,
+    latest_filing_scope_reason,
     make_snippet,
+    select_evidence_spans_for_chunk,
     should_warn_empty_evidence_pack,
     weighted_rrf_sources,
 )
@@ -407,6 +409,45 @@ def test_chunk_filter_request_form_overrides_planner_forms() -> None:
     assert effective_form_types(request, plan) == ["10-K"]
     assert "AND dc.form_type = :filter_form_type" in sql
     assert params["filter_form_type"] == "10-K"
+
+
+def test_chunk_filter_can_pin_latest_filing_date() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "forms": ["10-Q"],
+        }
+    )
+    latest_filing_date = datetime(2026, 5, 1, tzinfo=UTC).date()
+    request = RetrievalRequest(ticker="AAPL", question="Why did revenue grow last quarter?")
+    params: dict[str, object] = {}
+
+    sql = build_chunk_filter_sql(
+        request,
+        params,
+        plan=plan,
+        latest_filing_date=latest_filing_date,
+    )
+
+    assert "AND dc.form_type = :filter_form_type" in sql
+    assert "AND dc.filing_date = :latest_filing_date" in sql
+    assert params["latest_filing_date"] == latest_filing_date
+
+
+def test_latest_filing_scope_applies_to_explicit_latest_quarter_basis() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "comparison_basis": "latest_quarter_yoy",
+            "comparison_candidates": ["latest_quarter_yoy"],
+        }
+    )
+
+    assert latest_filing_scope_reason(plan) == "comparison_basis:latest_quarter_yoy"
+
+
+def test_latest_filing_scope_does_not_apply_to_ambiguous_trend() -> None:
+    assert latest_filing_scope_reason(make_metric_plan()) is None
 
 
 def test_empty_metric_evidence_pack_is_warning_condition() -> None:
@@ -878,7 +919,58 @@ def test_final_evidence_pack_uses_role_quotas_for_metric_performance() -> None:
     assert [chunk.chunk_id for chunk in pack.mda_explanation_chunks] == [103, 104]
     assert [chunk.chunk_id for chunk in pack.segment_or_product_breakdown_chunks] == [102]
     assert pack.annual_context_chunks == []
+    assert [span.chunk_id for span in pack.primary_financial_statement_spans] == [101]
+    assert pack.primary_financial_statement_spans[0].support_kind == "statement_value"
+    assert [span.chunk_id for span in pack.mda_explanation_spans] == [103, 104]
+    assert pack.mda_explanation_spans[0].support_kind == "metric_driver"
+    assert [span.chunk_id for span in pack.segment_or_product_breakdown_spans] == [102]
     assert trace["chunk_quotas"]["annual_context_chunks"] == 0
+    assert trace["selected_spans"]["mda_explanation_chunks"]
+
+
+def test_evidence_span_selector_prefers_metric_driver_sentence() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "target_sections": ["Management's Discussion and Analysis"],
+            "comparison_basis": "latest_quarter_yoy",
+            "comparison_candidates": ["latest_quarter_yoy"],
+        }
+    )
+    chunk = make_chunk_read(
+        make_chunk(
+            chunk_id=150,
+            section="PART I - ITEM 2 - Management’s Discussion and Analysis",
+            form_type="10-Q",
+            text=(
+                "The company discusses many topics. "
+                "Net sales increased 17% compared to the prior year primarily due to "
+                "higher Services and iPhone net sales. "
+                "Other administrative updates were not material."
+            ),
+        ),
+        score=0.42,
+    )
+
+    spans = select_evidence_spans_for_chunk(
+        chunk,
+        "mda_explanation_chunks",
+        plan,
+        chunk_text_by_id={
+            chunk.chunk_id: (
+                "The company discusses many topics. "
+                "Net sales increased 17% compared to the prior year primarily due to "
+                "higher Services and iPhone net sales. "
+                "Other administrative updates were not material."
+            )
+        },
+    )
+
+    assert spans
+    assert "Net sales increased 17%" in spans[0].text
+    assert spans[0].support_kind == "metric_driver"
+    assert "explanatory_language" in spans[0].reasons
+    assert "numeric_value" in spans[0].reasons
 
 
 def test_final_evidence_pack_includes_annual_context_for_ambiguous_trend() -> None:

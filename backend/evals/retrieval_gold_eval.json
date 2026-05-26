@@ -1,0 +1,65 @@
+{
+  "suite_name": "retrieval_gold_eval",
+  "description": "Small Milestone 5 regression set. Evidence ids were seeded from the local AAPL 2026-05-01 10-Q retrieval dump; refresh ids after reingesting filings or changing chunking.",
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "aapl_latest_10q_summary_core_pack",
+      "ticker": "AAPL",
+      "question": "Tell me what matters in Apple's latest 10-Q.",
+      "min_recall": 0.6,
+      "expected_evidence_ids": [
+        "chunk:1252",
+        "chunk:1279",
+        "span:1252:primary_financial_statement_chunks:0:679",
+        "span:1279:mda_explanation_chunks:966:1052",
+        "span:1280:segment_or_product_breakdown_chunks:437:1323"
+      ]
+    },
+    {
+      "id": "aapl_latest_revenue_drivers",
+      "ticker": "AAPL",
+      "question": "Why did Apple's revenue increase in the latest quarter?",
+      "min_recall": 0.6,
+      "expected_evidence_ids": [
+        "chunk:1279",
+        "span:1279:mda_explanation_chunks:833:965",
+        "span:1279:mda_explanation_chunks:966:1052"
+      ]
+    },
+    {
+      "id": "aapl_latest_segment_sales",
+      "ticker": "AAPL",
+      "question": "Which geographies drove Apple's latest net sales?",
+      "min_recall": 0.5,
+      "expected_evidence_ids": [
+        "chunk:1277",
+        "span:1277:mda_explanation_chunks:904:1005",
+        "span:1277:mda_explanation_chunks:1603:1709"
+      ]
+    },
+    {
+      "id": "aapl_latest_product_sales",
+      "ticker": "AAPL",
+      "question": "Which product categories drove Apple's latest net sales?",
+      "min_recall": 0.5,
+      "expected_evidence_ids": [
+        "chunk:1279",
+        "span:1279:mda_explanation_chunks:833:965",
+        "span:1279:mda_explanation_chunks:966:1052"
+      ]
+    },
+    {
+      "id": "aapl_latest_financial_statement_evidence",
+      "ticker": "AAPL",
+      "question": "Show Apple's latest income statement evidence for revenue and profitability.",
+      "min_recall": 0.5,
+      "expected_evidence_ids": [
+        "chunk:1252",
+        "chunk:1258",
+        "span:1252:primary_financial_statement_chunks:0:679",
+        "span:1252:primary_financial_statement_chunks:680:1333"
+      ]
+    }
+  ]
+}

@@ -546,6 +546,7 @@ h3 {
 
 .pill-row div,
 .evidence-meta,
+.evidence-reasons,
 .trace-warning-list {
   display: flex;
   flex-wrap: wrap;
@@ -554,6 +555,7 @@ h3 {
 
 .pill-row small,
 .evidence-meta span,
+.evidence-reasons span,
 .trace-warning-list span {
   border-radius: 999px;
   background: #edf2f7;
@@ -582,7 +584,8 @@ h3 {
 }
 
 .comparison-card,
-.evidence-card {
+.evidence-card,
+.evidence-span-card {
   min-width: 0;
   border: 1px solid #e3e9f0;
   border-radius: 8px;
@@ -612,6 +615,11 @@ h3 {
   font-size: 1rem;
 }
 
+.evidence-span-card {
+  border-color: #b8c7d9;
+  background: #f4f8fc;
+}
+
 .comparison-card p,
 .comparison-card small {
   margin: 4px 0 0;
@@ -637,10 +645,20 @@ h3 {
   font-size: 0.86rem;
 }
 
-.evidence-card p {
+.evidence-card p,
+.evidence-span-card p {
   margin: 8px 0;
   color: #334155;
   font-size: 0.86rem;
+}
+
+.evidence-reasons {
+  margin-top: 8px;
+}
+
+.evidence-reasons span {
+  background: #e8f1fb;
+  color: #2459b3;
 }
 
 .evidence-card a {

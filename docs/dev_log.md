@@ -66,7 +66,7 @@
 - 新增M5A小型eval seed set，并补充相关后端测试
 
 # 2026/5/22
-- 让GPT给我模拟生成了很多可能出现的模糊query，一个个输入，观察得到的facts和chunks，如果效果不佳，就寻找问题并进行修改。
+- 让GPT模拟生成了很多可能出现的模糊query，一个个输入，观察得到的facts和chunks，如果效果不佳，就寻找问题并进行修改。
 - 累死了，代码被修改的一塌糊涂，想当笨重，这完全不是真正的解决方式。
 - 决定把query_planner代码架构修改成：Rule-based + LLM fallback + validation
 - 保留目前被修改的一塌糊涂的代码，毕竟虽然难看，但还是强行处理了很多可能的query。
@@ -82,7 +82,6 @@
     - PlanValidator
 
 # 2026/5/24
-- 地狱一般的体验。
 - 大幅度修改query_planner.py
 - 优化query -> dense query部分
     - 有些query本身太过于模糊，直接做embedding没有意义
@@ -92,3 +91,5 @@
 - 加入LLM fallback
     - 如果confidence低于0.75，使用LLM分析query question。
 - 添加 evaluation set，对query planner进行performance evaluation，如果expected和代码分析出来的一致，计算通过。
+- 加入中文版README
+- 对于明确”时间点“的query，为了防止选取chunk的时候把不同时间点的file chunk也选进来，在retrieval.py添加过滤层

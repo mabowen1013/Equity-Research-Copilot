@@ -62,6 +62,27 @@ class RetrievedChunkRead(BaseModel):
     has_table: bool
 
 
+class EvidenceSpanRead(BaseModel):
+    evidence_id: str
+    type: Literal["evidence_span"] = "evidence_span"
+    chunk_id: int
+    source_chunk_evidence_id: str
+    role: str
+    score: float
+    support_kind: str
+    text: str
+    start_char: int | None = None
+    end_char: int | None = None
+    reasons: list[str] = Field(default_factory=list)
+    form_type: str
+    filing_date: date
+    section_label: str
+    sec_url: str
+    accession_number: str
+    start_page: int | None
+    end_page: int | None
+
+
 class RetrievedFinancialFactRead(BaseModel):
     evidence_id: str
     type: Literal["financial_fact"] = "financial_fact"
@@ -132,6 +153,10 @@ class EvidencePackRead(BaseModel):
     mda_explanation_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
     segment_or_product_breakdown_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
     annual_context_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
+    primary_financial_statement_spans: list[EvidenceSpanRead] = Field(default_factory=list)
+    mda_explanation_spans: list[EvidenceSpanRead] = Field(default_factory=list)
+    segment_or_product_breakdown_spans: list[EvidenceSpanRead] = Field(default_factory=list)
+    annual_context_spans: list[EvidenceSpanRead] = Field(default_factory=list)
 
 
 class RetrievalResponse(BaseModel):
@@ -206,12 +231,34 @@ class RetrievalAnalysisComparisonRead(BaseModel):
         return format(value, "f")
 
 
+class RetrievalAnalysisEvidenceSpanRead(BaseModel):
+    evidence_id: str
+    chunk_id: int
+    source_chunk_evidence_id: str
+    role: str
+    score: float
+    support_kind: str
+    text: str
+    start_char: int | None = None
+    end_char: int | None = None
+    reasons: list[str] = Field(default_factory=list)
+    form_type: str
+    filing_date: date
+    section_label: str
+    pages: str | None
+    sec_url: str
+
+
 class RetrievalAnalysisEvidencePackRead(BaseModel):
     metric_comparisons: list[RetrievalAnalysisComparisonRead] = Field(default_factory=list)
     primary_financial_statement_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     mda_explanation_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     segment_or_product_breakdown_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     annual_context_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
+    primary_financial_statement_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
+    mda_explanation_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
+    segment_or_product_breakdown_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
+    annual_context_spans: list[RetrievalAnalysisEvidenceSpanRead] = Field(default_factory=list)
 
 
 class RetrievalAnalysisTraceRead(BaseModel):

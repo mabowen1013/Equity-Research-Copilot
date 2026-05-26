@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from app.core import Settings
 from app.models import ChunkEmbedding, Company, DocumentChunk
-from app.services import ChunkEmbeddingService, build_chunk_embedding_input
+from app.services import ChunkEmbeddingError, ChunkEmbeddingService, build_chunk_embedding_input
 
 NOW = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
 
@@ -130,6 +132,18 @@ def test_embedding_generation_skips_unchanged_chunks() -> None:
     assert result.embedded_count == 0
     assert result.stale_updated_count == 0
     assert provider.calls == []
+
+
+def test_embedding_generation_requires_parsed_chunks() -> None:
+    service = ChunkEmbeddingService(
+        FakeSession(chunks=[], embeddings=[]),
+        settings=make_settings(),
+        provider=FakeProvider(),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(ChunkEmbeddingError, match="No parsed document chunks"):
+        service.generate_company_embeddings(make_company())
 
 
 def test_embedding_generation_updates_stale_embedding() -> None:
