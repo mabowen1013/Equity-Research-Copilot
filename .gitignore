@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.venv/
+.cache/
+
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
