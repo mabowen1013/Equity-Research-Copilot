@@ -880,6 +880,11 @@ function ResearchPage({
           spans: result.final_evidence_pack.segment_or_product_breakdown_spans,
         },
         {
+          title: "Risk Factors",
+          chunks: result.final_evidence_pack.risk_factor_chunks,
+          spans: result.final_evidence_pack.risk_factor_spans,
+        },
+        {
           title: "Annual Context",
           chunks: result.final_evidence_pack.annual_context_chunks,
           spans: result.final_evidence_pack.annual_context_spans,

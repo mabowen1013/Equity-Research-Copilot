@@ -213,10 +213,12 @@ export type RetrievalAnalysisResponse = {
     primary_financial_statement_chunks: RetrievalAnalysisChunk[];
     mda_explanation_chunks: RetrievalAnalysisChunk[];
     segment_or_product_breakdown_chunks: RetrievalAnalysisChunk[];
+    risk_factor_chunks: RetrievalAnalysisChunk[];
     annual_context_chunks: RetrievalAnalysisChunk[];
     primary_financial_statement_spans: RetrievalAnalysisSpan[];
     mda_explanation_spans: RetrievalAnalysisSpan[];
     segment_or_product_breakdown_spans: RetrievalAnalysisSpan[];
+    risk_factor_spans: RetrievalAnalysisSpan[];
     annual_context_spans: RetrievalAnalysisSpan[];
   };
   top_chunks: RetrievalAnalysisChunk[];
