@@ -64,6 +64,10 @@ def build_analysis_response(response: RetrievalResponse) -> RetrievalAnalysisRes
                 build_analysis_chunk(chunk)
                 for chunk in response.final_evidence_pack.segment_or_product_breakdown_chunks
             ],
+            "risk_factor_chunks": [
+                build_analysis_chunk(chunk)
+                for chunk in response.final_evidence_pack.risk_factor_chunks
+            ],
             "annual_context_chunks": [
                 build_analysis_chunk(chunk)
                 for chunk in response.final_evidence_pack.annual_context_chunks
@@ -79,6 +83,10 @@ def build_analysis_response(response: RetrievalResponse) -> RetrievalAnalysisRes
             "segment_or_product_breakdown_spans": [
                 build_analysis_span(span)
                 for span in response.final_evidence_pack.segment_or_product_breakdown_spans
+            ],
+            "risk_factor_spans": [
+                build_analysis_span(span)
+                for span in response.final_evidence_pack.risk_factor_spans
             ],
             "annual_context_spans": [
                 build_analysis_span(span)

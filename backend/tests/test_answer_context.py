@@ -42,6 +42,38 @@ def test_collect_answer_evidence_ids_dedupes_pack_and_fact_ids() -> None:
     ]
 
 
+def test_collect_answer_evidence_ids_includes_risk_factor_pack_ids() -> None:
+    response = make_response()
+    risk_chunk = response.final_evidence_pack.primary_financial_statement_chunks[0].model_copy(
+        update={
+            "evidence_id": "chunk:202",
+            "chunk_id": 202,
+            "section_label": "PART I - ITEM 1A - Risk Factors",
+            "has_table": False,
+        }
+    )
+    risk_span = response.final_evidence_pack.primary_financial_statement_spans[0].model_copy(
+        update={
+            "evidence_id": "span:202:risk_factor_chunks:0:80",
+            "chunk_id": 202,
+            "source_chunk_evidence_id": "chunk:202",
+            "role": "risk_factor_chunks",
+            "support_kind": "risk_factor",
+            "section_label": "PART I - ITEM 1A - Risk Factors",
+        }
+    )
+    response.final_evidence_pack = EvidencePackRead(
+        risk_factor_chunks=[risk_chunk],
+        risk_factor_spans=[risk_span],
+    )
+    response.retrieved_facts = []
+
+    assert collect_answer_evidence_ids(response) == [
+        "chunk:202",
+        "span:202:risk_factor_chunks:0:80",
+    ]
+
+
 def make_response() -> RetrievalResponse:
     chunk = RetrievedChunkRead(
         evidence_id="chunk:101",

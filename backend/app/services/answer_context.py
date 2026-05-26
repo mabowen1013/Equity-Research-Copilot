@@ -37,10 +37,12 @@ def collect_evidence_pack_ids(pack: EvidencePackRead) -> list[str]:
         *(chunk.evidence_id for chunk in pack.primary_financial_statement_chunks),
         *(chunk.evidence_id for chunk in pack.mda_explanation_chunks),
         *(chunk.evidence_id for chunk in pack.segment_or_product_breakdown_chunks),
+        *(chunk.evidence_id for chunk in pack.risk_factor_chunks),
         *(chunk.evidence_id for chunk in pack.annual_context_chunks),
         *(span.evidence_id for span in pack.primary_financial_statement_spans),
         *(span.evidence_id for span in pack.mda_explanation_spans),
         *(span.evidence_id for span in pack.segment_or_product_breakdown_spans),
+        *(span.evidence_id for span in pack.risk_factor_spans),
         *(span.evidence_id for span in pack.annual_context_spans),
     ]
     return list(dict.fromkeys(ids))

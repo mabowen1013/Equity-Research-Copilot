@@ -456,11 +456,12 @@ def test_empty_metric_evidence_pack_is_warning_condition() -> None:
         primary_financial_statement_chunks=[],
         mda_explanation_chunks=[],
         segment_or_product_breakdown_chunks=[],
+        risk_factor_chunks=[],
         annual_context_chunks=[],
     )
 
     assert should_warn_empty_evidence_pack(make_metric_plan(), empty_pack)
-    assert not should_warn_empty_evidence_pack(make_plan(), empty_pack)
+    assert should_warn_empty_evidence_pack(make_plan(), empty_pack)
 
 
 def test_build_metric_comparisons_returns_quarter_ytd_and_fy_pairs_for_ambiguous_growth() -> None:
@@ -917,15 +918,113 @@ def test_final_evidence_pack_uses_role_quotas_for_metric_performance() -> None:
     ]
     assert [chunk.chunk_id for chunk in pack.primary_financial_statement_chunks] == [101]
     assert [chunk.chunk_id for chunk in pack.mda_explanation_chunks] == [103, 104]
-    assert [chunk.chunk_id for chunk in pack.segment_or_product_breakdown_chunks] == [102]
+    assert [chunk.chunk_id for chunk in pack.segment_or_product_breakdown_chunks] == [102, 104]
     assert pack.annual_context_chunks == []
     assert [span.chunk_id for span in pack.primary_financial_statement_spans] == [101]
     assert pack.primary_financial_statement_spans[0].support_kind == "statement_value"
     assert [span.chunk_id for span in pack.mda_explanation_spans] == [103, 104]
     assert pack.mda_explanation_spans[0].support_kind == "metric_driver"
-    assert [span.chunk_id for span in pack.segment_or_product_breakdown_spans] == [102]
+    assert [span.chunk_id for span in pack.segment_or_product_breakdown_spans] == [102, 104]
     assert trace["chunk_quotas"]["annual_context_chunks"] == 0
     assert trace["selected_spans"]["mda_explanation_chunks"]
+
+
+def test_final_evidence_pack_includes_risk_chunks_without_metrics() -> None:
+    risk_chunk = make_chunk(
+        chunk_id=130,
+        section="PART I - ITEM 1A - Risk Factors",
+        text=(
+            "The Company faces intense competition and macroeconomic conditions "
+            "could adversely affect its business, results of operations, and financial condition."
+        ),
+    )
+
+    pack, trace = build_final_evidence_pack(
+        [make_chunk_read(risk_chunk, score=0.52)],
+        [],
+        make_plan(),
+    )
+
+    assert [chunk.chunk_id for chunk in pack.risk_factor_chunks] == [130]
+    assert [span.chunk_id for span in pack.risk_factor_spans] == [130]
+    assert pack.risk_factor_spans[0].support_kind == "risk_factor"
+    assert "risk_factor_chunks" in trace["candidate_roles"]
+    assert trace["selected"]["risk_factor_chunks"] == ["chunk:130"]
+
+
+def test_final_evidence_pack_detects_risk_chunks_from_text_when_label_is_noisy() -> None:
+    risk_chunk = make_chunk(
+        chunk_id=132,
+        section="PART I - ITEM 2 - Other Information",
+        text=(
+            "Risk Factors The Company's international operations are subject to "
+            "macroeconomic and geopolitical risks that could adversely affect demand."
+        ),
+    )
+
+    pack, _ = build_final_evidence_pack(
+        [make_chunk_read(risk_chunk, score=0.50)],
+        [],
+        make_plan(),
+        chunk_text_by_id={risk_chunk.id: risk_chunk.chunk_text},
+    )
+
+    assert [chunk.chunk_id for chunk in pack.risk_factor_chunks] == [132]
+    assert [span.chunk_id for span in pack.risk_factor_spans] == [132]
+
+
+def test_final_evidence_pack_reuses_chunk_for_multiple_roles_when_needed() -> None:
+    combined_chunk = make_chunk(
+        chunk_id=131,
+        section="PART I - ITEM 1 - Financial Statements",
+        text=(
+            "CONDENSED CONSOLIDATED STATEMENTS OF OPERATIONS Total net sales $111,184.\n"
+            "Products and Services Performance by category includes iPhone net sales, "
+            "Services net sales, Americas, Europe, and Greater China."
+        ),
+        has_table=True,
+    )
+
+    pack, _ = build_final_evidence_pack(
+        [make_chunk_read(combined_chunk, score=0.52)],
+        [],
+        make_broad_comparison_plan(),
+    )
+
+    assert [chunk.chunk_id for chunk in pack.primary_financial_statement_chunks] == [131]
+    assert [chunk.chunk_id for chunk in pack.segment_or_product_breakdown_chunks] == [131]
+    assert pack.segment_or_product_breakdown_spans
+
+
+def test_prose_role_span_thresholds_allow_non_numeric_breakdown_evidence() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "question_type": "broad_comparison",
+            "target_sections": ["Management's Discussion and Analysis"],
+            "evidence_roles": ["segment_or_product_breakdown_chunks"],
+        }
+    )
+    text = "Products and Services Performance by category includes iPhone and Mac."
+    chunk = make_chunk_read(
+        make_chunk(
+            chunk_id=133,
+            section="PART I - ITEM 2 - Management’s Discussion and Analysis",
+            text=text,
+        ),
+        score=0.41,
+    )
+
+    spans = select_evidence_spans_for_chunk(
+        chunk,
+        "segment_or_product_breakdown_chunks",
+        plan,
+        chunk_text_by_id={chunk.chunk_id: text},
+    )
+
+    assert spans
+    assert spans[0].score < 0.28
+    assert "segment_or_product_context" in spans[0].reasons
 
 
 def test_evidence_span_selector_prefers_metric_driver_sentence() -> None:
