@@ -52,6 +52,13 @@ EVIDENCE_PACK_CHUNK_ROLE_ORDER = tuple(EVIDENCE_PACK_CHUNK_QUOTAS)
 MAX_EVIDENCE_SPAN_CHARS = 700
 MAX_EVIDENCE_SPANS_PER_CHUNK_ROLE = 2
 MIN_EVIDENCE_SPAN_SCORE = 0.28
+ROLE_MIN_EVIDENCE_SPAN_SCORE = {
+    "primary_financial_statement_chunks": 0.28,
+    "mda_explanation_chunks": 0.22,
+    "segment_or_product_breakdown_chunks": 0.22,
+    "risk_factor_chunks": 0.20,
+    "annual_context_chunks": 0.20,
+}
 LATEST_FILING_COMPARISON_BASES = {
     "latest_quarter_yoy",
     "latest_ytd_yoy",
@@ -964,13 +971,14 @@ def select_evidence_spans_for_chunk(
     )
     candidates: list[tuple[float, int, EvidenceTextUnit, list[str], str]] = []
     seen_units: set[str] = set()
+    min_score = ROLE_MIN_EVIDENCE_SPAN_SCORE.get(role, MIN_EVIDENCE_SPAN_SCORE)
     for unit in split_evidence_units(text_value):
         key = evidence_span_text_key(unit.text)
         if key in seen_units:
             continue
         seen_units.add(key)
         score, reasons, support_kind = score_evidence_text_unit(unit.text, chunk, role, plan)
-        if score < MIN_EVIDENCE_SPAN_SCORE:
+        if score < min_score:
             continue
         candidates.append(
             (score, -(unit.end_char - unit.start_char), unit, reasons, support_kind)
@@ -1343,6 +1351,18 @@ def has_risk_factor_language(text_value: str) -> bool:
     )
 
 
+def has_strong_risk_factor_signal(text_value: str) -> bool:
+    return _contains_any(
+        text_value,
+        (
+            "risk factors",
+            "item 1a",
+            "could adversely affect",
+            "material adverse",
+        ),
+    )
+
+
 def normalize_evidence_span_text(text_value: str) -> str:
     return " ".join(text_value.split())
 
@@ -1671,7 +1691,7 @@ def classify_evidence_roles(
         chunk,
         chunk_text_by_id=chunk_text_by_id,
     )
-    risk_factor = is_risk_factor_chunk(chunk)
+    risk_factor = is_risk_factor_chunk(chunk, chunk_text_by_id=chunk_text_by_id)
 
     if (
         primary_statement
@@ -1743,7 +1763,7 @@ def evidence_role_score(
         if chunk.has_table:
             score += 0.02
     if role == "risk_factor_chunks":
-        if is_risk_factor_chunk(chunk):
+        if is_risk_factor_chunk(chunk, chunk_text_by_id=chunk_text_by_id):
             score += 0.08
         if has_risk_factor_language(text_value):
             score += 0.05
@@ -1803,8 +1823,17 @@ def is_mda_chunk(chunk: RetrievedChunkRead) -> bool:
     )
 
 
-def is_risk_factor_chunk(chunk: RetrievedChunkRead) -> bool:
-    return is_risk_section_text(normalize_match_text(chunk.section_label))
+def is_risk_factor_chunk(
+    chunk: RetrievedChunkRead,
+    *,
+    chunk_text_by_id: dict[int, str] | None = None,
+) -> bool:
+    section_label = normalize_match_text(chunk.section_label)
+    text_value = normalized_evidence_text(chunk, chunk_text_by_id=chunk_text_by_id)
+    return is_risk_section_text(section_label) or (
+        has_risk_factor_language(text_value)
+        and has_strong_risk_factor_signal(text_value)
+    )
 
 
 def is_risk_section_text(section_label: str) -> bool:

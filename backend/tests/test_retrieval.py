@@ -952,6 +952,27 @@ def test_final_evidence_pack_includes_risk_chunks_without_metrics() -> None:
     assert trace["selected"]["risk_factor_chunks"] == ["chunk:130"]
 
 
+def test_final_evidence_pack_detects_risk_chunks_from_text_when_label_is_noisy() -> None:
+    risk_chunk = make_chunk(
+        chunk_id=132,
+        section="PART I - ITEM 2 - Other Information",
+        text=(
+            "Risk Factors The Company's international operations are subject to "
+            "macroeconomic and geopolitical risks that could adversely affect demand."
+        ),
+    )
+
+    pack, _ = build_final_evidence_pack(
+        [make_chunk_read(risk_chunk, score=0.50)],
+        [],
+        make_plan(),
+        chunk_text_by_id={risk_chunk.id: risk_chunk.chunk_text},
+    )
+
+    assert [chunk.chunk_id for chunk in pack.risk_factor_chunks] == [132]
+    assert [span.chunk_id for span in pack.risk_factor_spans] == [132]
+
+
 def test_final_evidence_pack_reuses_chunk_for_multiple_roles_when_needed() -> None:
     combined_chunk = make_chunk(
         chunk_id=131,
@@ -973,6 +994,37 @@ def test_final_evidence_pack_reuses_chunk_for_multiple_roles_when_needed() -> No
     assert [chunk.chunk_id for chunk in pack.primary_financial_statement_chunks] == [131]
     assert [chunk.chunk_id for chunk in pack.segment_or_product_breakdown_chunks] == [131]
     assert pack.segment_or_product_breakdown_spans
+
+
+def test_prose_role_span_thresholds_allow_non_numeric_breakdown_evidence() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "question_type": "broad_comparison",
+            "target_sections": ["Management's Discussion and Analysis"],
+            "evidence_roles": ["segment_or_product_breakdown_chunks"],
+        }
+    )
+    text = "Products and Services Performance by category includes iPhone and Mac."
+    chunk = make_chunk_read(
+        make_chunk(
+            chunk_id=133,
+            section="PART I - ITEM 2 - Management’s Discussion and Analysis",
+            text=text,
+        ),
+        score=0.41,
+    )
+
+    spans = select_evidence_spans_for_chunk(
+        chunk,
+        "segment_or_product_breakdown_chunks",
+        plan,
+        chunk_text_by_id={chunk.chunk_id: text},
+    )
+
+    assert spans
+    assert spans[0].score < 0.28
+    assert "segment_or_product_context" in spans[0].reasons
 
 
 def test_evidence_span_selector_prefers_metric_driver_sentence() -> None:
