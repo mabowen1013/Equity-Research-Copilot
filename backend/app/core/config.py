@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     query_planner_llm_model: str = "gpt-4o-mini"
     query_planner_llm_confidence_threshold: float = Field(default=0.75, ge=0, le=1)
     query_planner_llm_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    answer_llm_model: str = "gpt-4o-mini"
+    answer_llm_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

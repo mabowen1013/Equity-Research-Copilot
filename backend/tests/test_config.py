@@ -48,6 +48,8 @@ def test_settings_default_sec_rate_limit_and_cache_ttl(monkeypatch) -> None:
     assert settings.query_planner_llm_model == "gpt-4o-mini"
     assert settings.query_planner_llm_confidence_threshold == 0.75
     assert settings.query_planner_llm_timeout_seconds == 8.0
+    assert settings.answer_llm_model == "gpt-4o-mini"
+    assert settings.answer_llm_timeout_seconds == 20.0
 
 
 def test_required_sec_user_agent_returns_trimmed_value() -> None:

@@ -43,10 +43,35 @@ def fact(
     }
 
 
+def instant_fact(
+    val: int | float,
+    *,
+    accn: str = "0000320193-24-000123",
+    end: str = "2024-09-28",
+    fy: int = 2024,
+    fp: str = "FY",
+    form: str = "10-K",
+    filed: str = "2024-11-01",
+) -> dict:
+    return {
+        "end": end,
+        "val": val,
+        "accn": accn,
+        "fy": fy,
+        "fp": fp,
+        "form": form,
+        "filed": filed,
+    }
+
+
 def company_facts_payload(*, capex: int = 80, revenue: int = 1000) -> dict:
     return {
         "facts": {
             "us-gaap": {
+                "CashAndCashEquivalentsAtCarryingValue": {
+                    "label": "Cash and Cash Equivalents",
+                    "units": {"USD": [instant_fact(500)]},
+                },
                 "RevenueFromContractWithCustomerExcludingAssessedTax": {
                     "label": "Revenue from Contract",
                     "units": {"USD": [fact(revenue)]},
@@ -190,6 +215,7 @@ def test_normalize_company_facts_selects_core_metrics_and_computes_ratios() -> N
     metrics = metric_map(facts)
 
     assert set(metrics) == {
+        "cash_and_cash_equivalents",
         "revenue",
         "gross_profit",
         "operating_income",
@@ -201,6 +227,11 @@ def test_normalize_company_facts_selects_core_metrics_and_computes_ratios() -> N
         "operating_margin",
         "net_margin",
     }
+    assert metrics["cash_and_cash_equivalents"][0].value == Decimal("500")
+    assert metrics["cash_and_cash_equivalents"][0].period_start is None
+    assert metrics["cash_and_cash_equivalents"][0].taxonomy_tag.endswith(
+        "CashAndCashEquivalentsAtCarryingValue"
+    )
     assert metrics["revenue"][0].value == Decimal("1000")
     assert metrics["revenue"][0].taxonomy_tag.endswith(
         "RevenueFromContractWithCustomerExcludingAssessedTax"
@@ -356,7 +387,7 @@ def test_normalize_company_facts_records_skipped_fact_reasons() -> None:
         "invalid_period": 1,
         "invalid_value": 1,
     }
-    assert len(result.facts) == 10
+    assert len(result.facts) == 11
     assert result.skipped_facts[0].canonical_metric_key == "gross_profit"
     assert result.skipped_facts[0].taxonomy_tag == "us-gaap:GrossProfit"
 
@@ -373,7 +404,7 @@ def test_replace_company_metrics_deletes_old_facts_and_links_source_filing() -> 
     result = service.replace_company_metrics(company, normalized_facts)
 
     assert any("DELETE FROM financial_facts" in call for call in session.execute_calls)
-    assert result.stored_facts_count == 10
+    assert result.stored_facts_count == 11
     assert result.computed_facts_count == 4
     assert result.missing_metrics == []
     assert result.computed_diagnostics_count == 0
@@ -422,7 +453,7 @@ def test_run_job_loads_metrics_and_marks_succeeded() -> None:
     assert result.status == "succeeded"
     assert result.progress == 100
     assert result.payload["stage"] == "completed"
-    assert result.payload["stored_facts_count"] == 10
+    assert result.payload["stored_facts_count"] == 11
     assert result.payload["computed_facts_count"] == 4
     assert result.payload["skipped_facts_count"] == 1
     assert result.payload["skipped_fact_reasons"] == {"unsupported_form": 1}

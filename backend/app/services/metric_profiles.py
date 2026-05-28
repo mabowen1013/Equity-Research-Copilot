@@ -18,6 +18,48 @@ class MetricRetrievalProfile:
 
 
 METRIC_RETRIEVAL_PROFILES: dict[str, MetricRetrievalProfile] = {
+    "cash_and_cash_equivalents": MetricRetrievalProfile(
+        lexical_queries=(
+            '"cash and cash equivalents"',
+            '"cash equivalents"',
+            '"cash balance"',
+            '"cash balances"',
+            '"cash position"',
+            '"condensed consolidated balance sheets"',
+            '"consolidated balance sheets"',
+            '"marketable securities"',
+        ),
+        strong_terms=(
+            "cash and cash equivalents",
+            "cash equivalents",
+            "cash balance",
+            "cash balances",
+        ),
+        statement_terms=(
+            "condensed consolidated balance sheets",
+            "consolidated balance sheets",
+            "balance sheets",
+            "current assets",
+        ),
+        weak_terms=("cash position", "marketable securities"),
+        aliases=(
+            "cash position",
+            "cash balance",
+            "cash balances",
+            "cash and cash equivalents",
+            "cash equivalents",
+            "cash on hand",
+        ),
+        negative_terms=(
+            "cash flow",
+            "cash flows",
+            "free cash flow",
+            "operating cash flow",
+            "operating activities",
+            "statements of cash flows",
+        ),
+        preferred_sections=("Financial Statements", "Liquidity"),
+    ),
     "revenue": MetricRetrievalProfile(
         lexical_queries=(
             '"total net sales"',

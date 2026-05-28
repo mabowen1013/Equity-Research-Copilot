@@ -60,6 +60,7 @@ ROLE_MIN_EVIDENCE_SPAN_SCORE = {
     "annual_context_chunks": 0.20,
 }
 LATEST_FILING_COMPARISON_BASES = {
+    "latest_period_change",
     "latest_quarter_yoy",
     "latest_ytd_yoy",
     "latest_fy_yoy",
@@ -1257,14 +1258,17 @@ def metric_evidence_score(text_value: str, metric_key: str) -> tuple[float, list
 
     score = 0.0
     reasons: list[str] = []
+    has_metric_match = False
     if _contains_any(text_value, profile.strong_terms):
         score += 0.28
         reasons.append(f"strong_metric:{metric_key}")
+        has_metric_match = True
     elif _contains_any(text_value, (*profile.weak_terms, *profile.aliases)):
         score += 0.14
         reasons.append(f"weak_metric:{metric_key}")
+        has_metric_match = True
 
-    if _contains_any(text_value, profile.statement_terms):
+    if has_metric_match and _contains_any(text_value, profile.statement_terms):
         score += 0.12
         reasons.append(f"statement_metric_context:{metric_key}")
     if _contains_any(text_value, profile.negative_terms):
@@ -1631,6 +1635,8 @@ def evidence_pack_comparison_limit(plan: RetrievalPlan) -> int:
 
 def should_include_annual_context(plan: RetrievalPlan) -> bool:
     comparison_basis = plan.default_comparison_basis or plan.comparison_basis
+    if comparison_basis == "latest_period_change":
+        return False
     if plan.comparison_basis == "ambiguous" and "latest_fy_yoy" in plan.comparison_candidates:
         return True
     if comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
@@ -1844,6 +1850,11 @@ def is_statement_context(text_value: str) -> bool:
     return _contains_any(
         text_value,
         (
+            "balance sheets",
+            "balance sheet",
+            "condensed consolidated balance sheets",
+            "consolidated balance sheets",
+            "current assets",
             "statements of operations",
             "statement of operations",
             "condensed consolidated statements",
@@ -1917,6 +1928,9 @@ def find_comparison_pair(
     facts: list[FinancialFact],
     basis: str,
 ) -> tuple[FinancialFact, FinancialFact] | None:
+    if basis == "latest_period_change":
+        return find_latest_period_change_pair(facts)
+
     basis_config = {
         "latest_quarter_yoy": ("quarter", 0),
         "previous_quarter_yoy": ("quarter", 1),
@@ -1952,6 +1966,37 @@ def find_comparison_pair(
     return None
 
 
+def find_latest_period_change_pair(
+    facts: list[FinancialFact],
+) -> tuple[FinancialFact, FinancialFact] | None:
+    sorted_facts = sorted(
+        facts,
+        key=lambda fact: (
+            fact.period_end,
+            fact.filed_date or date.min,
+            fact.id or 0,
+        ),
+        reverse=True,
+    )
+    for current in sorted_facts:
+        prior_candidates = [
+            fact
+            for fact in sorted_facts
+            if fact.id != current.id and fact.period_end < current.period_end
+        ]
+        if prior_candidates:
+            prior = max(
+                prior_candidates,
+                key=lambda fact: (
+                    fact.period_end,
+                    fact.filed_date or date.min,
+                    fact.id or 0,
+                ),
+            )
+            return current, prior
+    return None
+
+
 def find_prior_comparable_fact(
     current: FinancialFact,
     candidates: list[FinancialFact],
@@ -1980,6 +2025,8 @@ def find_prior_comparable_fact(
 
 def classify_fact_duration(fact: FinancialFact) -> str | None:
     if fact.period_start is None:
+        if fact.fiscal_period and fact.fiscal_period.upper().startswith("Q"):
+            return "quarter"
         return "fy" if fact.fiscal_period == "FY" else None
 
     duration_days = (fact.period_end - fact.period_start).days + 1
@@ -2132,6 +2179,8 @@ def should_build_metric_comparisons(plan: RetrievalPlan) -> bool:
 
 def form_priority_boost(chunk: DocumentChunk, plan: RetrievalPlan) -> float:
     comparison_basis = plan.default_comparison_basis or plan.comparison_basis
+    if comparison_basis == "latest_period_change":
+        return 0.07 if chunk.form_type == "10-Q" else 0.02
     if comparison_basis in {
         "latest_quarter_yoy",
         "previous_quarter_yoy",
@@ -2147,6 +2196,12 @@ def form_priority_boost(chunk: DocumentChunk, plan: RetrievalPlan) -> float:
 def format_fact_period_label(fact: FinancialFact, duration_class: str | None = None) -> str:
     duration = duration_class or classify_fact_duration(fact)
     fiscal_year = fact.fact_fiscal_year or fact.source_fiscal_year or fact.period_end.year
+    if fact.period_start is None:
+        if duration == "quarter":
+            return f"As of {fact.fiscal_period or 'quarter'} {fiscal_year} period end"
+        if duration == "fy":
+            return f"As of FY {fiscal_year} period end"
+        return f"As of {fact.period_end.isoformat()}"
     if duration == "quarter":
         return f"{fact.fiscal_period or 'Quarter'} {fiscal_year} quarter"
     if duration == "ytd":

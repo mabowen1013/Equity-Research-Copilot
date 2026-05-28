@@ -27,6 +27,7 @@ RATIO_PRECISION = Decimal("0.000001")
 SUPPORTED_XBRL_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A"})
 
 RAW_METRIC_TAGS: dict[str, tuple[str, ...]] = {
+    "cash_and_cash_equivalents": ("CashAndCashEquivalentsAtCarryingValue",),
     "revenue": (
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "SalesRevenueNet",
@@ -41,6 +42,7 @@ RAW_METRIC_TAGS: dict[str, tuple[str, ...]] = {
         "PaymentsToAcquireProductiveAssets",
     ),
 }
+INSTANT_METRIC_KEYS = frozenset({"cash_and_cash_equivalents"})
 
 COMPUTED_METRIC_KEYS = (
     "free_cash_flow",
@@ -51,6 +53,7 @@ COMPUTED_METRIC_KEYS = (
 CORE_METRIC_KEYS = (*RAW_METRIC_TAGS.keys(), *COMPUTED_METRIC_KEYS)
 
 METRIC_LABELS = {
+    "cash_and_cash_equivalents": "Cash and Cash Equivalents",
     "revenue": "Revenue",
     "gross_profit": "Gross Profit",
     "operating_income": "Operating Income",
@@ -591,7 +594,11 @@ def _parse_raw_fact_with_skip_reason(
 
     period_start = _parse_date(fact_payload.get("start"))
     period_end = _parse_date(fact_payload.get("end"))
-    if period_start is None or period_end is None or period_start > period_end:
+    if (
+        period_end is None
+        or (period_start is None and metric_key not in INSTANT_METRIC_KEYS)
+        or (period_start is not None and period_start > period_end)
+    ):
         return None, _build_skipped_fact(
             metric_key=metric_key,
             taxonomy_tag=taxonomy_tag,
@@ -1039,7 +1046,7 @@ def _build_source_fact_id(
     taxonomy_tag: str,
     unit: str,
     accession_number: str | None,
-    period_start: date,
+    period_start: date | None,
     period_end: date,
     source_fiscal_year: int | None,
     fiscal_period: str | None,
@@ -1053,7 +1060,7 @@ def _build_source_fact_id(
             taxonomy_tag,
             unit,
             accession_number or "no-accn",
-            period_start.isoformat(),
+            period_start.isoformat() if period_start is not None else "instant",
             period_end.isoformat(),
             str(source_fiscal_year) if source_fiscal_year is not None else "no-fy",
             fiscal_period or "no-fp",

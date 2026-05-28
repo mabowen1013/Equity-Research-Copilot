@@ -4,8 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db_session
-from app.schemas import RetrievalAnalysisResponse, RetrievalRequest, RetrievalResponse
-from app.services import RetrievalCompanyNotFoundError, RetrievalError, RetrievalService
+from app.schemas import (
+    ResearchAnswerResponse,
+    ResearchQueryRequest,
+    RetrievalAnalysisResponse,
+    RetrievalRequest,
+    RetrievalResponse,
+)
+from app.services import (
+    AnswerGenerationError,
+    AnswerService,
+    RetrievalCompanyNotFoundError,
+    RetrievalError,
+    RetrievalService,
+)
 
 router = APIRouter(prefix="/research", tags=["research"])
 
@@ -29,6 +41,19 @@ def retrieve_evidence(
     if view == "analysis":
         return build_analysis_response(response)
     return response
+
+
+@router.post("/query", response_model=ResearchAnswerResponse)
+def query_research(
+    request: ResearchQueryRequest,
+    db: Session = Depends(get_db_session),
+) -> ResearchAnswerResponse:
+    try:
+        return AnswerService(db).answer(request)
+    except RetrievalCompanyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (RetrievalError, AnswerGenerationError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def build_analysis_response(response: RetrievalResponse) -> RetrievalAnalysisResponse:

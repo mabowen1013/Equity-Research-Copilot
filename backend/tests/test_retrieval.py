@@ -22,6 +22,7 @@ from app.services.retrieval import (
     evidence_pack_comparison_limit,
     effective_form_types,
     form_priority_boost,
+    is_primary_financial_statement_chunk,
     latest_filing_scope_reason,
     make_snippet,
     select_evidence_spans_for_chunk,
@@ -151,6 +152,46 @@ def make_fact(
         taxonomy_tag="us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
         label="Revenue",
         period_start=datetime(*period_start, tzinfo=UTC).date(),
+        period_end=datetime(*period_end, tzinfo=UTC).date(),
+        source_fiscal_year=(
+            source_fiscal_year if source_fiscal_year is not None else default_fact_fiscal_year
+        ),
+        fact_fiscal_year=(
+            fact_fiscal_year if fact_fiscal_year is not None else default_fact_fiscal_year
+        ),
+        fiscal_period=fiscal_period,
+        form_type="10-Q" if fiscal_period != "FY" else "10-K",
+        filed_date=datetime(period_end[0], min(period_end[1] + 1, 12), 1, tzinfo=UTC).date(),
+        unit="USD",
+        value=Decimal(value),
+        source_accession_number=f"accession-{fact_id}",
+        source_filing_id=fact_id,
+        source_filing_url=f"https://www.sec.gov/{fact_id}",
+        source_fact_id=f"fact-{fact_id}",
+        is_computed=False,
+        calculation_notes=None,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
+def make_instant_cash_fact(
+    *,
+    fact_id: int,
+    period_end: tuple[int, int, int],
+    fiscal_period: str,
+    value: str,
+    source_fiscal_year: int | None = None,
+    fact_fiscal_year: int | None = None,
+) -> FinancialFact:
+    default_fact_fiscal_year = period_end[0]
+    return FinancialFact(
+        id=fact_id,
+        company_id=1,
+        canonical_metric_key="cash_and_cash_equivalents",
+        taxonomy_tag="us-gaap:CashAndCashEquivalentsAtCarryingValue",
+        label="Cash and Cash Equivalents",
+        period_start=None,
         period_end=datetime(*period_end, tzinfo=UTC).date(),
         source_fiscal_year=(
             source_fiscal_year if source_fiscal_year is not None else default_fact_fiscal_year
@@ -305,6 +346,67 @@ def test_metric_text_boosts_reward_non_revenue_metric_profiles() -> None:
     assert "weak_metric_match" not in boosts
 
 
+def test_cash_position_balance_sheet_chunk_is_primary_statement_evidence() -> None:
+    chunk = make_chunk(
+        chunk_id=24,
+        section="PART I - ITEM 1 - Financial Statements",
+    )
+    chunk.chunk_text = (
+        "NVIDIA Corporation and Subsidiaries Condensed Consolidated Balance Sheets "
+        "Current assets: Cash and cash equivalents $13,237 $10,605."
+    )
+    retrieved_chunk = build_retrieved_chunk(
+        chunk,
+        Candidate(chunk_id=chunk.id, fusion_score=0.1),
+        metric_text_boosts(chunk, ["cash_and_cash_equivalents"]),
+        metric_keys=["cash_and_cash_equivalents"],
+    )
+
+    assert is_primary_financial_statement_chunk(
+        retrieved_chunk,
+        chunk_text_by_id={chunk.id: chunk.chunk_text},
+    )
+
+
+def test_cash_position_span_selector_prefers_cash_balance_row() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "metric_keys": ["cash_and_cash_equivalents"],
+            "comparison_basis": "latest_period_change",
+            "comparison_candidates": ["latest_period_change"],
+            "default_comparison_basis": "latest_period_change",
+        }
+    )
+    text = (
+        "NVIDIA Corporation and Subsidiaries Condensed Consolidated Balance Sheets\n"
+        "|Cash and cash equivalents|$ 13,237|$ 10,605|\n"
+        "|Total current assets|150,995|125,605|"
+    )
+    chunk = make_chunk(
+        chunk_id=25,
+        section="PART I - ITEM 1 - Financial Statements",
+        text=text,
+    )
+    retrieved_chunk = build_retrieved_chunk(
+        chunk,
+        Candidate(chunk_id=chunk.id, fusion_score=0.1),
+        metric_text_boosts(chunk, plan.metric_keys),
+        metric_keys=plan.metric_keys,
+    )
+
+    spans = select_evidence_spans_for_chunk(
+        retrieved_chunk,
+        "primary_financial_statement_chunks",
+        plan,
+        chunk_text_by_id={chunk.id: text},
+    )
+
+    assert spans
+    assert any(span.text.startswith("|Cash and cash equivalents|") for span in spans[:2])
+    assert not any(span.text.startswith("|Total current assets|") for span in spans[:2])
+
+
 def test_metric_text_boosts_do_not_reward_statement_context_without_metric_terms() -> None:
     chunk = make_chunk(
         chunk_id=23,
@@ -446,6 +548,19 @@ def test_latest_filing_scope_applies_to_explicit_latest_quarter_basis() -> None:
     assert latest_filing_scope_reason(plan) == "comparison_basis:latest_quarter_yoy"
 
 
+def test_latest_filing_scope_applies_to_latest_period_change_basis() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "comparison_basis": "latest_period_change",
+            "comparison_candidates": ["latest_period_change"],
+            "default_comparison_basis": "latest_period_change",
+        }
+    )
+
+    assert latest_filing_scope_reason(plan) == "comparison_basis:latest_period_change"
+
+
 def test_latest_filing_scope_does_not_apply_to_ambiguous_trend() -> None:
     assert latest_filing_scope_reason(make_metric_plan()) is None
 
@@ -559,6 +674,87 @@ def test_metric_comparisons_run_for_latest_time_scope_with_default_basis() -> No
     assert comparisons[0].prior_fact_id == 2
     assert comparisons[0].current_duration_class == "quarter"
     assert Decimal("0.1659") < comparisons[0].growth_rate < Decimal("0.1660")
+
+
+def test_metric_comparisons_support_instant_balance_sheet_cash_facts() -> None:
+    facts = [
+        make_instant_cash_fact(
+            fact_id=11,
+            period_end=(2026, 3, 28),
+            fiscal_period="Q2",
+            value="30000000000",
+            fact_fiscal_year=2026,
+        ),
+        make_instant_cash_fact(
+            fact_id=12,
+            period_end=(2025, 3, 29),
+            fiscal_period="Q2",
+            value="25000000000",
+            fact_fiscal_year=2025,
+        ),
+    ]
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "metric_keys": ["cash_and_cash_equivalents"],
+            "comparison_basis": "latest_quarter_yoy",
+            "comparison_candidates": ["latest_quarter_yoy"],
+            "default_comparison_basis": "latest_quarter_yoy",
+        }
+    )
+
+    comparisons = build_metric_comparisons(facts, plan)
+
+    assert len(comparisons) == 1
+    assert comparisons[0].canonical_metric_key == "cash_and_cash_equivalents"
+    assert comparisons[0].current_fact_id == 11
+    assert comparisons[0].prior_fact_id == 12
+    assert comparisons[0].current_duration_class == "quarter"
+    assert comparisons[0].current_period_label == "As of Q2 2026 period end"
+    assert comparisons[0].growth_rate == Decimal("0.2")
+
+
+def test_metric_comparisons_support_latest_period_change_for_balance_sheet_cash() -> None:
+    facts = [
+        make_instant_cash_fact(
+            fact_id=11,
+            period_end=(2026, 3, 28),
+            fiscal_period="Q1",
+            value="1594103000",
+            fact_fiscal_year=2026,
+        ),
+        make_instant_cash_fact(
+            fact_id=12,
+            period_end=(2025, 12, 31),
+            fiscal_period="FY",
+            value="788445000",
+            fact_fiscal_year=2025,
+        ),
+        make_instant_cash_fact(
+            fact_id=13,
+            period_end=(2024, 12, 31),
+            fiscal_period="FY",
+            value="97132000",
+            fact_fiscal_year=2024,
+        ),
+    ]
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "metric_keys": ["cash_and_cash_equivalents"],
+            "comparison_basis": "latest_period_change",
+            "comparison_candidates": ["latest_period_change"],
+            "default_comparison_basis": "latest_period_change",
+        }
+    )
+
+    comparisons = build_metric_comparisons(facts, plan)
+
+    assert len(comparisons) == 1
+    assert comparisons[0].basis == "latest_period_change"
+    assert comparisons[0].current_fact_id == 11
+    assert comparisons[0].prior_fact_id == 12
+    assert comparisons[0].prior_period_label == "As of FY 2025 period end"
 
 
 def test_metric_comparisons_include_previous_quarter_yoy_for_acceleration() -> None:

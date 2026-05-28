@@ -712,11 +712,16 @@ def test_query_planner_detects_current_liquidity_questions() -> None:
     plan = QueryPlanner().plan("How is Apple's liquidity?")
 
     assert plan.question_type == "liquidity"
-    assert plan.metric_keys == ["operating_cash_flow", "free_cash_flow"]
+    assert plan.metric_keys == [
+        "cash_and_cash_equivalents",
+        "operating_cash_flow",
+        "free_cash_flow",
+    ]
     assert plan.time_scope == "latest"
     assert plan.comparison_basis == "latest_quarter_yoy"
     assert plan.comparison_candidates == ["latest_quarter_yoy"]
     assert plan.target_sections == [
+        "Financial Statements",
         "Liquidity",
         "Cash Flows",
         "Management's Discussion and Analysis",
@@ -733,11 +738,16 @@ def test_query_planner_detects_cash_sufficiency_without_forced_comparison() -> N
     plan = QueryPlanner().plan("Does Apple have enough cash?")
 
     assert plan.question_type == "liquidity"
-    assert plan.metric_keys == ["operating_cash_flow", "free_cash_flow"]
+    assert plan.metric_keys == [
+        "cash_and_cash_equivalents",
+        "operating_cash_flow",
+        "free_cash_flow",
+    ]
     assert plan.time_scope == "latest"
     assert plan.comparison_basis == "none"
     assert plan.comparison_candidates == []
     assert plan.target_sections == [
+        "Financial Statements",
         "Liquidity",
         "Cash Flows",
         "Management's Discussion and Analysis",
@@ -746,6 +756,27 @@ def test_query_planner_detects_cash_sufficiency_without_forced_comparison() -> N
     assert plan.preferred_forms == ["10-Q"]
     assert plan.needs_financial_facts
     assert not plan.needs_metric_comparisons
+
+
+def test_query_planner_treats_cash_position_as_balance_sheet_metric() -> None:
+    plan = QueryPlanner().plan("How did Apple's cash position change?")
+
+    assert plan.question_type == "trend"
+    assert plan.metric_keys == ["cash_and_cash_equivalents"]
+    assert plan.time_scope == "comparison_trend"
+    assert plan.comparison_basis == "latest_period_change"
+    assert plan.comparison_candidates == ["latest_period_change"]
+    assert plan.target_sections == [
+        "Financial Statements",
+        "Liquidity",
+        "Management's Discussion and Analysis",
+    ]
+    assert plan.forms == ["10-Q"]
+    assert plan.preferred_forms == ["10-Q"]
+    assert "Cash Flows" not in plan.target_sections
+    assert "metric:cash_and_cash_equivalents" in plan.matched_rules
+    assert "comparison_basis:latest_period_change:cash_position_default" in plan.matched_rules
+    assert "cash and cash equivalents" in " ".join(plan.dense_queries)
 
 
 def test_query_planner_treats_generic_cash_flow_improvement_as_trend() -> None:
@@ -785,6 +816,7 @@ def test_query_planner_summarizes_latest_earnings_report() -> None:
         "gross_margin",
         "operating_income",
         "net_income",
+        "cash_and_cash_equivalents",
         "operating_cash_flow",
         "free_cash_flow",
     ]
@@ -835,8 +867,13 @@ def test_query_planner_keeps_risk_and_liquidity_summary_specific() -> None:
     assert "risk_factor_chunks" in risk_plan.evidence_roles
 
     assert liquidity_plan.question_type == "liquidity"
-    assert liquidity_plan.metric_keys == ["operating_cash_flow", "free_cash_flow"]
+    assert liquidity_plan.metric_keys == [
+        "cash_and_cash_equivalents",
+        "operating_cash_flow",
+        "free_cash_flow",
+    ]
     assert liquidity_plan.target_sections == [
+        "Financial Statements",
         "Liquidity",
         "Cash Flows",
         "Management's Discussion and Analysis",

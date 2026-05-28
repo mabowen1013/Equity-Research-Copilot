@@ -5,6 +5,16 @@ from app.services.answer_context import (
     collect_answer_evidence_ids,
     collect_evidence_pack_ids,
 )
+from app.services.answer_generation import (
+    AnswerCandidateProvider,
+    AnswerGenerationError,
+    AnswerService,
+    CITATION_MARKER_RE,
+    OpenAIAnswerCandidateProvider,
+    build_prompt_evidence_context,
+    extract_citation_ids,
+    validate_generated_answer,
+)
 from app.services.company_lookup import (
     CompanyLookupError,
     CompanyLookupService,
@@ -128,9 +138,14 @@ from app.services.xbrl_metrics import (
 __all__ = [
     "CompanyLookupError",
     "CompanyLookupService",
+    "AnswerCandidateProvider",
+    "AnswerGenerationError",
+    "AnswerService",
     "build_answer_evidence_context",
+    "build_prompt_evidence_context",
     "collect_answer_evidence_ids",
     "collect_evidence_pack_ids",
+    "CITATION_MARKER_RE",
     "CHUNK_EMBEDDING_JOB_TYPE",
     "ChunkEmbeddingCompanyNotFoundError",
     "ChunkEmbeddingError",
@@ -157,6 +172,7 @@ __all__ = [
     "MetricRetrievalProfile",
     "NormalizedXbrlFact",
     "OpenAIEmbeddingProvider",
+    "OpenAIAnswerCandidateProvider",
     "IntentParser",
     "LLMQueryPlanner",
     "PlanValidator",
@@ -223,5 +239,7 @@ __all__ = [
     "summarize_computed_metric_diagnostics",
     "summarize_skipped_facts",
     "weighted_rrf",
+    "extract_citation_ids",
+    "validate_generated_answer",
     "zero_pad_cik",
 ]

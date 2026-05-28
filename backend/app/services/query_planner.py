@@ -517,12 +517,18 @@ DEFAULT_COMPANY_CHANGE_METRICS = (
 )
 DEFAULT_PROFITABILITY_METRICS = ("operating_income", "net_income")
 DEFAULT_MARGIN_METRICS = ("gross_margin", "operating_margin", "net_margin")
-DEFAULT_LIQUIDITY_METRICS = ("operating_cash_flow", "free_cash_flow")
+DEFAULT_CASH_FLOW_METRICS = ("operating_cash_flow", "free_cash_flow")
+DEFAULT_LIQUIDITY_METRICS = (
+    "cash_and_cash_equivalents",
+    "operating_cash_flow",
+    "free_cash_flow",
+)
 DEFAULT_SUMMARY_METRICS = (
     "revenue",
     "gross_margin",
     "operating_income",
     "net_income",
+    "cash_and_cash_equivalents",
     "operating_cash_flow",
     "free_cash_flow",
 )
@@ -770,6 +776,16 @@ LIQUIDITY_LEXICAL_QUERIES = (
     '"statements of cash flows"',
     '"working capital"',
 )
+CASH_POSITION_LEXICAL_QUERIES = (
+    '"cash and cash equivalents"',
+    '"cash equivalents"',
+    '"cash balance"',
+    '"cash balances"',
+    '"cash position"',
+    '"condensed consolidated balance sheets"',
+    '"consolidated balance sheets"',
+    '"marketable securities"',
+)
 FILING_SUMMARY_LEXICAL_QUERIES = (
     '"management discussion and analysis"',
     '"results of operations"',
@@ -799,7 +815,7 @@ DENSE_INTENT_PHRASES = {
     "metric": "financial metric value reported amount",
     "risk": "risk factors item 1a business operational financial regulatory risks",
     "liquidity": (
-        "liquidity capital resources cash position operating cash flow free cash flow"
+        "liquidity capital resources cash position cash balance cash and cash equivalents"
     ),
     "filing_summary": (
         "filing summary earnings report key takeaways financial results business overview"
@@ -815,7 +831,7 @@ DENSE_SECTION_PHRASES = {
         "management discussion analysis results of operations"
     ),
     "Risk Factors": "risk factors item 1a",
-    "Liquidity": "liquidity capital resources cash flows",
+    "Liquidity": "liquidity capital resources cash balance cash and cash equivalents",
     "Cash Flows": "statements of cash flows operating activities",
 }
 DENSE_COMPARISON_PHRASES = {
@@ -868,6 +884,7 @@ VALID_TARGET_SECTIONS = {
 VALID_COMPARISON_BASES = {
     "none",
     "ambiguous",
+    "latest_period_change",
     "latest_quarter_yoy",
     "previous_quarter_yoy",
     "latest_ytd_yoy",
@@ -1019,13 +1036,22 @@ class IntentParser:
             matched_rules.append("intent:liquidity")
             lexical_queries.append("liquidity and capital resources")
             if _contains_any(normalized, LIQUIDITY_SECTION_TERMS):
-                target_sections.extend(
-                    [
-                        "Liquidity",
-                        "Cash Flows",
-                        "Management's Discussion and Analysis",
-                    ]
-                )
+                if _is_cash_position_question(normalized):
+                    target_sections.extend(
+                        [
+                            "Financial Statements",
+                            "Liquidity",
+                            "Management's Discussion and Analysis",
+                        ]
+                    )
+                else:
+                    target_sections.extend(
+                        [
+                            "Liquidity",
+                            "Cash Flows",
+                            "Management's Discussion and Analysis",
+                        ]
+                    )
 
         has_filing_summary_intent = _is_filing_summary_question(normalized)
         if has_filing_summary_intent:
@@ -1136,8 +1162,12 @@ class RuleMetricResolver:
 
         broad_company_growth = False
         if not metric_keys and intent.has_liquidity_intent:
-            matched_rules.append("metric:liquidity_default")
-            metric_keys.extend(DEFAULT_LIQUIDITY_METRICS)
+            if _is_generic_cash_flow_question(normalized):
+                matched_rules.append("metric:cash_flow_default")
+                metric_keys.extend(DEFAULT_CASH_FLOW_METRICS)
+            else:
+                matched_rules.append("metric:liquidity_default")
+                metric_keys.extend(DEFAULT_LIQUIDITY_METRICS)
 
         if intent.question_type == "filing_summary" and (
             not metric_keys
@@ -1337,7 +1367,15 @@ class TimeScopeResolver:
             matched_rules.append(f"comparison_basis:{default_comparison_basis}:default")
         elif metric_keys and time_scope == "comparison_trend":
             comparison_basis = _detect_comparison_basis(normalized)
-            if comparison_basis == "ambiguous":
+            if comparison_basis == "ambiguous" and _uses_cash_position_metrics(metric_keys):
+                comparison_basis = "latest_period_change"
+                comparison_candidates = ["latest_period_change"]
+                default_comparison_basis = "latest_period_change"
+                matched_rules.append("comparison_basis:latest_period_change:cash_position_default")
+                if "10-Q" not in forms:
+                    forms.append("10-Q")
+                    matched_rules.append("form:10-Q:cash_position_change_default")
+            elif comparison_basis == "ambiguous":
                 comparison_candidates = [
                     "latest_quarter_yoy",
                     "latest_ytd_yoy",
@@ -1470,11 +1508,20 @@ class RetrievalStrategyBuilder:
             target_sections.append(query.section)
 
         if intent.has_liquidity_intent and metrics.metric_keys and not intent.has_explanation_intent:
-            liquidity_sections = (
-                ["Liquidity", "Cash Flows", "Management's Discussion and Analysis"]
-                if intent.question_type == "liquidity"
-                else ["Cash Flows", "Management's Discussion and Analysis"]
-            )
+            if _uses_cash_position_metrics(metrics.metric_keys):
+                liquidity_sections = ["Financial Statements", "Liquidity"]
+                if any(
+                    metric_key in {"operating_cash_flow", "free_cash_flow"}
+                    for metric_key in metrics.metric_keys
+                ):
+                    liquidity_sections.append("Cash Flows")
+                liquidity_sections.append("Management's Discussion and Analysis")
+            else:
+                liquidity_sections = (
+                    ["Liquidity", "Cash Flows", "Management's Discussion and Analysis"]
+                    if intent.question_type == "liquidity"
+                    else ["Cash Flows", "Management's Discussion and Analysis"]
+                )
             for section in liquidity_sections:
                 if section not in target_sections:
                     target_sections.append(section)
@@ -1601,6 +1648,11 @@ class RetrievalStrategyBuilder:
             time.comparison_basis,
             time.comparison_candidates,
         )
+        target_sections = order_target_sections(
+            target_sections,
+            metrics.metric_keys,
+            question_type=question_type,
+        )
         evidence_roles = self._evidence_roles(question_type, target_sections, needs_metric_comparisons)
 
         confidence = 0.88
@@ -1611,7 +1663,7 @@ class RetrievalStrategyBuilder:
 
         return RetrievalStrategy(
             question_type=question_type,
-            target_sections=_dedupe(target_sections),
+            target_sections=target_sections,
             forms=_dedupe(forms),
             matched_rules=matched_rules,
             confidence=confidence,
@@ -1712,7 +1764,15 @@ class QueryExpansionBuilder:
         if intent.has_judgment_intent and metrics.metric_keys:
             lexical_queries.extend(PERFORMANCE_JUDGMENT_LEXICAL_QUERIES)
         if intent.has_liquidity_intent:
-            lexical_queries.extend(LIQUIDITY_LEXICAL_QUERIES)
+            lexical_queries.extend(
+                CASH_POSITION_LEXICAL_QUERIES
+                if _uses_cash_position_metrics(metrics.metric_keys)
+                and not any(
+                    metric_key in {"operating_cash_flow", "free_cash_flow"}
+                    for metric_key in metrics.metric_keys
+                )
+                else LIQUIDITY_LEXICAL_QUERIES
+            )
         if intent.has_filing_summary_intent:
             lexical_queries.extend(FILING_SUMMARY_LEXICAL_QUERIES)
         if (
@@ -1781,12 +1841,25 @@ def _build_slot_dense_query(
     time: TimeResolution | None,
 ) -> str:
     comparison_basis = _dense_comparison_basis(time)
+    section_phrases = (
+        [
+            (
+                "financial statements balance sheets cash and cash equivalents "
+                "cash balance marketable securities current assets"
+            )
+            if section == "Financial Statements"
+            else DENSE_SECTION_PHRASES.get(section, section)
+            for section in strategy.target_sections
+        ]
+        if _uses_cash_position_metrics(metrics.metric_keys)
+        else _dense_section_phrases(strategy.target_sections)
+    )
     terms = [
         _dense_time_phrase(time),
         DENSE_INTENT_PHRASES.get(strategy.question_type, ""),
         *_dense_metric_phrases(metrics.metric_keys),
         DENSE_COMPARISON_PHRASES.get(comparison_basis, ""),
-        *_dense_section_phrases(strategy.target_sections),
+        *section_phrases,
     ]
     if intent.has_explanation_intent:
         terms.append("drivers reasons primarily due to higher lower")
@@ -1809,11 +1882,15 @@ def _build_role_dense_queries(
     queries: list[dict[str, Any]] = []
 
     if "primary_financial_statement_chunks" in strategy.evidence_roles:
-        statement_context = (
-            "financial statements statements of cash flows operating activities"
-            if "Cash Flows" in strategy.target_sections
-            else "financial statements statements of operations"
-        )
+        if _uses_cash_position_metrics(metrics.metric_keys):
+            statement_context = (
+                "financial statements balance sheets cash and cash equivalents "
+                "cash balance marketable securities current assets"
+            )
+        elif "Cash Flows" in strategy.target_sections:
+            statement_context = "financial statements statements of cash flows operating activities"
+        else:
+            statement_context = "financial statements statements of operations"
         queries.append(
             {
                 "role": "financial_statement",
@@ -2212,9 +2289,11 @@ Rules:
 - Interpret now, currently, recently, and lately as the latest available SEC filing period, not live market data.
 - For broad current company performance, use question_type="performance_overview", metric_keys=["revenue","gross_margin","operating_income","net_income"], time_scope="latest", comparison_basis="latest_quarter_yoy", comparison_candidates=["latest_quarter_yoy"], target_sections=["Financial Statements","Management's Discussion and Analysis"], forms=["10-Q"].
 - For broad company growth without a specific period, use question_type="trend", metric_keys=["revenue","operating_income","net_income"], time_scope="comparison_trend", comparison_basis="ambiguous", comparison_candidates=["latest_quarter_yoy","latest_ytd_yoy","latest_fy_yoy"], target_sections=["Financial Statements","Management's Discussion and Analysis"], forms=[].
-- For liquidity, cash position, enough cash, capital resources, or generic cash flow questions, use metric_keys=["operating_cash_flow","free_cash_flow"] unless a more specific allowed cash-flow metric is explicitly named.
-- For current liquidity state, use question_type="liquidity", time_scope="latest", target_sections=["Liquidity","Cash Flows","Management's Discussion and Analysis"], forms=["10-Q"]. Use comparison_basis="none" for cash sufficiency questions, and comparison_basis="latest_quarter_yoy" when the user asks how liquidity or cash flow is performing.
-- For filing, 10-Q, 10-K, earnings report, or recent financial-results summaries, use question_type="filing_summary", metric_keys=["revenue","gross_margin","operating_income","net_income","operating_cash_flow","free_cash_flow"], time_scope="latest", comparison_basis="none", comparison_candidates=[], target_sections=["Financial Statements","Management's Discussion and Analysis","Liquidity","Cash Flows"], forms=["10-Q"] unless the user explicitly asks for 10-K or annual report.
+- For cash position, cash balance, cash equivalents, or cash on hand questions, use metric_keys=["cash_and_cash_equivalents"], target_sections=["Financial Statements","Liquidity","Management's Discussion and Analysis"], and do not substitute cash-flow metrics unless cash flow is explicitly asked. For unspecified cash-position change, use comparison_basis="latest_period_change", comparison_candidates=["latest_period_change"], forms=["10-Q"].
+- For liquidity, enough cash, or capital resources questions, use metric_keys=["cash_and_cash_equivalents","operating_cash_flow","free_cash_flow"] unless a more specific allowed cash metric is explicitly named.
+- For generic cash flow questions, use metric_keys=["operating_cash_flow","free_cash_flow"].
+- For current liquidity state, use question_type="liquidity", time_scope="latest", target_sections=["Financial Statements","Liquidity","Cash Flows","Management's Discussion and Analysis"], forms=["10-Q"]. Use comparison_basis="none" for cash sufficiency questions, and comparison_basis="latest_quarter_yoy" when the user asks how liquidity, cash position, or cash flow is performing.
+- For filing, 10-Q, 10-K, earnings report, or recent financial-results summaries, use question_type="filing_summary", metric_keys=["revenue","gross_margin","operating_income","net_income","cash_and_cash_equivalents","operating_cash_flow","free_cash_flow"], time_scope="latest", comparison_basis="none", comparison_candidates=[], target_sections=["Financial Statements","Management's Discussion and Analysis","Liquidity","Cash Flows"], forms=["10-Q"] unless the user explicitly asks for 10-K or annual report.
 - If the user asks to summarize risks, use question_type="risk"; if the user asks to summarize liquidity, use question_type="liquidity".
 - For stock price, valuation, market news, or non-filing questions, use question_type="prose", metric_keys=[], comparison_basis="none", comparison_candidates=[], target_sections=[], forms=[].
 
@@ -2226,10 +2305,10 @@ User: Is Apple growing?
 JSON: {{"question_type":"trend","metric_keys":["revenue","operating_income","net_income"],"time_scope":"comparison_trend","comparison_basis":"ambiguous","comparison_candidates":["latest_quarter_yoy","latest_ytd_yoy","latest_fy_yoy"],"target_sections":["Financial Statements","Management's Discussion and Analysis"],"forms":[],"reasoning_summary":"Broad growth question without a specified period; keep comparison basis ambiguous.","confidence":0.78}}
 
 User: Does Apple have enough cash?
-JSON: {{"question_type":"liquidity","metric_keys":["operating_cash_flow","free_cash_flow"],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":["Liquidity","Cash Flows","Management's Discussion and Analysis"],"forms":["10-Q"],"reasoning_summary":"Cash sufficiency question mapped to current liquidity and cash-flow evidence without forcing a period comparison.","confidence":0.82}}
+JSON: {{"question_type":"liquidity","metric_keys":["cash_and_cash_equivalents","operating_cash_flow","free_cash_flow"],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":["Financial Statements","Liquidity","Cash Flows","Management's Discussion and Analysis"],"forms":["10-Q"],"reasoning_summary":"Cash sufficiency question mapped to current cash balance and cash-flow evidence without forcing a period comparison.","confidence":0.82}}
 
 User: Summarize Apple's latest earnings report.
-JSON: {{"question_type":"filing_summary","metric_keys":["revenue","gross_margin","operating_income","net_income","operating_cash_flow","free_cash_flow"],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":["Financial Statements","Management's Discussion and Analysis","Liquidity","Cash Flows"],"forms":["10-Q"],"reasoning_summary":"Latest earnings report summary mapped to broad filing sections and core financial metrics.","confidence":0.86}}
+JSON: {{"question_type":"filing_summary","metric_keys":["revenue","gross_margin","operating_income","net_income","cash_and_cash_equivalents","operating_cash_flow","free_cash_flow"],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":["Financial Statements","Management's Discussion and Analysis","Liquidity","Cash Flows"],"forms":["10-Q"],"reasoning_summary":"Latest earnings report summary mapped to broad filing sections and core financial metrics.","confidence":0.86}}
 
 User: What is Apple's stock price doing now?
 JSON: {{"question_type":"prose","metric_keys":[],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":[],"forms":[],"reasoning_summary":"Stock price is outside SEC filing financial metric retrieval.","confidence":0.7}}
@@ -2518,6 +2597,34 @@ def _is_liquidity_question(normalized_question: str) -> bool:
     )
 
 
+def _is_cash_position_question(normalized_question: str) -> bool:
+    return _contains_any(
+        normalized_question,
+        (
+            "cash position",
+            "cash balance",
+            "cash balances",
+            "cash and cash equivalents",
+            "cash equivalents",
+            "cash on hand",
+        ),
+    )
+
+
+def _is_generic_cash_flow_question(normalized_question: str) -> bool:
+    return _contains_any(
+        normalized_question,
+        (
+            "cash flow",
+            "cash flows",
+            "cash generation",
+            "generate cash",
+            "generating cash",
+            "generated cash",
+        ),
+    ) and not _is_cash_position_question(normalized_question)
+
+
 def _is_filing_summary_question(normalized_question: str) -> bool:
     if not _contains_any(normalized_question, SUMMARY_TERMS):
         return False
@@ -2747,7 +2854,35 @@ def _default_comparison_basis_for_metrics(metric_keys: list[str]) -> str:
     return "latest_quarter_yoy"
 
 
+def order_target_sections(
+    target_sections: list[str],
+    metric_keys: list[str],
+    *,
+    question_type: str,
+) -> list[str]:
+    deduped = _dedupe(target_sections)
+    if question_type == "filing_summary" or not _uses_cash_position_metrics(metric_keys):
+        return deduped
+    preferred_order = [
+        "Financial Statements",
+        "Liquidity",
+        "Cash Flows",
+        "Management's Discussion and Analysis",
+        "Risk Factors",
+    ]
+    return [
+        *[section for section in preferred_order if section in deduped],
+        *[section for section in deduped if section not in preferred_order],
+    ]
+
+
+def _uses_cash_position_metrics(metric_keys: list[str]) -> bool:
+    return "cash_and_cash_equivalents" in metric_keys
+
+
 def _preferred_form_for_comparison_basis(comparison_basis: str | None) -> str | None:
+    if comparison_basis == "latest_period_change":
+        return "10-Q"
     if comparison_basis in {
         "latest_quarter_yoy",
         "previous_quarter_yoy",

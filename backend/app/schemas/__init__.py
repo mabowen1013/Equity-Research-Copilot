@@ -1,6 +1,12 @@
 from app.schemas.answer import (
     ANSWER_EVIDENCE_CONTEXT_VERSION,
+    AnswerCitationRead,
     AnswerEvidenceContextRead,
+    CitationValidationIssueRead,
+    CitationValidationRead,
+    GeneratedAnswerCandidate,
+    ResearchAnswerResponse,
+    ResearchQueryRequest,
 )
 from app.schemas.company import CompanyRead, CompanySearchResult
 from app.schemas.filing import FilingRead
@@ -33,7 +39,13 @@ __all__ = [
     "CompanyRead",
     "CompanySearchResult",
     "ANSWER_EVIDENCE_CONTEXT_VERSION",
+    "AnswerCitationRead",
     "AnswerEvidenceContextRead",
+    "CitationValidationIssueRead",
+    "CitationValidationRead",
+    "GeneratedAnswerCandidate",
+    "ResearchAnswerResponse",
+    "ResearchQueryRequest",
     "DocumentChunkRead",
     "FilingRead",
     "FilingDocumentRead",
