@@ -7,873 +7,277 @@ from typing import Any, Protocol
 
 from app.core import Settings, get_settings
 from app.services.metric_profiles import METRIC_RETRIEVAL_PROFILES, get_metric_profile
-from app.services.xbrl_metrics import METRIC_LABELS
 
 
-RISK_TERMS = ("risk", "risks", "risk factors", "item 1a", "风险")
-MDA_TERMS = (
-    "md&a",
-    "management discussion",
-    "management's discussion",
-    "management discussion and analysis",
-    "管理层讨论",
-)
-EXPLANATION_TERMS = (
-    "why",
-    "reason",
-    "reasons",
-    "driver",
-    "drivers",
-    "drive",
-    "drives",
-    "drove",
-    "driven",
-    "cause",
-    "causes",
-    "caused",
-    "causing",
-    "explain",
-    "explains",
-    "explained",
-    "explaining",
-    "behind",
-    "factor",
-    "factors",
-    "原因",
-)
-SUMMARY_TERMS = (
-    "summarize",
-    "summary",
-    "recap",
-    "key takeaways",
-    "takeaways",
-    "highlights",
-    "overview",
-    "brief",
-    "briefly",
-    "walk me through",
-    "概括",
-    "总结",
-    "摘要",
-    "要点",
-)
-FILING_SUMMARY_CONTEXT_TERMS = (
-    "filing",
-    "filings",
-    "report",
-    "reported",
-    "reports",
-    "10-q",
-    "10-k",
-    "quarterly report",
-    "annual report",
-    "earnings report",
-    "earnings release",
-    "latest results",
-    "recent results",
-    "financial results",
-    "latest quarter",
-    "recent quarter",
-    "latest filing",
-    "recent filing",
-    "财报",
-    "季报",
-    "年报",
-    "业绩",
-)
-FILING_REPORT_TERMS = (
-    "filing",
-    "filings",
-    "10-q",
-    "10-k",
-    "quarterly report",
-    "annual report",
-    "earnings report",
-    "earnings release",
-    "financial report",
-    "财报",
-    "季报",
-    "年报",
-)
-BROAD_EARNINGS_REPORT_TERMS = (
-    "earnings report",
-    "earnings release",
-    "latest results",
-    "recent results",
-    "financial results",
-    "财报",
-    "业绩",
-)
-LIQUIDITY_TERMS = (
-    "liquidity",
-    "liquidity and capital resources",
-    "capital resources",
-    "cash",
-    "cash position",
-    "cash balance",
-    "cash balances",
-    "cash flow",
-    "cash flows",
-    "cash generation",
-    "generate cash",
-    "generating cash",
-    "generated cash",
-    "enough cash",
-    "working capital",
-    "fund operations",
-    "funding",
-    "流动性",
-    "现金",
-    "现金流",
-    "资金",
-)
-LIQUIDITY_NEGATIVE_TERMS = (
-    "cash burn",
-    "burn rate",
-    "dividend",
-    "dividends",
-    "buyback",
-    "buybacks",
-    "repurchase",
-    "repurchases",
-    "stock price",
-    "share price",
-)
-LIQUIDITY_SECTION_TERMS = (
-    "liquidity",
-    "liquidity and capital resources",
-    "capital resources",
-    "cash position",
-    "cash balance",
-    "cash balances",
-    "enough cash",
-    "working capital",
-    "fund operations",
-    "funding",
-    "流动性",
-    "现金",
-    "资金",
-)
-PERFORMANCE_TERMS = (
-    "how did",
-    "how is",
-    "how are",
-    "how was",
-    "how were",
-    "perform",
-    "performs",
-    "performed",
-    "performing",
-    "performance",
-    "results",
-    "financial results",
-    "business results",
-    "operating results",
-    "results of operations",
-    "表现",
-    "怎么样",
-    "如何",
-    "做得",
-)
-CURRENT_PERFORMANCE_TERMS = (
-    "how is",
-    "how are",
-    "how's",
-    "how is it doing",
-    "how are they doing",
-    "how is the company doing",
-    "doing now",
-    "doing recently",
-    "doing lately",
-    "公司现在怎么样",
-    "最近怎么样",
-)
-JUDGMENT_TERMS = (
-    "strong",
-    "strength",
-    "weak",
-    "weakness",
-    "good",
-    "well",
-    "bad",
-    "solid",
-    "robust",
-    "healthy",
-    "soft",
-    "sluggish",
-    "poor",
-    "impressive",
-    "disappointing",
-    "resilient",
-    "outperform",
-    "outperformed",
-    "underperform",
-    "underperformed",
-    "improve",
-    "improved",
-    "improves",
-    "improving",
-    "get better",
-    "got better",
-    "gotten better",
-    "getting better",
-    "better",
-    "worsen",
-    "worsened",
-    "worsens",
-    "worsening",
-    "get worse",
-    "got worse",
-    "gotten worse",
-    "getting worse",
-    "deteriorate",
-    "deteriorated",
-    "deteriorates",
-    "deteriorating",
-    "好",
-    "强",
-    "强劲",
-    "稳健",
-    "疲软",
-    "弱",
-    "差",
-    "不佳",
-)
-PERFORMANCE_PERSISTENCE_TERMS = (
-    "still",
-    "remain",
-    "remains",
-    "remained",
-    "remaining",
-    "continue",
-    "continues",
-    "continued",
-    "continuing",
-    "maintain",
-    "maintains",
-    "maintained",
-    "maintaining",
-    "sustain",
-    "sustains",
-    "sustained",
-    "sustaining",
-    "stay",
-    "stays",
-    "stayed",
-    "staying",
-    "hold up",
-    "holds up",
-    "held up",
-    "holding up",
-    "keep up",
-    "keeps up",
-    "kept up",
-    "keeping up",
-    "仍然",
-    "依然",
-    "继续",
-    "保持",
-    "维持",
-)
-COMPARATIVE_METRIC_MODIFIER_TERMS = (
-    "more",
-    "less",
-    "higher",
-    "lower",
-    "up",
-    "down",
-    "increased",
-    "decreased",
-    "stronger",
-    "weaker",
-    "better",
-    "worse",
-)
-LATEST_TERMS = (
-    "latest",
-    "most recent",
-    "recent",
-    "recently",
-    "lately",
-    "now",
-    "currently",
-    "right now",
-    "at the moment",
-    "latest quarter",
-    "most recent quarter",
-    "recent quarter",
-    "last quarter",
-    "最近一个季度",
-    "上一季度",
-    "最新",
-    "最近",
-)
-TREND_TERMS = (
-    "growth",
-    "grow",
-    "grows",
-    "grew",
-    "grown",
-    "growing",
-    "expand",
-    "expands",
-    "expanded",
-    "expanding",
-    "expansion",
-    "rise",
-    "rises",
-    "rose",
-    "risen",
-    "rising",
-    "fall",
-    "falls",
-    "fell",
-    "fallen",
-    "falling",
-    "more than",
-    "less than",
-    "higher than",
-    "lower than",
-    "up from",
-    "down from",
-    "up year",
-    "down year",
-    "better than",
-    "worse than",
-    "improve",
-    "improved",
-    "improves",
-    "improving",
-    "get better",
-    "got better",
-    "gotten better",
-    "getting better",
-    "better",
-    "worsen",
-    "worsened",
-    "worsens",
-    "worsening",
-    "get worse",
-    "got worse",
-    "gotten worse",
-    "getting worse",
-    "deteriorate",
-    "deteriorated",
-    "deteriorates",
-    "deteriorating",
-    "increase",
-    "increased",
-    "increasing",
-    "decrease",
-    "decreased",
-    "decreasing",
-    "decline",
-    "declined",
-    "declining",
-    "change",
-    "changed",
-    "changing",
-    "accelerate",
-    "accelerated",
-    "accelerating",
-    "slow",
-    "slowed",
-    "slowing",
-    "yoy",
-    "year over year",
-    "year-over-year",
-    "compared with",
-    "compared to",
-    "compare",
-    "versus",
-    "vs.",
-    "vs",
-    "trend",
-    "变化",
-    "增长",
-    "增加",
-    "提升",
-    "改善",
-    "改进",
-    "好转",
-    "下降",
-    "减少",
-    "下滑",
-    "恶化",
-    "同比",
-    "相比",
-    "高于",
-    "低于",
-    "多于",
-    "少于",
-)
-ACCELERATION_TERMS = (
-    "accelerate",
-    "accelerated",
-    "accelerating",
-    "acceleration",
-    "faster",
-    "speed up",
-    "speeding up",
-    "decelerate",
-    "decelerated",
-    "decelerating",
-    "deceleration",
-    "slower",
-    "slowdown",
-    "slow down",
-    "slowed",
-    "slowing",
-    "momentum",
-    "加速",
-    "放缓",
-    "减速",
-    "动能",
-)
-
-QUARTERLY_BASIS_TERMS = (
-    "quarter",
-    "quarterly",
-    "latest quarter",
-    "three months",
-    "q1",
-    "q2",
-    "q3",
-    "q4",
-    "季度",
-)
-YTD_BASIS_TERMS = (
-    "year-to-date",
-    "year to date",
-    "ytd",
-    "six months",
-    "nine months",
-    "六个月",
-    "九个月",
-    "年初至今",
-)
-FY_BASIS_TERMS = (
-    "annual",
-    "annually",
-    "fiscal year",
-    "full year",
-    "year ended",
-    "last year",
-    "prior year",
-    "previous year",
-    "year ago",
-    "year earlier",
-    "fy",
-    "全年",
-    "财年",
-    "年度",
-    "去年",
-    "上一年",
-    "上年",
-)
-
-SALES_ACTIVITY_TERMS = (
-    "sell",
-    "sells",
-    "selling",
-    "sold",
-    "sales",
-    "卖",
-    "销售",
-)
-SALES_ACTIVITY_COMPARISON_TERMS = (
-    "sell more",
-    "selling more",
-    "sold more",
-    "sell less",
-    "selling less",
-    "sold less",
-    "sales higher",
-    "sales lower",
-    "sales up",
-    "sales down",
-    "more sales",
-    "less sales",
-    "higher sales",
-    "lower sales",
-    "销售增长",
-    "销售下降",
-    "卖得更多",
-    "卖得更少",
-)
-SALES_ACTIVITY_CONTEXT_TERMS = (
-    *TREND_TERMS,
-    *LATEST_TERMS,
-    *PERFORMANCE_TERMS,
-    *SALES_ACTIVITY_COMPARISON_TERMS,
-)
-
-DEFAULT_COMPANY_GROWTH_METRICS = ("revenue", "operating_income", "net_income")
-DEFAULT_COMPANY_CHANGE_METRICS = (
-    "revenue",
-    "gross_margin",
-    "operating_income",
-    "net_income",
-)
-DEFAULT_PROFITABILITY_METRICS = ("operating_income", "net_income")
-DEFAULT_MARGIN_METRICS = ("gross_margin", "operating_margin", "net_margin")
-DEFAULT_LIQUIDITY_METRICS = ("operating_cash_flow", "free_cash_flow")
-DEFAULT_SUMMARY_METRICS = (
-    "revenue",
-    "gross_margin",
-    "operating_income",
-    "net_income",
-    "operating_cash_flow",
-    "free_cash_flow",
-)
-BROAD_COMPANY_GROWTH_TERMS = (
-    "growth",
-    "grow",
-    "grows",
-    "grew",
-    "grown",
-    "growing",
-    "expand",
-    "expands",
-    "expanded",
-    "expanding",
-    "improve",
-    "improved",
-    "improves",
-    "improving",
-    "get better",
-    "got better",
-    "gotten better",
-    "getting better",
-    "增长",
-    "成长",
-    "扩张",
-    "改善",
-)
-PROFITABILITY_TERMS = (
-    "profitability",
-    "profitable",
-    "profit",
-    "profits",
-    "earnings",
-    "盈利",
-    "利润",
-)
-EARNINGS_ACTIVITY_TERMS = (
-    "make money",
-    "makes money",
-    "made money",
-    "making money",
-    "earn money",
-    "earns money",
-    "earned money",
-    "earning money",
-)
-MARGIN_JUDGMENT_TERMS = (
-    "margin",
-    "margins",
-    "利润率",
-    "毛利率",
-)
-BROAD_COMPANY_GROWTH_EXCLUDED_SUBJECTS = (
-    "debt",
-    "liability",
-    "liabilities",
-    "headcount",
-    "employee",
-    "employees",
-    "user",
-    "users",
-    "subscriber",
-    "subscribers",
-    "inventory",
-    "inventories",
-    "expense",
-    "expenses",
-    "cost",
-    "costs",
-    "margin",
-    "cash",
-    "cash flow",
-    "cash burn",
-    "burn",
-    "capex",
-    "capital expenditure",
-    "dividend",
-    "buyback",
-    "repurchase",
-    "stock",
-    "share count",
-    "share price",
-    "stock price",
-    "market cap",
-    "market capitalization",
-    "valuation",
-    "multiple",
-    "goodwill",
-    "dollar",
-    "currency",
-    "foreign exchange",
-    "fx",
-    "accountant",
-    "accountants",
-    "auditor",
-    "audit",
-    "accounting policy",
-    "controls",
-    "procedures",
-    "leadership",
-    "management team",
-)
-NON_FILING_EXPLANATION_SUBJECT_TERMS = (
-    "stock",
-    "share price",
-    "stock price",
-    "market cap",
-    "market capitalization",
-    "valuation",
-    "multiple",
-)
-VAGUE_COMPANY_CHANGE_TERMS = (
-    "what changed",
-    "what has changed",
-    "what's changed",
-    "what is different",
-    "what was different",
-    "changed",
-    "changes",
-    "change",
-    "different",
-    "difference",
-    "moved",
-    "shifted",
-    "变化",
-    "变了",
-    "有什么变化",
-)
-BROAD_PERFORMANCE_DRIVER_SUBJECT_TERMS = (
-    "performance",
-    "financial performance",
-    "business performance",
-    "results",
-    "financial results",
-    "business results",
-    "operating results",
-    "results of operations",
-    "表现",
-)
-COMPARISON_CONTEXT_TERMS = (
-    "compared with",
-    "compared to",
-    "compare with",
-    "compare to",
-    "versus",
-    "vs.",
-    "vs",
-    "yoy",
-    "year over year",
-    "year-over-year",
-    "last year",
-    "prior year",
-    "previous year",
-    "year ago",
-    "year earlier",
-    "same period",
-    "同比",
-    "相比",
-    "去年",
-    "上一年",
-    "上年",
-)
-COMPANY_GROWTH_LEXICAL_QUERIES = (
-    '"net sales"',
-    '"total net sales"',
-    '"net sales increased"',
-    '"revenue growth"',
-    '"operating income"',
-    '"income from operations"',
-    '"net income"',
-    '"net earnings"',
-    '"products and services performance"',
-    '"segment operating performance"',
-    '"net sales" "compared to"',
-    '"operating income" "compared to"',
-    '"net income" "compared to"',
-    '"year-over-year" "net sales"',
-)
-COMPANY_CHANGE_LEXICAL_QUERIES = (
-    '"net sales" "change"',
-    '"net sales" "compared to"',
-    '"total net sales" "change"',
-    '"products and services performance"',
-    '"segment operating performance"',
-    '"net sales by category"',
-    '"net sales by reportable segment"',
-    '"operating income" "change"',
-    '"operating income" "compared to"',
-    '"net income" "change"',
-    '"net income" "compared to"',
-    '"gross margin" "compared to"',
-    '"gross margin percentage"',
-    '"gross margin percentage increased"',
-    '"gross margin percentage decreased"',
-    '"primarily due to"',
-    '"higher net sales"',
-    '"lower net sales"',
-    '"cost of sales"',
-    '"year ended" "change"',
-    '"year-over-year"',
-)
-COMPANY_QUARTER_PERFORMANCE_LEXICAL_QUERIES = (
-    '"three months ended" "net sales"',
-    '"condensed consolidated statements of operations"',
-    '"products and services performance"',
-    '"segment operating performance"',
-    '"net sales by category"',
-    '"net sales by reportable segment"',
-    '"gross margin percentage"',
-    '"operating income"',
-    '"net income"',
-    '"same quarter"',
-    '"compared to the same period"',
-    '"primarily due to"',
-    '"higher net sales"',
-    '"lower net sales"',
-)
-PERFORMANCE_JUDGMENT_LEXICAL_QUERIES = (
-    '"compared to"',
-    '"same quarter"',
-    '"year-over-year"',
-    '"increased during"',
-    '"decreased during"',
-    '"three months ended"',
-)
-GROWTH_ACCELERATION_LEXICAL_QUERIES = (
-    '"growth accelerated"',
-    '"growth decelerated"',
-    '"growth slowed"',
-    '"growth speeding up"',
-    '"growth momentum"',
-    '"year-over-year" "growth"',
-    '"compared to the same quarter"',
-    '"same quarter"',
-    '"three months ended"',
-    '"net sales" "year-over-year"',
-)
-LIQUIDITY_LEXICAL_QUERIES = (
-    '"liquidity and capital resources"',
-    '"liquidity"',
-    '"capital resources"',
-    '"cash and cash equivalents"',
-    '"cash flows from operating activities"',
-    '"net cash provided by operating activities"',
-    '"statements of cash flows"',
-    '"working capital"',
-)
-FILING_SUMMARY_LEXICAL_QUERIES = (
-    '"management discussion and analysis"',
-    '"results of operations"',
-    '"condensed consolidated statements of operations"',
-    '"consolidated statements of operations"',
-    '"statements of cash flows"',
-    '"liquidity and capital resources"',
-    '"risk factors"',
-    '"net sales"',
-    '"gross margin"',
-    '"operating income"',
-    '"net income"',
-)
-MAX_DENSE_QUERY_WORDS = 45
-DENSE_INTENT_PHRASES = {
-    "performance_overview": (
-        "financial performance results business performance"
-    ),
-    "trend": "growth trend increased decreased compared to prior period",
-    "broad_comparison": (
-        "financial performance changes results of operations compared to prior period"
-    ),
-    "performance_judgment": (
-        "performance strength weakness improvement deterioration financial results"
-    ),
-    "mixed": "financial results drivers reasons primarily due to higher lower",
-    "metric": "financial metric value reported amount",
-    "risk": "risk factors item 1a business operational financial regulatory risks",
-    "liquidity": (
-        "liquidity capital resources cash position operating cash flow free cash flow"
-    ),
-    "filing_summary": (
-        "filing summary earnings report key takeaways financial results business overview"
-    ),
-    "management_discussion": "management discussion analysis results of operations",
-    "growth_acceleration": (
-        "growth acceleration deceleration momentum faster slower year-over-year"
-    ),
+VALID_FORMS = {
+    "10-K",  # 年报；当用户问最新年报、完整财年表现、年度风险因素时使用。
+    "10-Q",  # 季报；当用户问最新季度、年初至今、或中期财务表现时使用。
+    "8-K",  # 临时报告；当用户问重大事件、公告、业绩发布等事件驱动信息时使用。
 }
-DENSE_SECTION_PHRASES = {
-    "Financial Statements": "financial statements statements of operations",
-    "Management's Discussion and Analysis": (
-        "management discussion analysis results of operations"
-    ),
-    "Risk Factors": "risk factors item 1a",
-    "Liquidity": "liquidity capital resources cash flows",
-    "Cash Flows": "statements of cash flows operating activities",
-}
-DENSE_COMPARISON_PHRASES = {
-    "latest_quarter_yoy": "year-over-year compared to same quarter prior year",
-    "previous_quarter_yoy": "previous quarter year-over-year growth",
-    "latest_ytd_yoy": "year-over-year compared to same period prior year",
-    "previous_ytd_yoy": "previous year-to-date year-over-year growth",
-    "latest_fy_yoy": "year-over-year compared to prior fiscal year",
-    "previous_fy_yoy": "previous fiscal year year-over-year growth",
-    "ambiguous": "compared to prior period year-over-year change",
-}
-DENSE_TIME_PHRASES = {
-    "latest_quarter_yoy": "latest quarter three months ended",
-    "previous_quarter_yoy": "previous quarter three months ended",
-    "latest_ytd_yoy": "latest year-to-date six months nine months ended",
-    "previous_ytd_yoy": "previous year-to-date six months nine months ended",
-    "latest_fy_yoy": "latest fiscal year year ended annual",
-    "previous_fy_yoy": "previous fiscal year year ended annual",
-    "ambiguous": "year-over-year quarterly year-to-date annual trend",
-}
-
-METRIC_TERMS: dict[str, tuple[str, ...]] = {
-    key: profile.aliases for key, profile in METRIC_RETRIEVAL_PROFILES.items()
-}
-
-VALID_FORMS = {"10-K", "10-Q", "8-K"}
 VALID_QUESTION_TYPES = {
-    "risk",
-    "liquidity",
-    "filing_summary",
-    "management_discussion",
-    "growth_acceleration",
-    "broad_comparison",
-    "performance_overview",
-    "performance_judgment",
-    "mixed",
-    "trend",
-    "metric",
-    "comparison",
-    "prose",
+    "risk",  # 风险因素类问题；识别法律、监管、业务、运营等风险相关提问。
+    "liquidity",  # 流动性类问题；识别现金生成、资本资源、资金 runway、融资能力等提问。
+    "filing_summary",  # 文件摘要类问题；识别“总结这份 filing / 有什么重点”这类宽泛请求。
+    "management_discussion",  # 管理层讨论类问题；识别需要 MD&A 解释、原因、驱动因素的提问。
+    "growth_acceleration",  # 增长加速类问题；识别增长是在加速还是放缓的跨期比较。
+    "broad_comparison",  # 宽泛比较类问题；识别跨期间、公司、产品、分部的整体对比。
+    "performance_overview",  # 经营表现概览；识别“公司表现如何”这类需要核心损益指标的问题。
+    "performance_judgment",  # 经营表现判断；识别“好不好、强不强、是否改善”等评价型问题。
+    "mixed",  # 混合类问题；同时需要财务数字和文字解释、原因、管理层表述。
+    "trend",  # 趋势类问题；识别增长、下降、同比变化、方向性变化等时间序列提问。
+    "metric",  # 指标查询类问题；识别某个具体数字、比例、报表行项目的点查询。
+    "comparison",  # 聚焦比较类问题；识别明确期间、指标、章节、或同行之间的对比。
+    "prose",  # 文本检索类问题；问题主要不是财务事实查询时，用宽泛文本证据回答。
 }
-VALID_TIME_SCOPES = {"latest", "comparison_trend", "unspecified"}
+VALID_TIME_SCOPES = {
+    "latest",  # 最新时间范围；用户明确或强烈暗示要最近一期 filing / 最近报告期。
+    "comparison_trend",  # 比较趋势范围；用户问变化、增长、趋势、加速、或与前期相比。
+    "unspecified",  # 未指定时间范围；query 中无法可靠推断应使用哪个时间区间。
+}
 VALID_TARGET_SECTIONS = {
-    "Financial Statements",
-    "Management's Discussion and Analysis",
-    "Risk Factors",
-    "Liquidity",
-    "Cash Flows",
+    "Financial Statements",  # 财务报表章节；用于取报表数字、附注式行项目、主要财务事实。
+    "Management's Discussion and Analysis",  # MD&A 章节；用于取管理层解释、驱动因素、经营背景。
+    "Risk Factors",  # 风险因素章节；用于取 Item 1A 或风险相关文本证据。
+    "Liquidity",  # 流动性章节；用于取 liquidity and capital resources、现金需求、融资背景。
+    "Cash Flows",  # 现金流章节；用于取经营、投资、融资现金流相关证据。
 }
 VALID_COMPARISON_BASES = {
-    "none",
-    "ambiguous",
-    "latest_quarter_yoy",
-    "previous_quarter_yoy",
-    "latest_ytd_yoy",
-    "previous_ytd_yoy",
-    "latest_fy_yoy",
-    "previous_fy_yoy",
+    "none",  # 不需要比较；问题是单点查询或摘要，不要求同比、环比、跨期变化。
+    "ambiguous",  # 比较口径不明确；用户问变化/增长，但没说季度、YTD、还是全年口径。
+    "latest_quarter_yoy",  # 最新季度同比；最近一个季度对比去年同期季度。
+    "previous_quarter_yoy",  # 上一个已报告季度同比；前一季度对比其去年同期季度。
+    "latest_ytd_yoy",  # 最新年初至今同比；最近 YTD 期间对比去年同期 YTD。
+    "previous_ytd_yoy",  # 上一个 YTD 同比；前一个 YTD 期间对比其去年同期 YTD。
+    "latest_fy_yoy",  # 最新财年同比；最近完整财年对比上一完整财年。
+    "previous_fy_yoy",  # 上一个财年同比；前一完整财年对比再前一完整财年。
+}
+VALID_EVIDENCE_ROLES = {
+    "metric_comparisons",  # 需要结构化指标比较；用于回答同比、跨期变化、趋势问题。
+    "primary_financial_statement_chunks",  # 需要财务报表原文块；用于支撑数字、报表行项目。
+    "mda_explanation_chunks",  # 需要 MD&A 解释块；用于说明原因、驱动因素、管理层表述。
+    "segment_or_product_breakdown_chunks",  # 需要分部/产品拆分块；用于解释业务线或地区表现。
+    "risk_factor_chunks",  # 需要风险因素块；用于风险相关问题的主要文本证据。
+    "annual_context_chunks",  # 需要年报背景；即使主问题不是只问年报，也要补年度上下文。
+}
+VALID_LLM_PLAN_FIELDS = {
+    "question_type",  # LLM 识别出的语义意图，取值来自 VALID_QUESTION_TYPES。
+    "target_sections",  # 值得检索的 filing 章节，用作文本证据来源。
+    "metric_keys",  # 归一化后的指标 key，用于后续财务事实检索。
+    "time_scope",  # 粗粒度时间意图，取值来自 VALID_TIME_SCOPES。
+    "comparison_basis",  # 主要比较口径，取值来自 VALID_COMPARISON_BASES。
+    "comparison_candidates",  # 当比较口径不明确时，可尝试的候选比较口径。
+    "default_comparison_basis",  # 多个候选口径存在时，后端优先采用的默认口径。
+    "ambiguities",  # query 中仍未解决的歧义或假设，给后续链路参考。
+    "forms",  # 当用户明确要求某类 filing 时，用来硬约束检索范围。
+    "preferred_forms",  # 不硬约束检索时，用来提高某类 filing 的优先级。
+    "reasoning_summary",  # 可选的 LLM 理由摘要；schema 接受，但 RetrievalPlan 不保存。
+}
+PERFORMANCE_OVERVIEW_METRICS = [
+    "revenue",  # 收入；经营表现概览中的核心 top-line 指标。
+    "gross_margin",  # 毛利率；用于观察定价、成本压力和毛利水平。
+    "operating_income",  # 营业利润；用于观察主营业务盈利能力。
+    "net_income",  # 净利润；用于观察扣除全部费用、税费、其他项目后的底线利润。
+]
+SUMMARY_METRICS = [
+    *PERFORMANCE_OVERVIEW_METRICS,  # filing 摘要默认包含的核心损益指标。
+    "operating_cash_flow",  # 经营现金流；经营活动产生的现金。
+    "free_cash_flow",  # 自由现金流；经营现金流扣除资本开支后的现金。
+]
+LIQUIDITY_METRICS = [
+    "operating_cash_flow",  # 流动性问题的主要现金生成指标。
+    "free_cash_flow",  # 扣除资本开支后的可用现金，用于判断资金灵活性。
+]
+GROWTH_METRICS = [
+    "revenue",  # 收入增长信号。
+    "operating_income",  # 营业利润增长信号。
+    "net_income",  # 净利润增长信号。
+]
+MAX_DENSE_QUERIES = 6
+MAX_LLM_DENSE_QUERY_ROLES = MAX_DENSE_QUERIES - 1
+MAX_LEXICAL_QUERIES = 14
+LEXICAL_COMPARISON_TERMS = {
+    "latest_quarter_yoy": (
+        '"three months ended"',
+        '"compared to"',
+        '"prior year"',
+    ),
+    "previous_quarter_yoy": (
+        '"three months ended"',
+        '"compared to"',
+        '"prior year"',
+    ),
+    "latest_ytd_yoy": (
+        '"six months ended"',
+        '"nine months ended"',
+        '"compared to"',
+        '"prior year"',
+    ),
+    "previous_ytd_yoy": (
+        '"six months ended"',
+        '"nine months ended"',
+        '"compared to"',
+        '"prior year"',
+    ),
+    "latest_fy_yoy": (
+        '"year ended"',
+        '"fiscal year"',
+        '"compared to"',
+        '"prior year"',
+    ),
+    "previous_fy_yoy": (
+        '"year ended"',
+        '"fiscal year"',
+        '"compared to"',
+        '"prior year"',
+    ),
+    "ambiguous": (
+        '"compared to"',
+    ),
+    "none": (),
+}
+LEXICAL_SECTION_TERMS = {
+    "Financial Statements": (
+        '"consolidated statements of operations"',
+        '"statements of operations"',
+        '"financial statements"',
+    ),
+    "Management's Discussion and Analysis": (
+        '"results of operations"',
+        '"management discussion and analysis"',
+    ),
+    "Cash Flows": (
+        '"statements of cash flows"',
+        '"operating activities"',
+    ),
+    "Liquidity": (
+        '"liquidity and capital resources"',
+        '"cash requirements"',
+    ),
+    "Risk Factors": (
+        '"risk factors"',
+        '"item 1a"',
+    ),
+}
+DENSE_WEIGHT_PRIMARY = 1.0
+DENSE_WEIGHT_FINANCIAL_STATEMENT = 0.95
+DENSE_WEIGHT_SUPPORTING_CONTEXT = 0.85
+DENSE_WEIGHT_ORIGINAL_QUERY = 0.45
+VALID_LLM_DENSE_QUERY_ROLES = {
+    "slot",
+    "financial_statement",
+    "cash_flow",
+    "liquidity",
+    "mda",
+    "risk",
+}
+DENSE_ROLE_WEIGHTS = {
+    "slot": DENSE_WEIGHT_PRIMARY,
+    "financial_statement": DENSE_WEIGHT_FINANCIAL_STATEMENT,
+    "cash_flow": DENSE_WEIGHT_PRIMARY,
+    "liquidity": DENSE_WEIGHT_SUPPORTING_CONTEXT,
+    "mda": DENSE_WEIGHT_SUPPORTING_CONTEXT,
+    "risk": DENSE_WEIGHT_PRIMARY,
+    "original": DENSE_WEIGHT_ORIGINAL_QUERY,
+}
+SECTION_DENSE_CONTEXT = {
+    "Financial Statements": (
+        "financial statements consolidated statements of operations statements of cash flows"
+    ),
+    "Management's Discussion and Analysis": (
+        "management discussion analysis results of operations liquidity capital resources"
+    ),
+    "Risk Factors": "risk factors item 1a business operational financial regulatory risks",
+    "Liquidity": "liquidity and capital resources cash requirements operating activities",
+    "Cash Flows": "statement of cash flows operating investing financing activities",
+}
+QUESTION_TYPE_DENSE_CONTEXT = {
+    "metric": "latest filing reported amount financial statement line item",
+    "trend": "year over year trend compared with prior period",
+    "mixed": "financial statement amount management discussion reasons drivers",
+    "performance_overview": "latest quarter financial performance results of operations",
+    "liquidity": "cash generation liquidity capital resources cash flows",
+}
+COMPARISON_DENSE_CONTEXT = {
+    "latest_quarter_yoy": "latest quarter three months ended year over year compared to prior year",
+    "previous_quarter_yoy": "previous quarter three months ended year over year",
+    "latest_ytd_yoy": "latest year to date six months nine months ended compared to prior year",
+    "previous_ytd_yoy": "previous year to date compared to prior year",
+    "latest_fy_yoy": "latest fiscal year year ended compared to prior fiscal year annual report",
+    "previous_fy_yoy": "previous fiscal year year ended compared to prior fiscal year annual report",
+    "ambiguous": "quarterly year to date annual year over year trend",
+}
+DENSE_REWRITER_SECTION_TERMS = {
+    "Financial Statements": [
+        "financial statements",
+        "consolidated statements of operations",
+        "statements of cash flows",
+        "reported amounts",
+        "line items",
+    ],
+    "Management's Discussion and Analysis": [
+        "management discussion and analysis",
+        "results of operations",
+        "drivers",
+        "reasons",
+        "primarily due to",
+    ],
+    "Risk Factors": ["risk factors", "item 1a", "business risks", "regulatory risks"],
+    "Liquidity": [
+        "liquidity and capital resources",
+        "cash requirements",
+        "working capital",
+        "funding capacity",
+    ],
+    "Cash Flows": [
+        "statements of cash flows",
+        "operating activities",
+        "investing activities",
+        "financing activities",
+    ],
+}
+DENSE_REWRITER_COMPARISON_TERMS = {
+    "none": [],
+    "ambiguous": ["year over year", "quarterly", "year to date", "annual", "trend"],
+    "latest_quarter_yoy": [
+        "latest quarter",
+        "three months ended",
+        "year over year",
+        "compared to prior year",
+        "prior year quarter",
+    ],
+    "previous_quarter_yoy": [
+        "previous quarter",
+        "three months ended",
+        "year over year",
+        "compared to prior year",
+        "prior year quarter",
+    ],
+    "latest_ytd_yoy": [
+        "latest year to date",
+        "six months ended",
+        "nine months ended",
+        "year over year",
+        "compared to prior year",
+    ],
+    "previous_ytd_yoy": [
+        "previous year to date",
+        "six months ended",
+        "nine months ended",
+        "year over year",
+        "compared to prior year",
+    ],
+    "latest_fy_yoy": [
+        "latest fiscal year",
+        "year ended",
+        "year over year",
+        "compared to prior fiscal year",
+    ],
+    "previous_fy_yoy": [
+        "previous fiscal year",
+        "year ended",
+        "year over year",
+        "compared to prior fiscal year",
+    ],
 }
 
 
@@ -890,12 +294,10 @@ class RetrievalPlan:
     forms: list[str]
     dense_queries: list[str]
     lexical_queries: list[str]
-    rule_confidence: float
     matched_rules: list[str]
     preferred_forms: list[str] = field(default_factory=list)
     dense_query_specs: list[dict[str, Any]] = field(default_factory=list)
-    planner_source: str = "rule_validated"
-    confidence_breakdown: dict[str, float] = field(default_factory=dict)
+    planner_source: str = "llm_validated"
     needs_financial_facts: bool = True
     needs_text_chunks: bool = True
     needs_metric_comparisons: bool = True
@@ -909,73 +311,24 @@ class RetrievalPlan:
 @dataclass(frozen=True)
 class NormalizedQuery:
     original: str
-    normalized: str
-    form_type: str | None
-    section: str | None
-
-
-@dataclass(frozen=True)
-class IntentResult:
-    question_type: str
-    target_sections: list[str]
-    lexical_queries: list[str]
-    matched_rules: list[str]
-    confidence: float
-    has_explanation_intent: bool
-    has_performance_intent: bool
-    has_judgment_intent: bool
-    has_acceleration_intent: bool
-    has_liquidity_intent: bool = False
-    has_filing_summary_intent: bool = False
-
-
-@dataclass(frozen=True)
-class MetricResolution:
-    metric_keys: list[str]
-    matched_rules: list[str]
-    confidence: float
-    broad_company_growth: bool = False
-    broad_company_change: bool = False
-    broad_company_performance: bool = False
-    unsupported_subject: bool = False
-
-
-@dataclass(frozen=True)
-class TimeResolution:
-    time_scope: str
-    comparison_basis: str
-    comparison_candidates: list[str]
-    default_comparison_basis: str | None
-    ambiguities: list[str]
-    forms: list[str]
-    matched_rules: list[str]
-    confidence: float
-    has_conflict: bool = False
-
-
-@dataclass(frozen=True)
-class RetrievalStrategy:
-    question_type: str
-    target_sections: list[str]
-    forms: list[str]
-    matched_rules: list[str]
-    confidence: float
-    needs_financial_facts: bool
-    needs_text_chunks: bool
-    needs_metric_comparisons: bool
-    evidence_roles: list[str]
-
-
-@dataclass(frozen=True)
-class ExpansionResult:
-    dense_queries: list[str]
-    dense_query_specs: list[dict[str, Any]]
-    lexical_queries: list[str]
+    form_type: str | None = None
+    section: str | None = None
 
 
 class LLMPlanner(Protocol):
     def plan_candidate(self, question: str) -> dict[str, Any]:
         """Return a raw JSON-compatible candidate plan."""
+
+
+class DenseQueryRewriter(Protocol):
+    def rewrite(
+        self,
+        *,
+        question: str,
+        plan: RetrievalPlan,
+        requested_roles: list[str],
+    ) -> list[dict[str, Any]]:
+        """Return dense embedding query specs for validated retrieval roles."""
 
 
 class QueryNormalizer:
@@ -986,955 +339,1214 @@ class QueryNormalizer:
         form_type: str | None = None,
         section: str | None = None,
     ) -> NormalizedQuery:
-        normalized = " ".join(
-            question.lower()
-            .replace("’", "'")
-            .replace("‘", "'")
-            .replace("“", '"')
-            .replace("”", '"')
-            .split()
-        )
         return NormalizedQuery(
-            original=question,
-            normalized=normalized,
+            original=" ".join(question.split()),
             form_type=form_type.strip().upper() if form_type and form_type.strip() else None,
             section=section.strip() if section and section.strip() else None,
         )
 
 
-class IntentParser:
-    def parse(self, query: NormalizedQuery) -> IntentResult:
-        normalized = query.normalized
-        matched_rules: list[str] = []
-        target_sections: list[str] = []
-        lexical_queries: list[str] = []
+class LLMQueryPlanner:
+    allowed_fields = VALID_LLM_PLAN_FIELDS
 
-        if _contains_any(normalized, RISK_TERMS):
-            matched_rules.append("section:risk_factors")
-            target_sections.append("Risk Factors")
-            lexical_queries.append("risk factors")
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
 
-        has_liquidity_intent = _is_liquidity_question(normalized)
-        if has_liquidity_intent:
-            matched_rules.append("intent:liquidity")
-            lexical_queries.append("liquidity and capital resources")
-            if _contains_any(normalized, LIQUIDITY_SECTION_TERMS):
-                target_sections.extend(
-                    [
-                        "Liquidity",
-                        "Cash Flows",
-                        "Management's Discussion and Analysis",
-                    ]
-                )
+    def plan_candidate(self, question: str) -> dict[str, Any]:
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            raise RuntimeError("OPENAI_API_KEY must be configured for LLM query planning.")
 
-        has_filing_summary_intent = _is_filing_summary_question(normalized)
-        if has_filing_summary_intent:
-            matched_rules.append("intent:filing_summary")
-            lexical_queries.append("management discussion and analysis")
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError("The openai package must be installed for LLM query planning.") from exc
 
-        has_explanation_intent = _contains_any(normalized, EXPLANATION_TERMS)
-        has_current_performance_intent = _contains_any(
-            normalized,
-            CURRENT_PERFORMANCE_TERMS,
+        client = OpenAI(
+            api_key=api_key.get_secret_value(),
+            timeout=self._settings.query_planner_llm_timeout_seconds,
+            max_retries=self._settings.query_planner_llm_max_retries,
         )
-        has_performance_intent = (
-            _contains_any(normalized, PERFORMANCE_TERMS)
-            or has_current_performance_intent
+        response = client.chat.completions.create(
+            model=self._settings.query_planner_llm_model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _llm_planner_system_prompt()},
+                {"role": "user", "content": question},
+            ],
         )
-        has_comparative_metric_judgment = _has_metric_comparative_signal(normalized)
-        has_judgment_intent = (
-            _contains_any(normalized, JUDGMENT_TERMS)
-            or has_comparative_metric_judgment
-        )
-        has_acceleration_intent = _contains_any(normalized, ACCELERATION_TERMS)
-        if has_current_performance_intent:
-            matched_rules.append("intent:current_performance")
-        if has_comparative_metric_judgment:
-            matched_rules.append("intent:metric_comparative_judgment")
-
-        if _contains_any(normalized, MDA_TERMS) or (
-            has_explanation_intent
-            and ("margin" in normalized or "changed" in normalized or "变化" in normalized)
-        ):
-            matched_rules.append("section:mda")
-            target_sections.append("Management's Discussion and Analysis")
-            lexical_queries.append("management discussion analysis")
-
-        if "section:risk_factors" in matched_rules:
-            question_type = "risk"
-            confidence = 0.9
-        elif (
-            has_liquidity_intent
-            and not has_acceleration_intent
-            and not has_judgment_intent
-            and not _contains_any(normalized, TREND_TERMS)
-        ):
-            question_type = "liquidity"
-            confidence = 0.82
-        elif has_filing_summary_intent:
-            question_type = "filing_summary"
-            confidence = 0.84
-        elif has_acceleration_intent:
-            question_type = "growth_acceleration"
-            confidence = 0.82
-        elif has_explanation_intent:
-            question_type = "drivers"
-            confidence = 0.75
-        elif has_judgment_intent:
-            question_type = "metric_performance"
-            confidence = 0.72
-        elif has_performance_intent:
-            question_type = "performance_overview"
-            confidence = 0.68
-        else:
-            question_type = "prose"
-            confidence = 0.45
-
-        return IntentResult(
-            question_type=question_type,
-            target_sections=target_sections,
-            lexical_queries=lexical_queries,
-            matched_rules=matched_rules,
-            confidence=confidence,
-            has_explanation_intent=has_explanation_intent,
-            has_performance_intent=has_performance_intent,
-            has_judgment_intent=has_judgment_intent,
-            has_acceleration_intent=has_acceleration_intent,
-            has_liquidity_intent=has_liquidity_intent,
-            has_filing_summary_intent=has_filing_summary_intent,
-        )
+        content = response.choices[0].message.content or "{}"
+        candidate = _parse_llm_json(content)
+        unknown_fields = set(candidate) - self.allowed_fields
+        if unknown_fields:
+            raise ValueError(f"LLM planner returned unsupported fields: {sorted(unknown_fields)}")
+        return candidate
 
 
-class RuleMetricResolver:
-    def resolve(self, query: NormalizedQuery, intent: IntentResult) -> MetricResolution:
-        normalized = query.normalized
-        matched_rules: list[str] = []
-        metric_keys: list[str] = []
-        unsupported_subject = _contains_any(normalized, BROAD_COMPANY_GROWTH_EXCLUDED_SUBJECTS)
+class LLMDenseQueryRewriter:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
 
-        for metric_key, terms in METRIC_TERMS.items():
-            if _contains_any(normalized, terms):
-                matched_rules.append(f"metric:{metric_key}")
-                metric_keys.append(metric_key)
-
-        if (
-            "revenue" not in metric_keys
-            and _contains_any(normalized, SALES_ACTIVITY_TERMS)
-            and _contains_any(normalized, SALES_ACTIVITY_CONTEXT_TERMS)
-            and "selling expense" not in normalized
-            and "selling expenses" not in normalized
-        ):
-            # 当 query 里出现 sell/sales/sold/销售，
-            # 并且同时出现 growth/latest/performance/comparison 语境时，
-            # 把它理解成 revenue。
-            matched_rules.append("metric:revenue:sales_activity")
-            metric_keys.append("revenue")
-
-        if "net_income" not in metric_keys and _is_earnings_activity_question(normalized):
-            matched_rules.append("metric:net_income:earnings_activity")
-            metric_keys.append("net_income")
-
-        broad_company_growth = False
-        if not metric_keys and intent.has_liquidity_intent:
-            matched_rules.append("metric:liquidity_default")
-            metric_keys.extend(DEFAULT_LIQUIDITY_METRICS)
-
-        if intent.question_type == "filing_summary" and (
-            not metric_keys
-            or (
-                metric_keys == ["net_income"]
-                and _contains_any(normalized, BROAD_EARNINGS_REPORT_TERMS)
-            )
-        ):
-            matched_rules.append("metric:filing_summary_default")
-            metric_keys = list(DEFAULT_SUMMARY_METRICS)
-
-        if not metric_keys and (
-            intent.has_judgment_intent or intent.has_acceleration_intent
-        ):
-            if _contains_any(normalized, PROFITABILITY_TERMS):
-                matched_rules.append("metric:profitability_default")
-                metric_keys.extend(DEFAULT_PROFITABILITY_METRICS)
-            elif _contains_any(normalized, MARGIN_JUDGMENT_TERMS):
-                matched_rules.append("metric:margin_default")
-                metric_keys.extend(DEFAULT_MARGIN_METRICS)
-            elif not unsupported_subject:
-                matched_rules.append("metric:company_growth_default")
-                metric_keys.extend(DEFAULT_COMPANY_GROWTH_METRICS)
-                broad_company_growth = True
-
-        metric_keys = _dedupe(metric_keys)
-        confidence = self._confidence(metric_keys, matched_rules, unsupported_subject)
-        return MetricResolution(
-            metric_keys=metric_keys,
-            matched_rules=matched_rules,
-            confidence=confidence,
-            broad_company_growth=broad_company_growth,
-            unsupported_subject=unsupported_subject,
-        )
-
-    def apply_contextual_defaults(
+    def rewrite(
         self,
-        query: NormalizedQuery,
-        intent: IntentResult,
-        time: TimeResolution,
-        resolution: MetricResolution,
-    ) -> MetricResolution:
-        if resolution.metric_keys:
-            return resolution
-
-        normalized = query.normalized
-        matched_rules = list(resolution.matched_rules)
-        metric_keys: list[str] = []
-        broad_company_growth = False
-        broad_company_change = False
-        broad_company_performance = False
-
-        if not resolution.unsupported_subject and _is_broad_performance_change_explanation(
-            normalized,
-            intent,
-            time.time_scope,
-        ):
-            matched_rules.append("metric:company_change_default:performance_explanation")
-            metric_keys.extend(DEFAULT_COMPANY_CHANGE_METRICS)
-            broad_company_change = True
-        elif not resolution.unsupported_subject and _is_broad_performance_driver_question(
-            normalized,
-            intent,
-        ):
-            matched_rules.append("metric:company_performance_default:driver_explanation")
-            metric_keys.extend(DEFAULT_COMPANY_CHANGE_METRICS)
-            broad_company_performance = True
-        elif not resolution.unsupported_subject and _is_broad_company_growth_question(
-            normalized,
-            time.time_scope,
-        ):
-            matched_rules.append("metric:company_growth_default")
-            metric_keys.extend(DEFAULT_COMPANY_GROWTH_METRICS)
-            broad_company_growth = True
-        elif not resolution.unsupported_subject and _is_vague_company_change_question(
-            normalized,
-            time.time_scope,
-        ):
-            matched_rules.append("metric:company_change_default")
-            metric_keys.extend(DEFAULT_COMPANY_CHANGE_METRICS)
-            broad_company_change = True
-        elif not resolution.unsupported_subject and _is_vague_company_performance_question(
-            normalized,
-            has_performance_intent=intent.has_performance_intent,
-        ):
-            matched_rules.append("metric:company_performance_default")
-            metric_keys.extend(DEFAULT_COMPANY_CHANGE_METRICS)
-            broad_company_performance = True
-
-        if not metric_keys:
-            return resolution
-
-        return MetricResolution(
-            metric_keys=_dedupe(metric_keys),
-            matched_rules=matched_rules,
-            confidence=0.62,
-            broad_company_growth=broad_company_growth,
-            broad_company_change=broad_company_change,
-            broad_company_performance=broad_company_performance,
-            unsupported_subject=resolution.unsupported_subject,
-        )
-
-    def _confidence(
-        self,
-        metric_keys: list[str],
-        matched_rules: list[str],
-        unsupported_subject: bool,
-    ) -> float:
-        if unsupported_subject and not metric_keys:
-            return 0.25
-        if any(rule.startswith("metric:") and not rule.endswith("_default") for rule in matched_rules):
-            return 0.95
-        if metric_keys:
-            return 0.7
-        return 0.45
-
-
-class EmbeddingMetricResolver:
-    """Placeholder for future embedding-based metric routing."""
-
-    def resolve(self, query: NormalizedQuery, intent: IntentResult) -> MetricResolution:
-        return RuleMetricResolver().resolve(query, intent)
-
-
-class TimeScopeResolver:
-# 用户问的是 latest 吗？
-# 用户问的是 trend / comparison 吗？
-# 应该比较 quarter、YTD，还是 fiscal year？
-# 应该查 10-Q、10-K，还是 8-K？
-# 有没有时间冲突？
-    def resolve(
-        self,
-        query: NormalizedQuery,
-        intent: IntentResult,
-        metric_keys: list[str],
-    ) -> TimeResolution:
-        normalized = query.normalized
-        matched_rules: list[str] = []
-        forms: list[str] = []
-        ambiguities: list[str] = []
-        comparison_basis = "none"
-        comparison_candidates: list[str] = []
-        default_comparison_basis: str | None = None
-
-        time_scope = "unspecified"
-        if _contains_any(normalized, LATEST_TERMS):
-            matched_rules.append("time:latest")
-            time_scope = "latest"
-        if _contains_any(normalized, TREND_TERMS):
-            matched_rules.append("time:comparison_trend")
-            time_scope = "comparison_trend"
-        if _contains_any(normalized, SALES_ACTIVITY_COMPARISON_TERMS):
-            matched_rules.append("time:comparison_trend:sales_activity")
-            time_scope = "comparison_trend"
-        if metric_keys and _has_metric_comparative_signal(normalized, metric_keys):
-            matched_rules.append("time:comparison_trend:metric_comparative")
-            time_scope = "comparison_trend"
-        if (
-            metric_keys
-            and intent.has_judgment_intent
-            and _contains_any(normalized, PERFORMANCE_PERSISTENCE_TERMS)
-        ):
-            matched_rules.append("time:comparison_trend:persistent_judgment")
-            time_scope = "comparison_trend"
-        if intent.has_acceleration_intent and time_scope == "unspecified":
-            matched_rules.append("time:comparison_trend")
-            time_scope = "comparison_trend"
-        if intent.has_liquidity_intent and time_scope == "unspecified":
-            matched_rules.append("time:latest_default_liquidity")
-            time_scope = "latest"
-        if intent.question_type == "filing_summary" and time_scope == "unspecified":
-            matched_rules.append("time:latest_default_filing_summary")
-            time_scope = "latest"
-
-        if "10-k" in normalized or "annual" in normalized:
-            forms.append("10-K")
-            matched_rules.append("form:10-K")
-        if "10-q" in normalized or "quarter" in normalized or "quarterly" in normalized:
-            forms.append("10-Q")
-            matched_rules.append("form:10-Q")
-        if "8-k" in normalized:
-            forms.append("8-K")
-            matched_rules.append("form:8-K")
-
-        has_conflict = self._has_basis_conflict(normalized)
-
-        if metric_keys and intent.has_acceleration_intent:
-            (
-                comparison_basis,
-                comparison_candidates,
-                default_comparison_basis,
-                ambiguity,
-            ) = _detect_growth_acceleration_basis(normalized)
-            if ambiguity:
-                ambiguities.append(ambiguity)
-            matched_rules.append("comparison_basis:growth_acceleration")
-            matched_rules.append(f"comparison_basis:{default_comparison_basis}:default")
-        elif metric_keys and time_scope == "comparison_trend":
-            comparison_basis = _detect_comparison_basis(normalized)
-            if comparison_basis == "ambiguous":
-                comparison_candidates = [
-                    "latest_quarter_yoy",
-                    "latest_ytd_yoy",
-                    "latest_fy_yoy",
-                ]
-                default_comparison_basis = "latest_quarter_yoy"
-                ambiguities.append(
-                    "Question does not specify quarterly, year-to-date, annual, or multi-year growth."
-                )
-                matched_rules.append("comparison_basis:ambiguous")
-            else:
-                comparison_candidates = [comparison_basis]
-                default_comparison_basis = comparison_basis
-                matched_rules.append(f"comparison_basis:{comparison_basis}")
-
-        if metric_keys and intent.has_judgment_intent and comparison_basis == "none":
-            (
-                comparison_basis,
-                comparison_candidates,
-                default_comparison_basis,
-                ambiguity,
-                rules,
-            ) = self._default_metric_performance_basis(
-                normalized,
-                metric_keys,
-                ambiguity_message=(
-                    "Interpreted performance judgment as latest comparable period "
-                    "because no period was specified."
-                ),
-                default_rule="comparison_basis:performance_judgment_default",
-            )
-            matched_rules.extend(rules)
-            if ambiguity:
-                ambiguities.append(ambiguity)
-            if time_scope == "unspecified":
-                time_scope = "latest"
-
-        if metric_keys and intent.has_performance_intent and comparison_basis == "none":
-            (
-                comparison_basis,
-                comparison_candidates,
-                default_comparison_basis,
-                ambiguity,
-                rules,
-            ) = self._default_metric_performance_basis(
-                normalized,
-                metric_keys,
-                ambiguity_message=(
-                    "Interpreted as latest comparable period performance because "
-                    "no period was specified."
-                ),
-                default_rule="time:latest_default_metric_performance",
-            )
-            matched_rules.extend(rules)
-            if ambiguity:
-                ambiguities.append(ambiguity)
-            if time_scope == "unspecified":
-                time_scope = "latest"
-
-        confidence = 0.88
-        if comparison_basis == "ambiguous":
-            confidence = 0.62
-        elif time_scope == "unspecified":
-            confidence = 0.55
-        if has_conflict:
-            confidence = min(confidence, 0.48)
-
-        return TimeResolution(
-            time_scope=time_scope,
-            comparison_basis=comparison_basis,
-            comparison_candidates=comparison_candidates,
-            default_comparison_basis=default_comparison_basis,
-            ambiguities=ambiguities,
-            forms=_dedupe(forms),
-            matched_rules=matched_rules,
-            confidence=confidence,
-            has_conflict=has_conflict,
-        )
-
-    def _default_metric_performance_basis(
-        self,
-        normalized: str,
-        metric_keys: list[str],
         *,
-        ambiguity_message: str,
-        default_rule: str,
-    ) -> tuple[str, list[str], str, str | None, list[str]]:
-        detected_basis = _detect_comparison_basis(normalized)
-        if detected_basis == "ambiguous":
-            default_basis = _default_comparison_basis_for_metrics(metric_keys)
-            return (
-                default_basis,
-                [default_basis],
-                default_basis,
-                ambiguity_message,
-                [default_rule, f"comparison_basis:{default_basis}:default"],
-            )
-        return (
-            detected_basis,
-            [detected_basis],
-            detected_basis,
-            None,
-            [f"comparison_basis:{detected_basis}"],
+        question: str,
+        plan: RetrievalPlan,
+        requested_roles: list[str],
+    ) -> list[dict[str, Any]]:
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            raise RuntimeError("OPENAI_API_KEY must be configured for LLM dense query rewriting.")
+
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise RuntimeError(
+                "The openai package must be installed for LLM dense query rewriting."
+            ) from exc
+
+        client = OpenAI(
+            api_key=api_key.get_secret_value(),
+            timeout=self._settings.query_planner_llm_timeout_seconds,
+            max_retries=self._settings.query_planner_llm_max_retries,
         )
+        response = client.chat.completions.create(
+            model=self._settings.query_planner_llm_model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _llm_dense_query_rewriter_system_prompt()},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        _llm_dense_query_rewriter_payload(
+                            question=question,
+                            plan=plan,
+                            requested_roles=requested_roles,
+                        ),
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        )
+        content = response.choices[0].message.content or "{}"
+        parsed = _parse_llm_json(content)
+        specs = parsed.get("dense_query_specs")
+        if not isinstance(specs, list):
+            raise ValueError("LLM dense query rewriter must return dense_query_specs.")
+        return specs
 
-    def _has_basis_conflict(self, normalized: str) -> bool:
-        hits = [
-            _contains_any(normalized, QUARTERLY_BASIS_TERMS),
-            _contains_any(normalized, YTD_BASIS_TERMS),
-            _contains_any(normalized, FY_BASIS_TERMS),
-        ]
-        return sum(1 for hit in hits if hit) > 1
+
+@dataclass(frozen=True)
+class CompiledQueries:
+    dense_queries: list[str]
+    dense_query_specs: list[dict[str, Any]]
+    lexical_queries: list[str]
 
 
-class RetrievalStrategyBuilder:
-    def build(
+class QueryCompiler:
+    def compile(
         self,
         query: NormalizedQuery,
-        intent: IntentResult,
-        metrics: MetricResolution,
-        time: TimeResolution,
-    ) -> RetrievalStrategy:
-        target_sections = list(intent.target_sections)
-        forms = list(time.forms)
-        matched_rules: list[str] = []
-
-        if query.form_type and query.form_type not in forms:
-            forms.append(query.form_type)
-        if query.section and query.section not in target_sections:
-            target_sections.append(query.section)
-
-        if intent.has_liquidity_intent and metrics.metric_keys and not intent.has_explanation_intent:
-            liquidity_sections = (
-                ["Liquidity", "Cash Flows", "Management's Discussion and Analysis"]
-                if intent.question_type == "liquidity"
-                else ["Cash Flows", "Management's Discussion and Analysis"]
-            )
-            for section in liquidity_sections:
-                if section not in target_sections:
-                    target_sections.append(section)
-            matched_rules.append("section:liquidity")
-
-        if intent.question_type == "filing_summary" and metrics.metric_keys:
-            summary_sections = [
-                "Financial Statements",
-                "Management's Discussion and Analysis",
-                "Liquidity",
-                "Cash Flows",
-            ]
-            if "10-K" in forms:
-                summary_sections.append("Risk Factors")
-            for section in summary_sections:
-                if section not in target_sections:
-                    target_sections.append(section)
-            matched_rules.append("section:filing_summary")
-
-        if (
-            intent.has_explanation_intent
-            and not metrics.metric_keys
-            and not target_sections
-            and not _contains_any(query.normalized, NON_FILING_EXPLANATION_SUBJECT_TERMS)
-        ):
-            target_sections.append("Management's Discussion and Analysis")
-            matched_rules.append("section:mda_driver_context")
-
-        preferred_form = _preferred_form_for_comparison_basis(time.default_comparison_basis)
-        if (
-            intent.question_type == "liquidity"
-            and time.time_scope == "latest"
-            and not query.form_type
-            and not forms
-        ):
-            forms.append("10-Q")
-            matched_rules.append("form:10-Q:liquidity_latest_default")
-        if (
-            intent.question_type == "filing_summary"
-            and time.time_scope == "latest"
-            and not query.form_type
-            and not forms
-        ):
-            forms.append("10-Q")
-            matched_rules.append("form:10-Q:filing_summary_latest_default")
-        if metrics.broad_company_change and preferred_form and preferred_form not in forms:
-            forms.append(preferred_form)
-            matched_rules.append(f"form:{preferred_form}:company_change_default")
-        if (
-            intent.has_acceleration_intent
-            and preferred_form
-            and preferred_form not in forms
-        ):
-            forms.append(preferred_form)
-            matched_rules.append(f"form:{preferred_form}:growth_acceleration_default")
-
-        if metrics.metric_keys and time.comparison_basis != "none" and not target_sections:
-            matched_rules.append("section:financial_statements_metric_trend")
-            target_sections.append("Financial Statements")
-
-        if (
-            metrics.metric_keys
-            and time.comparison_basis != "none"
-            and intent.has_acceleration_intent
-            and "Management's Discussion and Analysis" not in target_sections
-        ):
-            matched_rules.append("section:mda_growth_acceleration")
-            target_sections.append("Management's Discussion and Analysis")
-        elif (
-            metrics.metric_keys
-            and time.comparison_basis != "none"
-            and (metrics.broad_company_growth or metrics.broad_company_change)
-            and "Management's Discussion and Analysis" not in target_sections
-        ):
-            matched_rules.append(
-                "section:mda_company_change"
-                if metrics.broad_company_change
-                else "section:mda_company_growth"
-            )
-            target_sections.append("Management's Discussion and Analysis")
-        elif (
-            metrics.metric_keys
-            and time.comparison_basis != "none"
-            and metrics.broad_company_performance
-            and "Management's Discussion and Analysis" not in target_sections
-        ):
-            matched_rules.append("section:mda_company_performance")
-            target_sections.append("Management's Discussion and Analysis")
-        elif (
-            metrics.metric_keys
-            and time.comparison_basis != "none"
-            and intent.has_judgment_intent
-            and "Management's Discussion and Analysis" not in target_sections
-        ):
-            matched_rules.append("section:mda_performance_judgment")
-            target_sections.append("Management's Discussion and Analysis")
-        elif (
-            metrics.metric_keys
-            and time.comparison_basis != "none"
-            and intent.has_performance_intent
-            and time.time_scope != "comparison_trend"
-            and "Management's Discussion and Analysis" not in target_sections
-        ):
-            matched_rules.append("section:mda_metric_performance")
-            target_sections.append("Management's Discussion and Analysis")
-
-        if (
-            metrics.metric_keys
-            and intent.has_explanation_intent
-            and "Management's Discussion and Analysis" not in target_sections
-        ):
-            matched_rules.append("section:mda_metric_explanation")
-            target_sections.append("Management's Discussion and Analysis")
-
-        question_type = self._legacy_question_type(
-            intent,
-            metrics,
-            time,
-            target_sections,
-            matched_rules,
-        )
-        needs_financial_facts = bool(metrics.metric_keys) and question_type not in {"risk", "prose"}
-        needs_metric_comparisons = needs_financial_facts and _comparison_requested(
-            time.comparison_basis,
-            time.comparison_candidates,
-        )
-        evidence_roles = self._evidence_roles(question_type, target_sections, needs_metric_comparisons)
-
-        confidence = 0.88
-        if metrics.broad_company_growth or metrics.broad_company_change or metrics.broad_company_performance:
-            confidence = 0.74
-        if not metrics.metric_keys and question_type in {"comparison", "prose"}:
-            confidence = 0.55
-
-        return RetrievalStrategy(
-            question_type=question_type,
-            target_sections=_dedupe(target_sections),
-            forms=_dedupe(forms),
-            matched_rules=matched_rules,
-            confidence=confidence,
-            needs_financial_facts=needs_financial_facts,
-            needs_text_chunks=True,
-            needs_metric_comparisons=needs_metric_comparisons,
-            evidence_roles=evidence_roles,
-        )
-
-    def _legacy_question_type(
-        self,
-        intent: IntentResult,
-        metrics: MetricResolution,
-        time: TimeResolution,
-        target_sections: list[str],
-        strategy_rules: list[str],
-    ) -> str:
-        if metrics.metric_keys and intent.has_acceleration_intent and time.comparison_basis != "none":
-            return "growth_acceleration"
-        if metrics.metric_keys and intent.has_explanation_intent:
-            return "mixed"
-        if metrics.metric_keys and any(
-            rule in {"section:mda", "section:mda_metric_explanation"}
-            for rule in [*intent.matched_rules, *strategy_rules]
-        ):
-            return "mixed"
-        if metrics.metric_keys and intent.question_type == "liquidity":
-            return "liquidity"
-        if metrics.metric_keys and intent.question_type == "filing_summary":
-            return "filing_summary"
-        if (
-            metrics.metric_keys
-            and intent.has_liquidity_intent
-            and time.comparison_basis != "none"
-        ):
-            return "trend"
-        if metrics.metric_keys and metrics.broad_company_change and time.comparison_basis != "none":
-            return "broad_comparison"
-        if metrics.metric_keys and metrics.broad_company_performance and time.comparison_basis != "none":
-            return "performance_overview"
-        if metrics.metric_keys and intent.has_judgment_intent and time.comparison_basis != "none":
-            return "performance_judgment"
-        if (
-            metrics.metric_keys
-            and time.comparison_basis != "none"
-            and set(target_sections).issubset(
-                {"Financial Statements", "Management's Discussion and Analysis"}
-            )
-        ):
-            return "trend"
-        if metrics.metric_keys and target_sections:
-            return "mixed"
-        if metrics.metric_keys and time.time_scope == "comparison_trend":
-            return "trend"
-        if metrics.metric_keys:
-            return "metric"
-        if any(rule == "section:risk_factors" for rule in intent.matched_rules):
-            return "risk"
-        if any(rule == "section:mda" for rule in intent.matched_rules):
-            return "management_discussion"
-        if time.time_scope == "comparison_trend":
-            return "comparison"
-        return "prose"
-
-    def _evidence_roles(
-        self,
+        *,
         question_type: str,
         target_sections: list[str],
+        metric_keys: list[str],
+        time_scope: str,
+        comparison_basis: str,
         needs_metric_comparisons: bool,
-    ) -> list[str]:
-        return _evidence_roles_for(
-            question_type,
-            target_sections,
-            needs_metric_comparisons,
+    ) -> CompiledQueries:
+        # 先添加上硬编码的dense query fallback，后续会替换成 LLM 生成的版本
+        metric_phrases = _metric_dense_phrases(metric_keys)
+        section_phrases = _section_dense_phrases(target_sections)
+        comparison_phrase = COMPARISON_DENSE_CONTEXT.get(comparison_basis, "")
+        question_type_phrase = QUESTION_TYPE_DENSE_CONTEXT.get(question_type, "")
+        time_phrase = _time_dense_context(time_scope)
+
+        specs: list[dict[str, Any]] = []
+        self._add_spec(
+            specs,
+            role="slot",
+            text=_join_terms(
+                [
+                    question_type_phrase,
+                    time_phrase,
+                    comparison_phrase,
+                    *section_phrases,
+                    *metric_phrases,
+                ],
+                max_words=34,
+            ),
+            weight=DENSE_WEIGHT_PRIMARY,
+        )
+        if metric_keys or any(
+            section in target_sections for section in {"Financial Statements", "Cash Flows"}
+        ):
+            self._add_spec(
+                specs,
+                role="financial_statement",
+                text=_join_terms(
+                    [
+                        "financial statements consolidated statements of operations statements of cash flows line item reported amount",
+                        comparison_phrase,
+                        *metric_phrases,
+                    ],
+                    max_words=32,
+                ),
+                weight=DENSE_WEIGHT_FINANCIAL_STATEMENT,
+            )
+        if "Cash Flows" in target_sections or any(
+            metric in metric_keys
+            for metric in {"operating_cash_flow", "free_cash_flow", "capital_expenditures"}
+        ):
+            self._add_spec(
+                specs,
+                role="cash_flow",
+                text=_join_terms(
+                    [
+                        "statement of cash flows operating investing financing activities cash generation",
+                        *metric_phrases,
+                    ],
+                    max_words=30,
+                ),
+                weight=DENSE_WEIGHT_PRIMARY,
+            )
+        if "Liquidity" in target_sections or any(
+            metric in metric_keys for metric in {"operating_cash_flow", "free_cash_flow"}
+        ):
+            self._add_spec(
+                specs,
+                role="liquidity",
+                text=_join_terms(
+                    [
+                        "liquidity and capital resources cash requirements cash generated operating activities",
+                        *metric_phrases,
+                    ],
+                    max_words=30,
+                ),
+                weight=DENSE_WEIGHT_SUPPORTING_CONTEXT,
+            )
+        if (
+            "Management's Discussion and Analysis" in target_sections
+            or question_type in {"mixed", "performance_overview", "performance_judgment"}
+        ):
+            self._add_spec(
+                specs,
+                role="mda",
+                text=_join_terms(
+                    [
+                        "management discussion analysis results of operations reasons drivers primarily due to higher lower",
+                        comparison_phrase,
+                        *metric_phrases,
+                    ],
+                    max_words=32,
+                ),
+                weight=DENSE_WEIGHT_SUPPORTING_CONTEXT,
+            )
+        if "Risk Factors" in target_sections or question_type == "risk":
+            self._add_spec(
+                specs,
+                role="risk",
+                text="latest annual quarterly report risk factors item 1a business operational financial regulatory risks",
+                weight=DENSE_WEIGHT_PRIMARY,
+            )
+        self._add_spec(
+            specs,
+            role="original",
+            text=query.original,
+            weight=DENSE_WEIGHT_ORIGINAL_QUERY,
         )
 
-
-class QueryExpansionBuilder:
-    def build(
-        self,
-        query: NormalizedQuery,
-        intent: IntentResult,
-        metrics: MetricResolution,
-        strategy: RetrievalStrategy,
-        time: TimeResolution | None = None,
-    ) -> ExpansionResult:
-        lexical_queries: list[str] = [*intent.lexical_queries]
-        lexical_queries.extend(_build_metric_lexical_queries(metrics.metric_keys))
-
-        if metrics.broad_company_growth:
-            lexical_queries.extend(COMPANY_GROWTH_LEXICAL_QUERIES)
-        if metrics.broad_company_change:
-            lexical_queries.extend(COMPANY_CHANGE_LEXICAL_QUERIES)
-        if metrics.broad_company_performance:
-            lexical_queries.extend(COMPANY_QUARTER_PERFORMANCE_LEXICAL_QUERIES)
-        if intent.has_acceleration_intent and metrics.metric_keys:
-            lexical_queries.extend(GROWTH_ACCELERATION_LEXICAL_QUERIES)
-        if intent.has_judgment_intent and metrics.metric_keys:
-            lexical_queries.extend(PERFORMANCE_JUDGMENT_LEXICAL_QUERIES)
-        if intent.has_liquidity_intent:
-            lexical_queries.extend(LIQUIDITY_LEXICAL_QUERIES)
-        if intent.has_filing_summary_intent:
-            lexical_queries.extend(FILING_SUMMARY_LEXICAL_QUERIES)
-        if (
-            intent.has_explanation_intent
-            and "Management's Discussion and Analysis" in strategy.target_sections
-        ):
-            lexical_queries.append("management discussion analysis")
-
-        lexical_queries = _dedupe([query for query in lexical_queries if query.strip()])
+        dense_query_specs = specs[:MAX_DENSE_QUERIES]
+        dense_queries = [spec["text"] for spec in dense_query_specs]
+        lexical_queries = _compile_lexical_queries(
+            metric_keys=metric_keys,
+            target_sections=target_sections,
+            comparison_basis=comparison_basis if needs_metric_comparisons else "none",
+        )
         if not lexical_queries:
             lexical_queries = [query.original]
 
-        dense_query_specs = _build_dense_query_specs(
-            query,
-            intent,
-            metrics,
-            strategy,
-            time=time,
-        )
-        dense_queries = [spec["text"] for spec in dense_query_specs]
-
-        return ExpansionResult(
+        return CompiledQueries(
             dense_queries=dense_queries,
             dense_query_specs=dense_query_specs,
             lexical_queries=lexical_queries,
         )
 
+    def _add_spec(
+        self,
+        specs: list[dict[str, Any]],
+        *,
+        role: str,
+        text: str,
+        weight: float,
+    ) -> None:
+        normalized_text = " ".join(text.split())
+        if not normalized_text:
+            return
+        if any(spec["text"] == normalized_text for spec in specs):
+            return
+        specs.append(
+            {
+                "role": _normalize_role(role),
+                "text": normalized_text,
+                "weight": _coerce_weight(weight),
+            }
+        )
 
-def _build_dense_query_specs(
-    query: NormalizedQuery,
-    intent: IntentResult,
-    metrics: MetricResolution,
-    strategy: RetrievalStrategy,
+
+class PlanValidator:
+    def __init__(self, compiler: QueryCompiler | None = None) -> None:
+        self._compiler = compiler or QueryCompiler()
+
+    def validate(
+        self,
+        candidate: dict[str, Any],
+        query: NormalizedQuery,
+        *,
+        planner_source: str = "llm_validated",
+    ) -> RetrievalPlan:
+        unknown_fields = set(candidate) - VALID_LLM_PLAN_FIELDS
+        if unknown_fields:
+            raise ValueError(f"Planner returned unsupported fields: {sorted(unknown_fields)}")
+
+        question_type = _validated_scalar(
+            candidate.get("question_type"),
+            allowed=VALID_QUESTION_TYPES,
+            fallback="prose",
+        )
+        target_sections = _validated_list(
+            candidate.get("target_sections"),
+            allowed=VALID_TARGET_SECTIONS,
+        )
+        query_section = _validated_query_section(query.section)
+        if query_section and query_section not in target_sections:
+            target_sections.append(query_section)
+
+        metric_keys = _validated_list(
+            candidate.get("metric_keys"),
+            allowed=set(METRIC_RETRIEVAL_PROFILES),
+        )
+        if not metric_keys:
+            metric_keys = _default_metric_keys_for_question_type(question_type)
+        time_scope = _validated_scalar(
+            candidate.get("time_scope"),
+            allowed=VALID_TIME_SCOPES,
+            fallback="unspecified",
+        )
+        comparison_basis = _validated_scalar(
+            candidate.get("comparison_basis"),
+            allowed=VALID_COMPARISON_BASES,
+            fallback="none",
+        )
+        comparison_candidates = _validated_list(
+            candidate.get("comparison_candidates"),
+            allowed=VALID_COMPARISON_BASES - {"none", "ambiguous"},
+        )
+        if metric_keys and comparison_basis == "ambiguous" and not comparison_candidates:
+            comparison_candidates = _default_ambiguous_comparison_candidates(metric_keys)
+        default_comparison_basis = _validated_optional_scalar(
+            candidate.get("default_comparison_basis"),
+            allowed=VALID_COMPARISON_BASES - {"none", "ambiguous"},
+        )
+        if default_comparison_basis is None:
+            default_comparison_basis = _default_comparison_basis(
+                comparison_basis,
+                comparison_candidates,
+            )
+
+        forms = _validated_forms(candidate.get("forms"))
+        if query.form_type:
+            forms = [query.form_type] if query.form_type in VALID_FORMS else forms
+
+        preferred_forms = _validated_forms(candidate.get("preferred_forms"))
+        preferred_form = _preferred_form_for_comparison_basis(
+            default_comparison_basis or comparison_basis
+        )
+        if preferred_form and not query.form_type and preferred_form not in preferred_forms:
+            preferred_forms.append(preferred_form)
+        if (
+            preferred_form
+            and comparison_basis != "ambiguous"
+            and not query.form_type
+            and preferred_form not in forms
+        ):
+            forms.append(preferred_form)
+        if query.form_type and query.form_type in VALID_FORMS:
+            preferred_forms = [query.form_type]
+
+        needs_financial_facts = bool(metric_keys) and question_type not in {"risk", "prose"}
+        needs_metric_comparisons = needs_financial_facts and _comparison_requested(
+            comparison_basis,
+            comparison_candidates,
+        )
+        evidence_roles = _evidence_roles_for(
+            question_type,
+            target_sections,
+            needs_metric_comparisons,
+        )
+        needs_text_chunks = bool(evidence_roles) or question_type not in {"metric"}
+        compiled_queries = self._compiler.compile(
+            query,
+            question_type=question_type,
+            target_sections=target_sections,
+            metric_keys=metric_keys,
+            time_scope=time_scope,
+            comparison_basis=comparison_basis,
+            needs_metric_comparisons=needs_metric_comparisons,
+        )
+
+        return RetrievalPlan(
+            question_type=question_type,
+            target_sections=target_sections,
+            metric_keys=metric_keys,
+            time_scope=time_scope,
+            comparison_basis=comparison_basis,
+            comparison_candidates=comparison_candidates,
+            default_comparison_basis=default_comparison_basis,
+            ambiguities=_as_nonempty_str_list(candidate.get("ambiguities")),
+            forms=forms,
+            preferred_forms=preferred_forms,
+            dense_queries=compiled_queries.dense_queries,
+            dense_query_specs=compiled_queries.dense_query_specs,
+            lexical_queries=compiled_queries.lexical_queries,
+            matched_rules=["planner:llm", "validation:schema"],
+            planner_source=planner_source,
+            needs_financial_facts=needs_financial_facts,
+            needs_text_chunks=needs_text_chunks,
+            needs_metric_comparisons=needs_metric_comparisons,
+            evidence_roles=evidence_roles,
+        )
+
+
+class QueryPlanner:
+    def __init__(
+        self,
+        *,
+        settings: Settings | None = None,
+        normalizer: QueryNormalizer | None = None,
+        validator: PlanValidator | None = None,
+        llm_planner: LLMPlanner | None = None,
+        dense_query_rewriter: DenseQueryRewriter | None = None,
+    ) -> None:
+        self._settings = settings or get_settings()
+        self._normalizer = normalizer or QueryNormalizer()
+        self._validator = validator or PlanValidator()
+        self._llm_planner = llm_planner
+        self._llm_planner_was_injected = llm_planner is not None
+        self._dense_query_rewriter = dense_query_rewriter
+
+    def plan(
+        self,
+        question: str,
+        *,
+        form_type: str | None = None,
+        section: str | None = None,
+    ) -> RetrievalPlan:
+        query = self._normalizer.normalize(question, form_type=form_type, section=section)
+        if self._settings.query_planner_mode == "rule_only":
+            return self._safe_text_plan(query, reason="legacy_rule_only_mode")
+
+        try:
+            candidate = self._get_llm_planner().plan_candidate(query.original)
+            plan = self._validator.validate(candidate, query, planner_source="llm_validated")
+            return self._plan_with_llm_dense_queries(query, plan)
+        except Exception as exc:
+            return self._safe_text_plan(query, reason=f"llm_failed:{exc.__class__.__name__}")
+
+    def _safe_text_plan(self, query: NormalizedQuery, *, reason: str) -> RetrievalPlan:
+        forms = [query.form_type] if query.form_type in VALID_FORMS else []
+        query_section = _validated_query_section(query.section)
+        target_sections = [query_section] if query_section else []
+        return RetrievalPlan(
+            question_type="prose",
+            target_sections=target_sections,
+            metric_keys=[],
+            time_scope="unspecified",
+            comparison_basis="none",
+            comparison_candidates=[],
+            default_comparison_basis=None,
+            ambiguities=[
+                "LLM query planning was unavailable; using broad text retrieval only."
+            ],
+            forms=forms,
+            preferred_forms=forms,
+            dense_queries=[query.original],
+            dense_query_specs=[
+                {"role": "original", "text": query.original, "weight": 1.0}
+            ],
+            lexical_queries=[query.original],
+            matched_rules=["planner:safe_text_fallback", reason],
+            planner_source="fallback_validated",
+            needs_financial_facts=False,
+            needs_text_chunks=True,
+            needs_metric_comparisons=False,
+            evidence_roles=_evidence_roles_for("prose", target_sections, False),
+            requires_llm_fallback_reason=reason,
+        )
+
+    def _get_llm_planner(self) -> LLMPlanner:
+        if self._llm_planner is None:
+            self._llm_planner = LLMQueryPlanner(self._settings)
+        return self._llm_planner
+
+    def _get_dense_query_rewriter(self) -> DenseQueryRewriter | None:
+        if self._dense_query_rewriter is not None:
+            return self._dense_query_rewriter
+        if self._llm_planner_was_injected:
+            return None
+        self._dense_query_rewriter = LLMDenseQueryRewriter(self._settings)
+        return self._dense_query_rewriter
+
+    def _plan_with_llm_dense_queries(
+        self,
+        query: NormalizedQuery,
+        plan: RetrievalPlan,
+    ) -> RetrievalPlan:
+        rewriter = self._get_dense_query_rewriter()
+        if rewriter is None:
+            return plan
+
+        requested_roles = _requested_dense_roles_for(
+            question_type=plan.question_type,
+            target_sections=plan.target_sections,
+            metric_keys=plan.metric_keys,
+        )
+        try:
+            raw_specs = rewriter.rewrite(
+                question=query.original,
+                plan=plan,
+                requested_roles=requested_roles,
+            )
+            llm_specs = _validated_llm_dense_query_specs(
+                raw_specs,
+                requested_roles=requested_roles,
+                comparison_basis=plan.comparison_basis,
+            )
+        except Exception as exc:
+            return replace(
+                plan,
+                matched_rules=[
+                    *plan.matched_rules,
+                    f"dense_query:hardcoded_fallback:{exc.__class__.__name__}",
+                ],
+            )
+
+        if not llm_specs:
+            return replace(
+                plan,
+                matched_rules=[
+                    *plan.matched_rules,
+                    "dense_query:hardcoded_fallback:no_valid_specs",
+                ],
+            )
+
+        dense_query_specs = _merge_dense_query_specs(
+            llm_specs=llm_specs,
+            fallback_specs=plan.dense_query_specs,
+            requested_roles=requested_roles,
+            original_query=query.original,
+        )
+        if not dense_query_specs:
+            return replace(
+                plan,
+                matched_rules=[
+                    *plan.matched_rules,
+                    "dense_query:hardcoded_fallback:no_valid_specs",
+                ],
+            )
+        return replace(
+            plan,
+            dense_query_specs=dense_query_specs,
+            dense_queries=[spec["text"] for spec in dense_query_specs],
+            matched_rules=[*plan.matched_rules, "dense_query:llm_rewriter"],
+        )
+
+
+def _llm_planner_system_prompt() -> str:
+    return f"""
+You are the query planner for an SEC-filing equity research copilot.
+
+Your job is to read the user's natural-language question and produce one strict JSON
+object of semantic planning slots. Do not answer the research question. Do not cite
+facts. Do not generate retrieval queries. A separate dense query rewriter will use
+validated slots to generate dense embedding retrieval queries.
+
+Prefer semantic understanding over keyword matching. The question is expected to be
+English.
+
+Allowed JSON fields:
+{_format_allowed_values(VALID_LLM_PLAN_FIELDS)}
+
+Allowed question_type values:
+{_format_allowed_values(VALID_QUESTION_TYPES)}
+
+Allowed metric_keys values:
+{_format_allowed_values(METRIC_RETRIEVAL_PROFILES.keys())}
+
+Allowed time_scope values:
+{_format_allowed_values(VALID_TIME_SCOPES)}
+
+Allowed comparison_basis values:
+{_format_allowed_values(VALID_COMPARISON_BASES)}
+
+Allowed target_sections values:
+{_format_allowed_values(VALID_TARGET_SECTIONS)}
+
+Allowed forms values:
+{_format_allowed_values(VALID_FORMS)}
+
+Field guidance:
+- metric_keys should contain only normalized XBRL metrics that directly help answer the question.
+- For broad company performance questions, such as "How did Apple do last quarter?", use metric_keys=["revenue","gross_margin","operating_income","net_income"].
+- target_sections should name filing sections worth retrieving as text evidence.
+- forms should constrain retrieval only when the user asks for a specific form or when the question clearly implies latest 10-Q, latest 10-K, or 8-K evidence.
+- comparison_basis is "none" for point-in-time or summary questions, "ambiguous" when the user asks for change/growth without specifying quarterly, YTD, or fiscal-year basis, and a specific basis when implied or stated.
+- Do not output dense_queries, dense_query_specs, lexical_queries, evidence_roles, needs_financial_facts, needs_text_chunks, or needs_metric_comparisons.
+
+Few-shot examples:
+
+Input:
+How did Apple do last quarter?
+Output:
+{{
+  "question_type": "performance_overview",
+  "target_sections": ["Financial Statements", "Management's Discussion and Analysis"],
+  "metric_keys": ["revenue", "gross_margin", "operating_income", "net_income"],
+  "time_scope": "latest",
+  "comparison_basis": "latest_quarter_yoy",
+  "comparison_candidates": ["latest_quarter_yoy"],
+  "default_comparison_basis": "latest_quarter_yoy",
+  "ambiguities": [],
+  "forms": ["10-Q"],
+  "preferred_forms": ["10-Q"]
+}}
+
+Input:
+How did Apple's revenue and gross margin change last quarter, and why?
+Output:
+{{
+  "question_type": "mixed",
+  "target_sections": ["Financial Statements", "Management's Discussion and Analysis"],
+  "metric_keys": ["revenue", "gross_margin"],
+  "time_scope": "latest",
+  "comparison_basis": "latest_quarter_yoy",
+  "comparison_candidates": ["latest_quarter_yoy"],
+  "default_comparison_basis": "latest_quarter_yoy",
+  "ambiguities": [],
+  "forms": ["10-Q"],
+  "preferred_forms": ["10-Q"]
+}}
+
+Input:
+Summarize Apple's latest 10-K risk factors.
+Output:
+{{
+  "question_type": "risk",
+  "target_sections": ["Risk Factors"],
+  "metric_keys": [],
+  "time_scope": "latest",
+  "comparison_basis": "none",
+  "comparison_candidates": [],
+  "default_comparison_basis": null,
+  "ambiguities": [],
+  "forms": ["10-K"],
+  "preferred_forms": ["10-K"]
+}}
+
+Input:
+How much cash did Apple generate?
+Output:
+{{
+  "question_type": "metric",
+  "target_sections": ["Cash Flows", "Liquidity"],
+  "metric_keys": ["operating_cash_flow"],
+  "time_scope": "latest",
+  "comparison_basis": "none",
+  "comparison_candidates": [],
+  "default_comparison_basis": null,
+  "ambiguities": [],
+  "forms": ["10-Q"],
+  "preferred_forms": ["10-Q"]
+}}
+
+Return only valid JSON. Use empty lists when no allowed value applies.
+""".strip()
+
+
+def _llm_dense_query_rewriter_system_prompt() -> str:
+    return """
+You generate dense embedding retrieval queries for SEC filing search.
+
+Your job is not to answer the user's question. Your job is to write short English
+evidence-seeking phrases that help retrieve relevant SEC filing passages.
+
+Return only JSON:
+{"dense_query_specs":[{"role":"...", "text":"..."}]}
+
+Rules:
+- Generate exactly one query for each requested role, and no other roles.
+- Each text must be 8 to 32 words.
+- Use English only.
+- Use neutral SEC filing evidence language, not conclusions.
+- Do not invent numbers, percentages, dates, dollar amounts, causes, or outcomes.
+- Do not mention metrics outside metric_keys, except supporting terms listed in allowed_metric_terms.
+- Do not mention sections outside target_sections, except generic filing anchors needed for the requested role.
+- Omit the company name unless it is needed to distinguish a product, segment, or peer.
+- If comparison_basis is not "none", include matching period/comparison language.
+- For slot, write one broad semantic query that captures the overall evidence need across the requested metrics, time scope, and comparison basis.
+- For financial_statement, focus on statement names, line items, and reported amounts.
+- For mda, focus on results of operations, management discussion, drivers, reasons, "primarily due to", "higher", "lower".
+- For cash_flow, focus on statements of cash flows and operating/investing/financing activities.
+- For liquidity, focus on liquidity and capital resources, cash requirements, and funding capacity.
+- For risk, focus on risk factors, Item 1A, business, operational, financial, legal, or regulatory risks.
+
+Few-shot examples:
+
+Input:
+{
+  "original_question": "How did Apple's revenue and gross margin change last quarter, and why?",
+  "validated_slots": {
+    "question_type": "mixed",
+    "metric_keys": ["revenue", "gross_margin"],
+    "target_sections": ["Financial Statements", "Management's Discussion and Analysis"],
+    "time_scope": "latest",
+    "comparison_basis": "latest_quarter_yoy"
+  },
+  "requested_roles": ["slot", "financial_statement", "mda"],
+  "allowed_metric_terms": {
+    "revenue": ["revenue", "net sales", "total net sales"],
+    "gross_margin": ["gross margin", "gross profit", "cost of sales"]
+  },
+  "allowed_comparison_terms": ["latest quarter", "three months ended", "year over year", "compared to prior year"]
+}
+Output:
+{
+  "dense_query_specs": [
+    {
+      "role": "slot",
+      "text": "latest quarterly financial performance showing year over year revenue and gross margin changes"
+    },
+    {
+      "role": "financial_statement",
+      "text": "consolidated statements of operations showing three months ended net sales gross margin and cost of sales"
+    },
+    {
+      "role": "mda",
+      "text": "results of operations discussion explaining revenue and gross margin drivers compared to the prior year quarter"
+    }
+  ]
+}
+
+Input:
+{
+  "original_question": "How much cash did Apple generate from operations, and what does it say about liquidity?",
+  "validated_slots": {
+    "question_type": "liquidity",
+    "metric_keys": ["operating_cash_flow"],
+    "target_sections": ["Cash Flows", "Liquidity"],
+    "time_scope": "latest",
+    "comparison_basis": "none"
+  },
+  "requested_roles": ["slot", "financial_statement", "cash_flow", "liquidity"],
+  "allowed_metric_terms": {
+    "operating_cash_flow": ["operating cash flow", "net cash provided by operating activities", "operating activities"]
+  },
+  "allowed_comparison_terms": []
+}
+Output:
+{
+  "dense_query_specs": [
+    {"role": "slot", "text": "latest operating cash flow evidence showing cash generation and liquidity position"},
+    {"role": "financial_statement", "text": "statements of cash flows showing net cash provided by operating activities reported amount"},
+    {"role": "cash_flow", "text": "statements of cash flows discussion of operating investing and financing activities cash generation"},
+    {"role": "liquidity", "text": "liquidity and capital resources discussion of cash requirements working capital and funding capacity"}
+  ]
+}
+
+Input:
+{
+  "original_question": "Summarize Apple's latest 10-K risk factors.",
+  "validated_slots": {
+    "question_type": "risk",
+    "metric_keys": [],
+    "target_sections": ["Risk Factors"],
+    "time_scope": "latest",
+    "comparison_basis": "none"
+  },
+  "requested_roles": ["slot", "risk"],
+  "allowed_metric_terms": {},
+  "allowed_comparison_terms": []
+}
+Output:
+{
+  "dense_query_specs": [
+    {"role": "slot", "text": "latest annual report evidence summarizing business operational financial and regulatory risks"},
+    {"role": "risk", "text": "risk factors item 1a discussion of business legal regulatory market operational and financial risks"}
+  ]
+}
+
+Return only valid JSON.
+""".strip()
+
+
+def _parse_llm_json(content: str) -> dict[str, Any]:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    parsed = json.loads(stripped)
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM planner response must be a JSON object.")
+    return parsed
+
+
+def _format_allowed_values(values: Any) -> str:
+    return "\n".join(f"- {value}" for value in sorted(values))
+
+
+def _llm_dense_query_rewriter_payload(
     *,
-    time: TimeResolution | None,
-) -> list[dict[str, Any]]:
-    slot_query = _build_slot_dense_query(intent, metrics, strategy, time=time)
-    role_queries = _build_role_dense_queries(metrics, strategy, time=time)
-    specs = [
-        {"role": "slot", "text": slot_query, "weight": 1.0},
-        *role_queries,
-        {"role": "original", "text": query.original, "weight": 0.4},
-    ]
-    deduped: list[dict[str, Any]] = []
-    seen_text: set[str] = set()
-    for spec in specs:
-        text_value = " ".join(str(spec.get("text", "")).split())
-        if not text_value or text_value in seen_text:
+    question: str,
+    plan: RetrievalPlan,
+    requested_roles: list[str],
+) -> dict[str, Any]:
+    return {
+        "original_question": question,
+        "validated_slots": {
+            "question_type": plan.question_type,
+            "metric_keys": plan.metric_keys,
+            "target_sections": plan.target_sections,
+            "time_scope": plan.time_scope,
+            "comparison_basis": plan.comparison_basis,
+        },
+        "requested_roles": requested_roles,
+        "allowed_metric_terms": _dense_rewriter_metric_terms(plan.metric_keys),
+        "allowed_section_terms": {
+            section: DENSE_REWRITER_SECTION_TERMS[section]
+            for section in plan.target_sections
+            if section in DENSE_REWRITER_SECTION_TERMS
+        },
+        "allowed_comparison_terms": DENSE_REWRITER_COMPARISON_TERMS.get(
+            plan.comparison_basis,
+            [],
+        ),
+    }
+
+
+def _requested_dense_roles_for(
+    *,
+    question_type: str,
+    target_sections: list[str],
+    metric_keys: list[str],
+) -> list[str]:
+    roles: list[str] = ["slot"]
+    if metric_keys or any(
+        section in target_sections for section in {"Financial Statements", "Cash Flows"}
+    ):
+        roles.append("financial_statement")
+    if "Cash Flows" in target_sections or any(
+        metric in metric_keys
+        for metric in {"operating_cash_flow", "free_cash_flow", "capital_expenditures"}
+    ):
+        roles.append("cash_flow")
+    if "Liquidity" in target_sections or any(
+        metric in metric_keys for metric in {"operating_cash_flow", "free_cash_flow"}
+    ):
+        roles.append("liquidity")
+    if (
+        "Management's Discussion and Analysis" in target_sections
+        or question_type in {"mixed", "performance_overview", "performance_judgment"}
+    ):
+        roles.append("mda")
+    if "Risk Factors" in target_sections or question_type == "risk":
+        roles.append("risk")
+    return [
+        role
+        for role in _dedupe(roles)
+        if role in VALID_LLM_DENSE_QUERY_ROLES
+    ][:MAX_LLM_DENSE_QUERY_ROLES]
+
+
+def _dense_rewriter_metric_terms(metric_keys: list[str]) -> dict[str, list[str]]:
+    terms: dict[str, list[str]] = {}
+    for metric_key in metric_keys:
+        profile = get_metric_profile(metric_key)
+        if profile is None:
+            terms[metric_key] = [metric_key.replace("_", " ")]
             continue
-        seen_text.add(text_value)
-        deduped.append(
-            {
-                "role": str(spec.get("role", "dense")),
-                "text": text_value,
-                "weight": float(spec.get("weight", 1.0)),
-            }
-        )
-    return deduped
+        terms[metric_key] = _dedupe(
+            [
+                metric_key.replace("_", " "),
+                *profile.strong_terms[:4],
+                *profile.statement_terms[:4],
+                *profile.weak_terms[:3],
+                *profile.aliases[:5],
+            ]
+        )[:12]
+    return terms
 
 
-def _build_slot_dense_query(
-    intent: IntentResult,
-    metrics: MetricResolution,
-    strategy: RetrievalStrategy,
+def _validated_llm_dense_query_specs(
+    value: Any,
     *,
-    time: TimeResolution | None,
-) -> str:
-    comparison_basis = _dense_comparison_basis(time)
-    terms = [
-        _dense_time_phrase(time),
-        DENSE_INTENT_PHRASES.get(strategy.question_type, ""),
-        *_dense_metric_phrases(metrics.metric_keys),
-        DENSE_COMPARISON_PHRASES.get(comparison_basis, ""),
-        *_dense_section_phrases(strategy.target_sections),
-    ]
-    if intent.has_explanation_intent:
-        terms.append("drivers reasons primarily due to higher lower")
-    return _join_dense_terms(terms)
-
-
-def _build_role_dense_queries(
-    metrics: MetricResolution,
-    strategy: RetrievalStrategy,
-    *,
-    time: TimeResolution | None,
+    requested_roles: list[str],
+    comparison_basis: str,
 ) -> list[dict[str, Any]]:
-    metric_phrases = _dense_metric_phrases(metrics.metric_keys)
-    statement_metric_phrases = _dense_metric_phrases(
-        metrics.metric_keys,
-        include_statement_terms=True,
-    )
-    comparison_phrase = DENSE_COMPARISON_PHRASES.get(_dense_comparison_basis(time), "")
-    time_phrase = _dense_time_phrase(time)
-    queries: list[dict[str, Any]] = []
+    if not isinstance(value, list):
+        return []
 
-    if "primary_financial_statement_chunks" in strategy.evidence_roles:
-        statement_context = (
-            "financial statements statements of cash flows operating activities"
-            if "Cash Flows" in strategy.target_sections
-            else "financial statements statements of operations"
-        )
-        queries.append(
+    allowed_roles = set(requested_roles).intersection(VALID_LLM_DENSE_QUERY_ROLES)
+    specs: list[dict[str, Any]] = []
+    seen_roles: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        role = _normalize_role(str(item.get("role", "")))
+        if role not in allowed_roles or role in seen_roles:
+            continue
+        text = " ".join(str(item.get("text", "")).split())
+        if not _valid_llm_dense_query_text(
+            text,
+            role=role,
+            comparison_basis=comparison_basis,
+        ):
+            continue
+        specs.append(
             {
-                "role": "financial_statement",
-                "text": _join_dense_terms(
-                    [
-                        time_phrase,
-                        statement_context,
-                        *statement_metric_phrases,
-                        comparison_phrase,
-                    ]
-                ),
-                "weight": 0.9,
+                "role": role,
+                "text": text,
+                "weight": DENSE_ROLE_WEIGHTS.get(role, DENSE_WEIGHT_PRIMARY),
             }
         )
-    if "mda_explanation_chunks" in strategy.evidence_roles:
-        queries.append(
-            {
-                "role": "mda_drivers",
-                "text": _join_dense_terms(
-                    [
-                        "management discussion analysis results of operations",
-                        "drivers reasons primarily due to higher lower",
-                        *metric_phrases,
-                        comparison_phrase,
-                    ]
-                ),
-                "weight": 0.85,
-            }
+        seen_roles.add(role)
+    return specs
+
+
+def _valid_llm_dense_query_text(
+    text: str,
+    *,
+    role: str,
+    comparison_basis: str,
+) -> bool:
+    words = text.split()
+    if not 8 <= len(words) <= 32:
+        return False
+    if not text.isascii():
+        return False
+    if _contains_forbidden_dense_fact_pattern(text):
+        return False
+    if _has_disallowed_comparison_context(text, comparison_basis):
+        return False
+    if not _has_role_anchor(text, role):
+        return False
+    return True
+
+
+def _contains_forbidden_dense_fact_pattern(text: str) -> bool:
+    allowed_anchor_text = re.sub(r"\bitem\s+1a\b", "", text, flags=re.IGNORECASE)
+    allowed_anchor_text = re.sub(
+        r"\b(?:10-k|10-q|8-k)\b",
+        "",
+        allowed_anchor_text,
+        flags=re.IGNORECASE,
+    )
+    return (
+        re.search(r"[$€£¥%]", allowed_anchor_text) is not None
+        or re.search(r"\b\d+(?:\.\d+)?\b", allowed_anchor_text) is not None
+        or re.search(
+            r"\b(?:million|billion|trillion|dollars?)\b",
+            allowed_anchor_text,
+            flags=re.IGNORECASE,
         )
-    if "segment_or_product_breakdown_chunks" in strategy.evidence_roles:
-        queries.append(
-            {
-                "role": "segment_breakdown",
-                "text": _join_dense_terms(
-                    [
-                        "products and services performance segment operating performance",
-                        "product category geographic segment revenue growth",
-                        *metric_phrases,
-                    ]
-                ),
-                "weight": 0.75,
-            }
+        is not None
+    )
+
+
+def _has_disallowed_comparison_context(text: str, comparison_basis: str) -> bool:
+    normalized = text.lower()
+    if comparison_basis == "ambiguous":
+        return False
+    quarterly_terms = ("three months ended", "quarter", "quarterly")
+    ytd_terms = (
+        "six months ended",
+        "nine months ended",
+        "year to date",
+        "year-to-date",
+        "ytd",
+    )
+    fiscal_year_terms = ("fiscal year", "year ended", "annual report", "full year")
+
+    if comparison_basis in {"latest_quarter_yoy", "previous_quarter_yoy"}:
+        disallowed_groups = (ytd_terms, fiscal_year_terms)
+    elif comparison_basis in {"latest_ytd_yoy", "previous_ytd_yoy"}:
+        disallowed_groups = (quarterly_terms, fiscal_year_terms)
+    elif comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
+        disallowed_groups = (quarterly_terms, ytd_terms)
+    else:
+        disallowed_groups = ()
+    return any(term in normalized for group in disallowed_groups for term in group)
+
+
+def _has_role_anchor(text: str, role: str) -> bool:
+    if role == "slot":
+        return True
+    normalized = text.lower()
+    role_anchors = {
+        "financial_statement": (
+            "statement",
+            "statements",
+            "line item",
+            "reported amount",
+            "operations",
+            "cash flows",
+            "balance sheet",
+        ),
+        "cash_flow": ("cash flow", "cash flows", "operating activities", "investing", "financing"),
+        "liquidity": ("liquidity", "capital resources", "cash requirements", "funding", "working capital"),
+        "mda": (
+            "management discussion",
+            "results of operations",
+            "driver",
+            "drivers",
+            "reason",
+            "reasons",
+            "primarily due",
+            "discussion",
+            "explaining",
+        ),
+        "risk": ("risk", "risks", "risk factors", "item 1a"),
+    }
+    return any(anchor in normalized for anchor in role_anchors.get(role, ()))
+
+
+def _merge_dense_query_specs(
+    *,
+    llm_specs: list[dict[str, Any]],
+    fallback_specs: list[dict[str, Any]],
+    requested_roles: list[str],
+    original_query: str,
+) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    llm_by_role = {spec["role"]: spec for spec in llm_specs}
+    fallback_by_role = {
+        spec["role"]: spec
+        for spec in fallback_specs
+        if spec.get("role") in {*requested_roles, "original"}
+    }
+    for role in requested_roles[:MAX_LLM_DENSE_QUERY_ROLES]:
+        spec = llm_by_role.get(role) or fallback_by_role.get(role)
+        if spec is not None:
+            _append_dense_query_spec(specs, spec)
+    original_spec = fallback_by_role.get(
+        "original",
+        {
+            "role": "original",
+            "text": original_query,
+            "weight": DENSE_WEIGHT_ORIGINAL_QUERY,
+        },
+    )
+    _append_dense_query_spec(specs, original_spec)
+    return specs
+
+
+def _append_dense_query_spec(
+    specs: list[dict[str, Any]],
+    spec: dict[str, Any],
+) -> None:
+    role = _normalize_role(str(spec.get("role", "")))
+    text = " ".join(str(spec.get("text", "")).split())
+    if not role or not text or any(existing["text"] == text for existing in specs):
+        return
+    specs.append(
+        {
+            "role": role,
+            "text": text,
+            "weight": _coerce_weight(
+                spec.get("weight", DENSE_ROLE_WEIGHTS.get(role, DENSE_WEIGHT_PRIMARY))
+            ),
+        }
+    )
+
+
+def _validated_scalar(value: Any, *, allowed: set[str], fallback: str) -> str:
+    if isinstance(value, str) and value in allowed:
+        return value
+    return fallback
+
+
+def _validated_optional_scalar(value: Any, *, allowed: set[str]) -> str | None:
+    if isinstance(value, str) and value in allowed:
+        return value
+    return None
+
+
+def _validated_list(value: Any, *, allowed: set[str]) -> list[str]:
+    return [item for item in _as_nonempty_str_list(value) if item in allowed]
+
+
+def _validated_forms(value: Any) -> list[str]:
+    return [
+        form
+        for form in _dedupe(item.upper() for item in _as_nonempty_str_list(value))
+        if form in VALID_FORMS
+    ]
+
+
+def _validated_query_section(value: str | None) -> str | None:
+    if isinstance(value, str) and value in VALID_TARGET_SECTIONS:
+        return value
+    return None
+
+
+def _as_nonempty_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        return []
+    return _dedupe(
+        " ".join(str(item).split())
+        for item in raw_items
+        if str(item).strip()
+    )
+
+
+def _compile_lexical_queries(
+    *,
+    metric_keys: list[str],
+    target_sections: list[str],
+    comparison_basis: str,
+) -> list[str]:
+    queries: list[str] = []
+    section_groups = [
+        list(LEXICAL_SECTION_TERMS[section])
+        for section in target_sections
+        if section in LEXICAL_SECTION_TERMS
+    ]
+    metric_groups = [
+        _metric_lexical_query_group(metric_key, comparison_basis)
+        for metric_key in metric_keys
+    ]
+    metric_groups = [group for group in metric_groups if group]
+
+    queries.extend(group[0] for group in section_groups if group)
+    queries.extend(LEXICAL_COMPARISON_TERMS.get(comparison_basis, ()))
+    queries.extend(group[0] for group in metric_groups if group)
+    queries.extend(_round_robin_query_groups([group[1:] for group in section_groups]))
+    queries.extend(_round_robin_query_groups([group[1:] for group in metric_groups]))
+    return _dedupe(queries)[:MAX_LEXICAL_QUERIES]
+
+
+def _metric_lexical_query_group(metric_key: str, comparison_basis: str) -> list[str]:
+    profile = get_metric_profile(metric_key)
+    if profile is None:
+        return []
+    period_queries = [
+        query
+        for query in profile.lexical_queries
+        if _matches_lexical_comparison_basis(query, comparison_basis)
+    ]
+    metric_queries = [
+        *period_queries,
+        *profile.lexical_queries[:6],
+        *(f'"{term}"' for term in profile.strong_terms[:3]),
+        *(f'"{term}"' for term in profile.statement_terms[:3]),
+    ]
+    return _dedupe(metric_queries)
+
+
+def _matches_lexical_comparison_basis(query: str, comparison_basis: str) -> bool:
+    normalized = query.lower()
+    if comparison_basis in {"latest_quarter_yoy", "previous_quarter_yoy"}:
+        markers = ("three months ended",)
+    elif comparison_basis in {"latest_ytd_yoy", "previous_ytd_yoy"}:
+        markers = (
+            "six months ended",
+            "nine months ended",
+            "year to date",
+            "year-to-date",
         )
-    if "risk_factor_chunks" in strategy.evidence_roles:
-        queries.append(
-            {
-                "role": "risk_factors",
-                "text": _join_dense_terms(
-                    [
-                        time_phrase,
-                        "risk factors item 1a",
-                        "business operational financial market regulatory risks",
-                    ]
-                ),
-                "weight": 1.0,
-            }
-        )
+    elif comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
+        markers = ("year ended", "fiscal year")
+    else:
+        markers = ()
+    return any(marker in normalized for marker in markers)
+
+
+def _round_robin_query_groups(groups: list[list[str]]) -> list[str]:
+    queries: list[str] = []
+    max_group_length = max((len(group) for group in groups), default=0)
+    for index in range(max_group_length):
+        for group in groups:
+            if index < len(group):
+                queries.append(group[index])
     return queries
 
 
-def _dense_time_phrase(time: TimeResolution | None) -> str:
-    if time is None:
-        return ""
-    comparison_basis = _dense_comparison_basis(time)
-    if comparison_basis in DENSE_TIME_PHRASES:
-        return DENSE_TIME_PHRASES[comparison_basis]
-    if time.time_scope == "latest":
-        return "latest most recent filing period"
-    if time.time_scope == "comparison_trend":
-        return "year-over-year trend compared to prior period"
-    return ""
+def _default_metric_keys_for_question_type(question_type: str) -> list[str]:
+    if question_type in {"performance_overview", "performance_judgment", "broad_comparison"}:
+        return list(PERFORMANCE_OVERVIEW_METRICS)
+    if question_type == "filing_summary":
+        return list(SUMMARY_METRICS)
+    if question_type == "liquidity":
+        return list(LIQUIDITY_METRICS)
+    if question_type == "growth_acceleration":
+        return list(GROWTH_METRICS)
+    return []
 
 
-def _dense_comparison_basis(time: TimeResolution | None) -> str:
-    if time is None:
-        return "none"
-    if time.comparison_basis not in {"none", "ambiguous"}:
-        return time.comparison_basis
-    if time.comparison_basis == "ambiguous":
-        return "ambiguous"
-    if time.default_comparison_basis:
-        return time.default_comparison_basis
-    return "none"
-
-
-def _dense_metric_phrases(
-    metric_keys: list[str],
-    *,
-    include_statement_terms: bool = False,
-) -> list[str]:
+def _metric_dense_phrases(metric_keys: list[str]) -> list[str]:
     phrases: list[str] = []
     for metric_key in metric_keys:
         profile = get_metric_profile(metric_key)
-        label = METRIC_LABELS.get(metric_key, metric_key).lower()
-        phrases.append(label)
         if profile is None:
+            phrases.append(metric_key.replace("_", " "))
             continue
-        phrases.extend(profile.strong_terms[:2])
-        if include_statement_terms:
-            phrases.extend(profile.statement_terms[:1])
+        phrases.extend(profile.strong_terms[:3])
+        phrases.extend(profile.statement_terms[:3])
+        phrases.extend(profile.weak_terms[:2])
     return _dedupe(phrases)
 
 
-def _dense_section_phrases(target_sections: list[str]) -> list[str]:
-    phrases: list[str] = []
-    for section in target_sections:
-        if section in DENSE_SECTION_PHRASES:
-            phrases.append(DENSE_SECTION_PHRASES[section])
-    return phrases
+def _section_dense_phrases(target_sections: list[str]) -> list[str]:
+    return [
+        SECTION_DENSE_CONTEXT[section]
+        for section in target_sections
+        if section in SECTION_DENSE_CONTEXT
+    ]
 
 
-def _join_dense_terms(terms: list[str]) -> str:
+def _time_dense_context(time_scope: str) -> str:
+    if time_scope == "latest":
+        return "latest most recent filing period"
+    if time_scope == "comparison_trend":
+        return "trend growth change compared with prior period"
+    return ""
+
+
+def _join_terms(terms: list[str], *, max_words: int) -> str:
+    selected: list[str] = []
     words_used = 0
-    selected_terms: list[str] = []
-    for term in _dedupe([" ".join(term.split()) for term in terms if term.strip()]):
-        term_word_count = len(term.split())
-        if words_used and words_used + term_word_count > MAX_DENSE_QUERY_WORDS:
+    for term in _dedupe(" ".join(term.split()) for term in terms if term.strip()):
+        word_count = len(term.split())
+        if selected and words_used + word_count > max_words:
             continue
-        selected_terms.append(term)
-        words_used += term_word_count
-    return " ".join(selected_terms)
+        selected.append(term)
+        words_used += word_count
+    return " ".join(selected)
+
+
+def _coerce_weight(value: Any) -> float:
+    try:
+        weight = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(max(weight, 0.05), 2.0)
 
 
 def _comparison_requested(
@@ -1945,6 +1557,48 @@ def _comparison_requested(
         comparison_candidates
         or comparison_basis not in {"none", "ambiguous"}
     )
+
+
+def _default_comparison_basis(
+    comparison_basis: str,
+    comparison_candidates: list[str],
+) -> str | None:
+    if comparison_candidates:
+        return comparison_candidates[0]
+    if comparison_basis not in {"none", "ambiguous"}:
+        return comparison_basis
+    return None
+
+
+def _default_ambiguous_comparison_candidates(metric_keys: list[str]) -> list[str]:
+    default_basis = _default_comparison_basis_for_metrics(metric_keys)
+    candidates = [
+        default_basis,
+        "latest_ytd_yoy",
+        "latest_fy_yoy",
+    ]
+    return _dedupe(candidates)
+
+
+def _default_comparison_basis_for_metrics(metric_keys: list[str]) -> str:
+    for metric_key in metric_keys:
+        profile = get_metric_profile(metric_key)
+        if profile is not None and profile.default_comparison_basis:
+            return profile.default_comparison_basis
+    return "latest_quarter_yoy"
+
+
+def _preferred_form_for_comparison_basis(comparison_basis: str | None) -> str | None:
+    if comparison_basis in {
+        "latest_quarter_yoy",
+        "previous_quarter_yoy",
+        "latest_ytd_yoy",
+        "previous_ytd_yoy",
+    }:
+        return "10-Q"
+    if comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
+        return "10-K"
+    return None
 
 
 def _evidence_roles_for(
@@ -1966,851 +1620,18 @@ def _evidence_roles_for(
     return _dedupe(roles)
 
 
-class PlanValidator:
-    def validate(
-        self,
-        plan: RetrievalPlan,
-        query: NormalizedQuery,
-        *,
-        planner_source: str,
-        validation_confidence: float = 1.0,
-        has_conflict: bool = False,
-    ) -> RetrievalPlan:
-        question_type = (
-            plan.question_type
-            if plan.question_type in VALID_QUESTION_TYPES
-            else "prose"
-        )
-        time_scope = (
-            plan.time_scope if plan.time_scope in VALID_TIME_SCOPES else "unspecified"
-        )
-        metric_keys = [
-            metric_key
-            for metric_key in _dedupe(plan.metric_keys)
-            if metric_key in METRIC_RETRIEVAL_PROFILES
-        ]
-        forms = [form for form in _dedupe(form.upper() for form in plan.forms) if form in VALID_FORMS]
-        matched_rules = list(plan.matched_rules)
-
-        if query.form_type:
-            forms = [query.form_type] if query.form_type in VALID_FORMS else forms
-
-        target_sections = [
-            section
-            for section in _dedupe(plan.target_sections)
-            if section in VALID_TARGET_SECTIONS
-        ]
-        if query.section and query.section not in target_sections:
-            target_sections.append(query.section)
-
-        comparison_basis = (
-            plan.comparison_basis
-            if plan.comparison_basis in VALID_COMPARISON_BASES
-            else "none"
-        )
-        comparison_candidates = [
-            candidate
-            for candidate in _dedupe(plan.comparison_candidates)
-            if candidate in VALID_COMPARISON_BASES and candidate not in {"none", "ambiguous"}
-        ]
-        default_comparison_basis = (
-            plan.default_comparison_basis
-            if plan.default_comparison_basis in VALID_COMPARISON_BASES
-            else None
-        )
-
-        preferred_forms = [
-            form
-            for form in _dedupe(form.upper() for form in plan.preferred_forms)
-            if form in VALID_FORMS
-        ]
-        preferred_form = None
-        if comparison_basis != "ambiguous":
-            preferred_form = _preferred_form_for_comparison_basis(
-                default_comparison_basis or comparison_basis
-            )
-        elif default_comparison_basis:
-            preferred_form = _preferred_form_for_comparison_basis(default_comparison_basis)
-        if preferred_form and not query.form_type and preferred_form not in preferred_forms:
-            preferred_forms.append(preferred_form)
-        if (
-            question_type in {"liquidity", "filing_summary"}
-            and forms
-            and not query.form_type
-            and forms[0] not in preferred_forms
-        ):
-            preferred_forms.append(forms[0])
-        if (
-            question_type in {"liquidity", "filing_summary"}
-            and time_scope == "latest"
-            and not query.form_type
-            and not forms
-            and "10-Q" not in preferred_forms
-        ):
-            preferred_forms.append("10-Q")
-        if (
-            preferred_form
-            and comparison_basis != "ambiguous"
-            and not query.form_type
-            and preferred_form not in forms
-        ):
-            forms.append(preferred_form)
-        if query.form_type and query.form_type in VALID_FORMS:
-            preferred_forms = [query.form_type]
-
-        needs_financial_facts = bool(metric_keys) and question_type not in {"risk", "prose"}
-        needs_metric_comparisons = needs_financial_facts and _comparison_requested(
-            comparison_basis,
-            comparison_candidates,
-        )
-        evidence_roles = _evidence_roles_for(
-            question_type,
-            target_sections,
-            needs_metric_comparisons,
-        )
-
-        confidence_breakdown = dict(plan.confidence_breakdown)
-        validation_value = max(0.0, validation_confidence - (0.25 if has_conflict else 0.0))
-        confidence_breakdown["validation_confidence"] = round(validation_value, 2)
-        metric_optional = question_type in {"risk", "management_discussion"}
-        confidence_breakdown["overall_confidence"] = round(
-            _overall_confidence(
-                confidence_breakdown,
-                has_metric=bool(metric_keys),
-                metric_optional=metric_optional,
-            ),
-            2,
-        )
-        if has_conflict:
-            matched_rules.append("validation:time_basis_conflict")
-
-        return RetrievalPlan(
-            question_type=question_type,
-            target_sections=target_sections,
-            metric_keys=metric_keys,
-            time_scope=time_scope,
-            comparison_basis=comparison_basis,
-            comparison_candidates=comparison_candidates,
-            default_comparison_basis=default_comparison_basis,
-            ambiguities=plan.ambiguities,
-            forms=_dedupe(forms),
-            preferred_forms=_dedupe(preferred_forms),
-            dense_queries=plan.dense_queries,
-            dense_query_specs=plan.dense_query_specs,
-            lexical_queries=plan.lexical_queries,
-            rule_confidence=confidence_breakdown["overall_confidence"],
-            matched_rules=_dedupe(matched_rules),
-            planner_source=planner_source,
-            confidence_breakdown=confidence_breakdown,
-            needs_financial_facts=needs_financial_facts,
-            needs_text_chunks=plan.needs_text_chunks,
-            needs_metric_comparisons=needs_metric_comparisons,
-            evidence_roles=evidence_roles,
-            requires_llm_fallback_reason=plan.requires_llm_fallback_reason,
-        )
-
-
-class LLMQueryPlanner:
-    allowed_fields = {
-        "question_type",
-        "metric_keys",
-        "time_scope",
-        "comparison_basis",
-        "comparison_candidates",
-        "target_sections",
-        "forms",
-        "reasoning_summary",
-        "confidence",
-    }
-
-    def __init__(self, settings: Settings | None = None) -> None:
-        self._settings = settings or get_settings()
-
-    def plan_candidate(self, question: str) -> dict[str, Any]:
-        api_key = self._settings.openai_api_key
-        if api_key is None or not api_key.get_secret_value().strip():
-            raise RuntimeError("OPENAI_API_KEY must be configured for LLM query planning.")
-
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError("The openai package must be installed for LLM query planning.") from exc
-
-        client = OpenAI(
-            api_key=api_key.get_secret_value(),
-            timeout=self._settings.query_planner_llm_timeout_seconds,
-        )
-        response = client.chat.completions.create(
-            model=self._settings.query_planner_llm_model,
-            temperature=0,
-            response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "system",
-                    "content": _llm_planner_system_prompt(),
-                },
-                {
-                    "role": "user",
-                    "content": f"Classify this user question into planner slots:\n{question}",
-                },
-            ],
-        )
-        content = response.choices[0].message.content or "{}"
-        candidate = _parse_llm_json(content)
-        if not isinstance(candidate, dict):
-            raise ValueError("LLM planner response must be a JSON object.")
-        unknown_fields = set(candidate) - self.allowed_fields
-        if unknown_fields:
-            raise ValueError(f"LLM planner returned unsupported fields: {sorted(unknown_fields)}")
-        return candidate
-
-
-def _llm_planner_system_prompt() -> str:
-    return f"""
-You are a query planning classifier for an equity research retrieval system.
-
-Convert the user question into one strict JSON object. Do not answer the question.
-Do not retrieve facts. Do not invent metrics, forms, sections, comparison bases, or fields.
-Use only the allowed values below.
-
-Allowed JSON fields:
-- question_type
-- metric_keys
-- time_scope
-- comparison_basis
-- comparison_candidates
-- target_sections
-- forms
-- reasoning_summary
-- confidence
-
-Allowed question_type values:
-{_format_allowed_values(VALID_QUESTION_TYPES)}
-
-Allowed metric_keys values:
-{_format_allowed_values(METRIC_RETRIEVAL_PROFILES.keys())}
-
-Allowed time_scope values:
-{_format_allowed_values(VALID_TIME_SCOPES)}
-
-Allowed comparison_basis values:
-{_format_allowed_values(VALID_COMPARISON_BASES)}
-
-Allowed comparison_candidates values:
-{_format_allowed_values(candidate for candidate in VALID_COMPARISON_BASES if candidate not in {"none", "ambiguous"})}
-
-Allowed target_sections values:
-{_format_allowed_values(VALID_TARGET_SECTIONS)}
-
-Allowed forms values:
-{_format_allowed_values(VALID_FORMS)}
-
-Rules:
-- Return only valid JSON.
-- confidence must be a number between 0 and 1.
-- Use metric_keys=[] for risk, prose, stock price, valuation, market news, peer comparison, or non-filing context.
-- Interpret now, currently, recently, and lately as the latest available SEC filing period, not live market data.
-- For broad current company performance, use question_type="performance_overview", metric_keys=["revenue","gross_margin","operating_income","net_income"], time_scope="latest", comparison_basis="latest_quarter_yoy", comparison_candidates=["latest_quarter_yoy"], target_sections=["Financial Statements","Management's Discussion and Analysis"], forms=["10-Q"].
-- For broad company growth without a specific period, use question_type="trend", metric_keys=["revenue","operating_income","net_income"], time_scope="comparison_trend", comparison_basis="ambiguous", comparison_candidates=["latest_quarter_yoy","latest_ytd_yoy","latest_fy_yoy"], target_sections=["Financial Statements","Management's Discussion and Analysis"], forms=[].
-- For liquidity, cash position, enough cash, capital resources, or generic cash flow questions, use metric_keys=["operating_cash_flow","free_cash_flow"] unless a more specific allowed cash-flow metric is explicitly named.
-- For current liquidity state, use question_type="liquidity", time_scope="latest", target_sections=["Liquidity","Cash Flows","Management's Discussion and Analysis"], forms=["10-Q"]. Use comparison_basis="none" for cash sufficiency questions, and comparison_basis="latest_quarter_yoy" when the user asks how liquidity or cash flow is performing.
-- For filing, 10-Q, 10-K, earnings report, or recent financial-results summaries, use question_type="filing_summary", metric_keys=["revenue","gross_margin","operating_income","net_income","operating_cash_flow","free_cash_flow"], time_scope="latest", comparison_basis="none", comparison_candidates=[], target_sections=["Financial Statements","Management's Discussion and Analysis","Liquidity","Cash Flows"], forms=["10-Q"] unless the user explicitly asks for 10-K or annual report.
-- If the user asks to summarize risks, use question_type="risk"; if the user asks to summarize liquidity, use question_type="liquidity".
-- For stock price, valuation, market news, or non-filing questions, use question_type="prose", metric_keys=[], comparison_basis="none", comparison_candidates=[], target_sections=[], forms=[].
-
-Examples:
-User: How is Apple doing now?
-JSON: {{"question_type":"performance_overview","metric_keys":["revenue","gross_margin","operating_income","net_income"],"time_scope":"latest","comparison_basis":"latest_quarter_yoy","comparison_candidates":["latest_quarter_yoy"],"target_sections":["Financial Statements","Management's Discussion and Analysis"],"forms":["10-Q"],"reasoning_summary":"Broad current performance question mapped to latest quarterly financial performance.","confidence":0.86}}
-
-User: Is Apple growing?
-JSON: {{"question_type":"trend","metric_keys":["revenue","operating_income","net_income"],"time_scope":"comparison_trend","comparison_basis":"ambiguous","comparison_candidates":["latest_quarter_yoy","latest_ytd_yoy","latest_fy_yoy"],"target_sections":["Financial Statements","Management's Discussion and Analysis"],"forms":[],"reasoning_summary":"Broad growth question without a specified period; keep comparison basis ambiguous.","confidence":0.78}}
-
-User: Does Apple have enough cash?
-JSON: {{"question_type":"liquidity","metric_keys":["operating_cash_flow","free_cash_flow"],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":["Liquidity","Cash Flows","Management's Discussion and Analysis"],"forms":["10-Q"],"reasoning_summary":"Cash sufficiency question mapped to current liquidity and cash-flow evidence without forcing a period comparison.","confidence":0.82}}
-
-User: Summarize Apple's latest earnings report.
-JSON: {{"question_type":"filing_summary","metric_keys":["revenue","gross_margin","operating_income","net_income","operating_cash_flow","free_cash_flow"],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":["Financial Statements","Management's Discussion and Analysis","Liquidity","Cash Flows"],"forms":["10-Q"],"reasoning_summary":"Latest earnings report summary mapped to broad filing sections and core financial metrics.","confidence":0.86}}
-
-User: What is Apple's stock price doing now?
-JSON: {{"question_type":"prose","metric_keys":[],"time_scope":"latest","comparison_basis":"none","comparison_candidates":[],"target_sections":[],"forms":[],"reasoning_summary":"Stock price is outside SEC filing financial metric retrieval.","confidence":0.7}}
-""".strip()
-
-
-def _format_allowed_values(values: Any) -> str:
-    return "\n".join(f"- {value}" for value in sorted(values))
-
-
-def _parse_llm_json(content: str) -> dict[str, Any]:
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    parsed = json.loads(stripped)
-    if not isinstance(parsed, dict):
-        raise ValueError("LLM planner response must be a JSON object.")
-    return parsed
-
-
-class QueryPlanner:
-    def __init__(
-        self,
-        *,
-        settings: Settings | None = None,
-        normalizer: QueryNormalizer | None = None,
-        intent_parser: IntentParser | None = None,
-        metric_resolver: RuleMetricResolver | None = None,
-        time_resolver: TimeScopeResolver | None = None,
-        strategy_builder: RetrievalStrategyBuilder | None = None,
-        expansion_builder: QueryExpansionBuilder | None = None,
-        validator: PlanValidator | None = None,
-        llm_planner: LLMPlanner | None = None,
-    ) -> None:
-        self._settings = settings or get_settings()
-        self._normalizer = normalizer or QueryNormalizer()
-        self._intent_parser = intent_parser or IntentParser()
-        self._metric_resolver = metric_resolver or RuleMetricResolver()
-        self._time_resolver = time_resolver or TimeScopeResolver()
-        self._strategy_builder = strategy_builder or RetrievalStrategyBuilder()
-        self._expansion_builder = expansion_builder or QueryExpansionBuilder()
-        self._validator = validator or PlanValidator()
-        self._llm_planner = llm_planner
-
-    def plan(
-        self,
-        question: str,
-        *,
-        form_type: str | None = None,
-        section: str | None = None,
-    ) -> RetrievalPlan:
-        query = self._normalizer.normalize(question, form_type=form_type, section=section)
-        rule_plan = self._build_rule_plan(query)
-
-        threshold = self._settings.query_planner_llm_confidence_threshold
-        fallback_reason = _llm_fallback_reason(rule_plan, threshold=threshold)
-        if fallback_reason:
-            rule_plan = replace(
-                rule_plan,
-                requires_llm_fallback_reason=fallback_reason,
-            )
-        should_fallback = (
-            self._settings.query_planner_mode == "rule_with_llm_fallback"
-            and fallback_reason is not None
-        )
-        if not should_fallback:
-            return rule_plan
-
-        try:
-            llm_candidate = self._get_llm_planner().plan_candidate(question)
-            return self._build_llm_plan(
-                query,
-                llm_candidate,
-                fallback_plan=rule_plan,
-                fallback_reason=fallback_reason,
-            )
-        except Exception:
-            return RetrievalPlan(
-                **{
-                    **rule_plan.to_dict(),
-                    "matched_rules": _dedupe([*rule_plan.matched_rules, "llm_fallback:failed"]),
-                }
-            )
-
-    def _build_rule_plan(self, query: NormalizedQuery) -> RetrievalPlan:
-        intent = self._intent_parser.parse(query)
-        metrics = self._metric_resolver.resolve(query, intent)
-        time = self._time_resolver.resolve(query, intent, metrics.metric_keys)
-        metrics = self._metric_resolver.apply_contextual_defaults(query, intent, time, metrics)
-        if metrics.metric_keys and not time.comparison_candidates and time.comparison_basis == "none":
-            time = self._time_resolver.resolve(query, intent, metrics.metric_keys)
-        strategy = self._strategy_builder.build(query, intent, metrics, time)
-        expansion = self._expansion_builder.build(query, intent, metrics, strategy, time=time)
-
-        confidence_breakdown = {
-            "intent_confidence": round(intent.confidence, 2),
-            "metric_confidence": round(metrics.confidence, 2),
-            "time_confidence": round(time.confidence, 2),
-            "strategy_confidence": round(strategy.confidence, 2),
-        }
-        plan = RetrievalPlan(
-            question_type=strategy.question_type,
-            target_sections=strategy.target_sections,
-            metric_keys=metrics.metric_keys,
-            time_scope=time.time_scope,
-            comparison_basis=time.comparison_basis,
-            comparison_candidates=time.comparison_candidates,
-            default_comparison_basis=time.default_comparison_basis,
-            ambiguities=time.ambiguities,
-            forms=strategy.forms,
-            dense_queries=expansion.dense_queries,
-            dense_query_specs=expansion.dense_query_specs,
-            lexical_queries=expansion.lexical_queries,
-            rule_confidence=0,
-            matched_rules=[
-                *intent.matched_rules,
-                *metrics.matched_rules,
-                *time.matched_rules,
-                *strategy.matched_rules,
-            ],
-            planner_source="rule",
-            confidence_breakdown=confidence_breakdown,
-            needs_financial_facts=strategy.needs_financial_facts,
-            needs_text_chunks=strategy.needs_text_chunks,
-            needs_metric_comparisons=strategy.needs_metric_comparisons,
-            evidence_roles=strategy.evidence_roles,
-        )
-        return self._validator.validate(
-            plan,
-            query,
-            planner_source="rule_validated",
-            has_conflict=time.has_conflict,
-        )
-
-    def _build_llm_plan(
-        self,
-        query: NormalizedQuery,
-        candidate: dict[str, Any],
-        *,
-        fallback_plan: RetrievalPlan,
-        fallback_reason: str,
-    ) -> RetrievalPlan:
-        unknown_fields = set(candidate) - LLMQueryPlanner.allowed_fields
-        if unknown_fields:
-            raise ValueError(f"LLM planner returned unsupported fields: {sorted(unknown_fields)}")
-
-        metric_keys = _as_str_list(candidate.get("metric_keys"))
-        question_type = str(candidate.get("question_type") or fallback_plan.question_type)
-        comparison_basis = str(candidate.get("comparison_basis") or "none")
-        comparison_candidates = _as_str_list(candidate.get("comparison_candidates"))
-        target_sections = _as_str_list(candidate.get("target_sections"))
-        forms = _as_str_list(candidate.get("forms"))
-        confidence = _coerce_confidence(candidate.get("confidence"), fallback=0.6)
-
-        default_comparison_basis = (
-            comparison_candidates[0]
-            if comparison_candidates
-            else comparison_basis
-            if comparison_basis not in {"none", "ambiguous"}
-            else None
-        )
-        llm_time = TimeResolution(
-            time_scope=str(candidate.get("time_scope") or "unspecified"),
-            comparison_basis=comparison_basis,
-            comparison_candidates=comparison_candidates,
-            default_comparison_basis=default_comparison_basis,
-            ambiguities=[],
-            forms=forms,
-            matched_rules=["time:llm_candidate"],
-            confidence=confidence,
-        )
-        intent = IntentResult(
-            question_type=question_type,
-            target_sections=target_sections,
-            lexical_queries=[],
-            matched_rules=["planner:llm_fallback"],
-            confidence=confidence,
-            has_explanation_intent=question_type in {"drivers", "mixed"},
-            has_performance_intent=question_type in {
-                "metric_performance",
-                "performance_overview",
-                "trend",
-            },
-            has_judgment_intent=question_type in {"metric_performance", "performance_judgment"},
-            has_acceleration_intent=question_type == "growth_acceleration",
-            has_liquidity_intent=question_type == "liquidity",
-            has_filing_summary_intent=question_type == "filing_summary",
-        )
-        metrics = MetricResolution(
-            metric_keys=metric_keys,
-            matched_rules=[f"metric:{metric_key}:llm" for metric_key in metric_keys],
-            confidence=confidence,
-        )
-        needs_financial_facts = bool(metric_keys) and question_type not in {"risk", "prose"}
-        needs_metric_comparisons = needs_financial_facts and _comparison_requested(
-            comparison_basis,
-            comparison_candidates,
-        )
-        strategy = RetrievalStrategy(
-            question_type=question_type,
-            target_sections=target_sections,
-            forms=forms,
-            matched_rules=["strategy:llm_candidate"],
-            confidence=confidence,
-            needs_financial_facts=needs_financial_facts,
-            needs_text_chunks=True,
-            needs_metric_comparisons=needs_metric_comparisons,
-            evidence_roles=_evidence_roles_for(
-                question_type,
-                target_sections,
-                needs_metric_comparisons,
-            ),
-        )
-        expansion = self._expansion_builder.build(
-            query,
-            intent,
-            metrics,
-            strategy,
-            time=llm_time,
-        )
-        plan = RetrievalPlan(
-            question_type=question_type,
-            target_sections=target_sections,
-            metric_keys=metric_keys,
-            time_scope=llm_time.time_scope,
-            comparison_basis=comparison_basis,
-            comparison_candidates=comparison_candidates,
-            default_comparison_basis=default_comparison_basis,
-            ambiguities=[],
-            forms=forms,
-            dense_queries=expansion.dense_queries,
-            dense_query_specs=expansion.dense_query_specs,
-            lexical_queries=expansion.lexical_queries,
-            rule_confidence=confidence,
-            matched_rules=[
-                "planner:llm_fallback",
-                f"llm_fallback:{fallback_reason}",
-                *metrics.matched_rules,
-            ],
-            planner_source="llm_fallback",
-            confidence_breakdown={
-                "intent_confidence": round(confidence, 2),
-                "metric_confidence": round(confidence if metric_keys else 0.5, 2),
-                "time_confidence": round(confidence, 2),
-                "strategy_confidence": round(confidence, 2),
-            },
-            needs_financial_facts=needs_financial_facts,
-            needs_text_chunks=True,
-            needs_metric_comparisons=needs_metric_comparisons,
-            evidence_roles=strategy.evidence_roles,
-            requires_llm_fallback_reason=fallback_reason,
-        )
-        return self._validator.validate(
-            plan,
-            query,
-            planner_source="llm_validated",
-            validation_confidence=confidence,
-        )
-
-    def _get_llm_planner(self) -> LLMPlanner:
-        if self._llm_planner is None:
-            self._llm_planner = LLMQueryPlanner(self._settings)
-        return self._llm_planner
-
-
-def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
-    return any(_contains_term(text, term) for term in terms)
-
-
-def _contains_term(text: str, term: str) -> bool:
-    if not term:
-        return False
-    if term.isascii():
-        return re.search(
-            rf"(?<![a-z0-9]){re.escape(term.lower())}(?![a-z0-9])",
-            text,
-        ) is not None
-    return term in text
-
-
-def _is_liquidity_question(normalized_question: str) -> bool:
-    return _contains_any(normalized_question, LIQUIDITY_TERMS) and not _contains_any(
-        normalized_question,
-        LIQUIDITY_NEGATIVE_TERMS,
-    )
-
-
-def _is_filing_summary_question(normalized_question: str) -> bool:
-    if not _contains_any(normalized_question, SUMMARY_TERMS):
-        return False
-    return _contains_any(normalized_question, FILING_SUMMARY_CONTEXT_TERMS)
-
-
-def _is_earnings_activity_question(normalized_question: str) -> bool:
-    if _contains_any(normalized_question, EARNINGS_ACTIVITY_TERMS):
-        return True
-    return (
-        re.search(
-            r"(?<![a-z0-9])"
-            r"(make|makes|made|making|earn|earns|earned|earning)"
-            r"\s+(more|less)\s+money"
-            r"(?![a-z0-9])",
-            normalized_question,
-        )
-        is not None
-    )
-
-
-def _has_metric_comparative_signal(
-    normalized_question: str,
-    metric_keys: list[str] | None = None,
-) -> bool:
-    if not _contains_any(normalized_question, COMPARATIVE_METRIC_MODIFIER_TERMS):
-        return False
-    if re.search(
-        r"(?<![a-z0-9])more\s+(about|detail|details|information|info|context)\b",
-        normalized_question,
-    ):
-        return False
-
-    metric_terms = _comparative_metric_terms(metric_keys)
-    before_modifiers = (
-        "more",
-        "less",
-        "higher",
-        "lower",
-        "increased",
-        "decreased",
-        "stronger",
-        "weaker",
-        "better",
-        "worse",
-    )
-    after_modifiers = (
-        "higher",
-        "lower",
-        "up",
-        "down",
-        "increased",
-        "decreased",
-        "stronger",
-        "weaker",
-        "better",
-        "worse",
-    )
-    for term in sorted(metric_terms, key=len, reverse=True):
-        term_pattern = _term_pattern(term)
-        before_pattern = (
-            rf"(?<![a-z0-9])(?:{'|'.join(before_modifiers)})\s+"
-            rf"(?:[a-z0-9&'-]+\s+){{0,2}}{term_pattern}(?![a-z0-9])"
-        )
-        after_pattern = (
-            rf"(?<![a-z0-9]){term_pattern}"
-            rf"(?:\s+[a-z0-9&'-]+){{0,2}}\s+"
-            rf"(?:{'|'.join(after_modifiers)})(?![a-z0-9])"
-        )
-        if re.search(before_pattern, normalized_question) or re.search(
-            after_pattern,
-            normalized_question,
-        ):
-            return True
-
-    return False
-
-
-def _comparative_metric_terms(metric_keys: list[str] | None) -> tuple[str, ...]:
-    terms: list[str] = []
-    keys = metric_keys or list(METRIC_RETRIEVAL_PROFILES)
-    for metric_key in keys:
-        profile = get_metric_profile(metric_key)
-        if profile is None:
-            continue
-        terms.extend(profile.aliases)
-        terms.extend(profile.strong_terms)
-        terms.extend(profile.weak_terms)
-        if metric_key in {"operating_income", "net_income"}:
-            terms.extend(PROFITABILITY_TERMS)
-        if metric_key == "net_income":
-            terms.append("money")
-        if metric_key in {"gross_margin", "operating_margin", "net_margin"}:
-            terms.extend(MARGIN_JUDGMENT_TERMS)
-    if not metric_keys:
-        terms.extend(PROFITABILITY_TERMS)
-        terms.extend(MARGIN_JUDGMENT_TERMS)
-        terms.extend(SALES_ACTIVITY_TERMS)
-        terms.append("money")
-    return tuple(_dedupe([term for term in terms if term]))
-
-
-def _term_pattern(term: str) -> str:
-    return r"\s+".join(re.escape(part) for part in term.lower().split())
-
-
-def _is_broad_company_growth_question(normalized_question: str, time_scope: str) -> bool:
-    if time_scope != "comparison_trend":
-        return False
-    if not _contains_any(normalized_question, BROAD_COMPANY_GROWTH_TERMS):
-        return False
-    return not _contains_any(normalized_question, BROAD_COMPANY_GROWTH_EXCLUDED_SUBJECTS)
-
-
-def _is_broad_performance_change_explanation(
-    normalized_question: str,
-    intent: IntentResult,
-    time_scope: str,
-) -> bool:
-    if time_scope != "comparison_trend":
-        return False
-    if not intent.has_explanation_intent:
-        return False
-    if _contains_any(normalized_question, BROAD_COMPANY_GROWTH_EXCLUDED_SUBJECTS):
-        return False
-    return intent.has_performance_intent or _contains_any(
-        normalized_question,
-        VAGUE_COMPANY_CHANGE_TERMS,
-    )
-
-
-def _is_broad_performance_driver_question(
-    normalized_question: str,
-    intent: IntentResult,
-) -> bool:
-    if not intent.has_explanation_intent:
-        return False
-    if _contains_any(normalized_question, BROAD_COMPANY_GROWTH_EXCLUDED_SUBJECTS):
-        return False
-    return intent.has_performance_intent or _contains_any(
-        normalized_question,
-        BROAD_PERFORMANCE_DRIVER_SUBJECT_TERMS,
-    )
-
-
-def _is_vague_company_change_question(normalized_question: str, time_scope: str) -> bool:
-    if time_scope != "comparison_trend":
-        return False
-    if not _contains_any(normalized_question, VAGUE_COMPANY_CHANGE_TERMS):
-        return False
-    if not _contains_any(normalized_question, COMPARISON_CONTEXT_TERMS):
-        return False
-    return not _contains_any(normalized_question, BROAD_COMPANY_GROWTH_EXCLUDED_SUBJECTS)
-
-
-def _is_vague_company_performance_question(
-    normalized_question: str,
-    *,
-    has_performance_intent: bool,
-) -> bool:
-    if not has_performance_intent:
-        return False
-    if _contains_any(normalized_question, BROAD_COMPANY_GROWTH_EXCLUDED_SUBJECTS):
-        return False
-    return _contains_any(normalized_question, QUARTERLY_BASIS_TERMS) or _contains_any(
-        normalized_question,
-        LATEST_TERMS,
-    )
-
-
-def _dedupe(items: list[str] | tuple[str, ...] | Any) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
+def _normalize_role(role: str) -> str:
+    normalized = re.sub(r"[^a-z0-9_]+", "_", role.strip().lower())
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return normalized or "query"
+
+
+def _dedupe(items: Any) -> list[Any]:
+    deduped: list[Any] = []
+    seen: set[Any] = set()
     for item in items:
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
-    return result
-
-
-def _detect_comparison_basis(normalized_question: str) -> str:
-    if _contains_any(normalized_question, QUARTERLY_BASIS_TERMS):
-        return "latest_quarter_yoy"
-    if _contains_any(normalized_question, YTD_BASIS_TERMS):
-        return "latest_ytd_yoy"
-    if _contains_any(normalized_question, FY_BASIS_TERMS):
-        return "latest_fy_yoy"
-    return "ambiguous"
-
-
-def _detect_growth_acceleration_basis(
-    normalized_question: str,
-) -> tuple[str, list[str], str, str | None]:
-    if _contains_any(normalized_question, FY_BASIS_TERMS):
-        return (
-            "latest_fy_yoy",
-            ["latest_fy_yoy", "previous_fy_yoy"],
-            "latest_fy_yoy",
-            None,
-        )
-    if _contains_any(normalized_question, YTD_BASIS_TERMS):
-        return (
-            "latest_ytd_yoy",
-            ["latest_ytd_yoy", "previous_ytd_yoy"],
-            "latest_ytd_yoy",
-            None,
-        )
-    ambiguity = None
-    if not _contains_any(normalized_question, QUARTERLY_BASIS_TERMS):
-        ambiguity = (
-            "Interpreted growth acceleration as latest quarter year-over-year growth "
-            "versus prior quarter year-over-year growth because no period was specified."
-        )
-    return (
-        "latest_quarter_yoy",
-        ["latest_quarter_yoy", "previous_quarter_yoy"],
-        "latest_quarter_yoy",
-        ambiguity,
-    )
-
-
-def _default_comparison_basis_for_metrics(metric_keys: list[str]) -> str:
-    for metric_key in metric_keys:
-        profile = get_metric_profile(metric_key)
-        if profile is not None:
-            return profile.default_comparison_basis
-    return "latest_quarter_yoy"
-
-
-def _preferred_form_for_comparison_basis(comparison_basis: str | None) -> str | None:
-    if comparison_basis in {
-        "latest_quarter_yoy",
-        "previous_quarter_yoy",
-        "latest_ytd_yoy",
-        "previous_ytd_yoy",
-    }:
-        return "10-Q"
-    if comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
-        return "10-K"
-    return None
-
-
-def _build_metric_lexical_queries(metric_keys: list[str]) -> list[str]:
-    queries: list[str] = []
-    for metric_key in metric_keys:
-        profile = get_metric_profile(metric_key)
-        if profile is not None:
-            queries.extend(profile.lexical_queries)
+        if item in seen:
             continue
-        queries.append(METRIC_LABELS.get(metric_key, metric_key).lower())
-    return queries
-
-
-def _overall_confidence(
-    confidence: dict[str, float],
-    *,
-    has_metric: bool,
-    metric_optional: bool,
-) -> float:
-    metric_confidence = confidence.get("metric_confidence", 0.45)
-    if not has_metric and metric_optional:
-        metric_confidence = max(metric_confidence, 0.8)
-    return (
-        0.2 * confidence.get("intent_confidence", 0.45)
-        + 0.25 * metric_confidence
-        + 0.2 * confidence.get("time_confidence", 0.55)
-        + 0.15 * confidence.get("strategy_confidence", 0.55)
-        + 0.2 * confidence.get("validation_confidence", 1.0)
-    )
-
-
-def _llm_fallback_reason(plan: RetrievalPlan, *, threshold: float) -> str | None:
-    if "validation:time_basis_conflict" in plan.matched_rules:
-        return "time_basis_conflict"
-    if plan.rule_confidence < threshold:
-        if plan.question_type == "prose" and not plan.metric_keys:
-            return "ambiguous_intent"
-        return "low_confidence"
-    return None
-
-
-def _as_str_list(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value if str(item).strip()]
-    if isinstance(value, tuple):
-        return [str(item) for item in value if str(item).strip()]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
-
-
-def _coerce_confidence(value: Any, *, fallback: float) -> float:
-    try:
-        return max(0.0, min(1.0, float(value)))
-    except (TypeError, ValueError):
-        return fallback
+        seen.add(item)
+        deduped.append(item)
+    return deduped
