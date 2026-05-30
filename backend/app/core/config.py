@@ -29,10 +29,10 @@ class Settings(BaseSettings):
     retrieval_lexical_candidates: int = Field(default=40, ge=1, le=500)
     retrieval_fact_candidates: int = Field(default=20, ge=1, le=500)
     retrieval_top_k: int = Field(default=10, ge=1, le=50)
-    query_planner_mode: Literal["rule_only", "rule_with_llm_fallback"] = "rule_only"
+    query_planner_mode: Literal["llm", "rule_only", "rule_with_llm_fallback"] = "llm"
     query_planner_llm_model: str = "gpt-4o-mini"
-    query_planner_llm_confidence_threshold: float = Field(default=0.75, ge=0, le=1)
-    query_planner_llm_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    query_planner_llm_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
+    query_planner_llm_max_retries: int = Field(default=0, ge=0, le=5)
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

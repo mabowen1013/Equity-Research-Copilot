@@ -54,10 +54,8 @@ def make_response(chunk: RetrievedChunkRead) -> RetrievalResponse:
                 {"role": "slot", "text": "latest revenue drivers", "weight": 1.0}
             ],
             "lexical_queries": ["revenue"],
-            "rule_confidence": 0.86,
             "matched_rules": ["metric:revenue"],
             "planner_source": "rule_validated",
-            "confidence_breakdown": {},
             "needs_financial_facts": True,
             "needs_text_chunks": True,
             "needs_metric_comparisons": False,

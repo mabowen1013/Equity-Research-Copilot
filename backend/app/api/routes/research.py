@@ -4,10 +4,31 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db_session
-from app.schemas import RetrievalAnalysisResponse, RetrievalRequest, RetrievalResponse
-from app.services import RetrievalCompanyNotFoundError, RetrievalError, RetrievalService
+from app.schemas import (
+    QueryPlanRequest,
+    RetrievalAnalysisResponse,
+    RetrievalPlanRead,
+    RetrievalRequest,
+    RetrievalResponse,
+)
+from app.services import (
+    QueryPlanner,
+    RetrievalCompanyNotFoundError,
+    RetrievalError,
+    RetrievalService,
+)
 
 router = APIRouter(prefix="/research", tags=["research"])
+
+
+@router.post("/plan", response_model=RetrievalPlanRead)
+def plan_query(request: QueryPlanRequest) -> RetrievalPlanRead:
+    plan = QueryPlanner().plan(
+        request.question,
+        form_type=request.form_type,
+        section=request.section,
+    )
+    return RetrievalPlanRead.model_validate(plan.to_dict())
 
 
 @router.post("/retrieve", response_model=RetrievalResponse | RetrievalAnalysisResponse)

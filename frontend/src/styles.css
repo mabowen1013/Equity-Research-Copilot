@@ -578,14 +578,16 @@ h3 {
 
 .comparison-list,
 .evidence-list,
-.top-chunk-list {
+.top-chunk-list,
+.citation-list {
   display: grid;
   gap: 10px;
 }
 
 .comparison-card,
 .evidence-card,
-.evidence-span-card {
+.evidence-span-card,
+.citation-card {
   min-width: 0;
   border: 1px solid #e3e9f0;
   border-radius: 8px;
@@ -639,17 +641,40 @@ h3 {
 }
 
 .evidence-section h4,
-.evidence-card h4 {
+.evidence-card h4,
+.citation-card h4 {
   margin: 0 0 8px;
   color: #1f2933;
   font-size: 0.86rem;
 }
 
 .evidence-card p,
-.evidence-span-card p {
+.evidence-span-card p,
+.citation-card p,
+.answer-text {
   margin: 8px 0;
   color: #334155;
   font-size: 0.86rem;
+}
+
+.answer-text {
+  white-space: pre-wrap;
+}
+
+.limitation-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.limitation-list span {
+  border-radius: 999px;
+  background: #fff8e5;
+  color: #805a12;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  font-weight: 800;
 }
 
 .evidence-reasons {
@@ -661,7 +686,8 @@ h3 {
   color: #2459b3;
 }
 
-.evidence-card a {
+.evidence-card a,
+.citation-card a {
   display: inline-flex;
   min-height: 32px;
   align-items: center;
@@ -673,6 +699,21 @@ h3 {
 
 .trace-warning-list {
   margin-top: 10px;
+}
+
+.validation-debug {
+  margin-top: 10px;
+}
+
+.validation-debug summary {
+  cursor: pointer;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.validation-debug .trace-warning-list {
+  margin-top: 8px;
 }
 
 .trace-warning-list span {

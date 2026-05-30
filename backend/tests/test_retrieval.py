@@ -46,7 +46,6 @@ def make_plan() -> RetrievalPlan:
         forms=[],
         dense_queries=["risk factors"],
         lexical_queries=["risk factors"],
-        rule_confidence=0.8,
         matched_rules=["section:risk_factors", "time:latest"],
     )
 
@@ -98,7 +97,6 @@ def make_metric_plan() -> RetrievalPlan:
         forms=[],
         dense_queries=["revenue growth"],
         lexical_queries=['"total net sales"'],
-        rule_confidence=0.8,
         matched_rules=["metric:revenue", "time:comparison_trend"],
     )
 
@@ -124,7 +122,6 @@ def make_broad_comparison_plan() -> RetrievalPlan:
         forms=["10-K"],
         dense_queries=["year-over-year financial performance changes"],
         lexical_queries=['"products and services performance"'],
-        rule_confidence=0.95,
         matched_rules=[
             "metric:company_change_default",
             "comparison_basis:latest_fy_yoy",
