@@ -124,10 +124,8 @@ export type RetrievalPlan = {
   dense_queries: string[];
   dense_query_specs: Record<string, unknown>[];
   lexical_queries: string[];
-  rule_confidence: number;
   matched_rules: string[];
   planner_source: string;
-  confidence_breakdown: Record<string, number>;
   needs_financial_facts: boolean;
   needs_text_chunks: boolean;
   needs_metric_comparisons: boolean;
@@ -233,6 +231,131 @@ export type RetrievalAnalysisResponse = {
   };
 };
 
+export type AnswerEvidenceChunk = {
+  evidence_id: string;
+  type: "chunk";
+  chunk_id: number;
+  filing_id: number;
+  section_id: number;
+  score: number;
+  fusion_score: number;
+  source_ranks: Record<string, number>;
+  rerank_boosts: Record<string, number>;
+  snippet: string;
+  form_type: string;
+  filing_date: string;
+  section_label: string;
+  sec_url: string;
+  accession_number: string;
+  start_page: number | null;
+  end_page: number | null;
+  has_table: boolean;
+};
+
+export type AnswerEvidenceSpan = {
+  evidence_id: string;
+  type: "evidence_span";
+  chunk_id: number;
+  source_chunk_evidence_id: string;
+  role: string;
+  score: number;
+  support_kind: string;
+  text: string;
+  start_char: number | null;
+  end_char: number | null;
+  reasons: string[];
+  form_type: string;
+  filing_date: string;
+  section_label: string;
+  sec_url: string;
+  accession_number: string;
+  start_page: number | null;
+  end_page: number | null;
+};
+
+export type AnswerMetricComparison = {
+  evidence_id: string;
+  type: "metric_comparison";
+  basis: string;
+  canonical_metric_key: string;
+  current_fact_id: number;
+  prior_fact_id: number;
+  current_period_start: string | null;
+  current_period_end: string;
+  prior_period_start: string | null;
+  prior_period_end: string;
+  current_duration_class: string | null;
+  prior_duration_class: string | null;
+  current_period_label: string | null;
+  prior_period_label: string | null;
+  current_value: string;
+  prior_value: string;
+  growth_rate: string | null;
+  current_source_fiscal_year: number | null;
+  current_fact_fiscal_year: number | null;
+  prior_source_fiscal_year: number | null;
+  prior_fact_fiscal_year: number | null;
+  current_fiscal_period: string | null;
+  prior_fiscal_period: string | null;
+  current_source_filing_url: string | null;
+  prior_source_filing_url: string | null;
+};
+
+export type AnswerEvidencePack = {
+  metric_comparisons: AnswerMetricComparison[];
+  primary_financial_statement_chunks: AnswerEvidenceChunk[];
+  mda_explanation_chunks: AnswerEvidenceChunk[];
+  segment_or_product_breakdown_chunks: AnswerEvidenceChunk[];
+  risk_factor_chunks: AnswerEvidenceChunk[];
+  annual_context_chunks: AnswerEvidenceChunk[];
+  primary_financial_statement_spans: AnswerEvidenceSpan[];
+  mda_explanation_spans: AnswerEvidenceSpan[];
+  segment_or_product_breakdown_spans: AnswerEvidenceSpan[];
+  risk_factor_spans: AnswerEvidenceSpan[];
+  annual_context_spans: AnswerEvidenceSpan[];
+};
+
+export type AnswerCitation = {
+  evidence_id: string;
+  evidence_type: string;
+  source_label: string | null;
+  text: string | null;
+  sec_url: string | null;
+  form_type: string | null;
+  filing_date: string | null;
+  section: string | null;
+  pages: string | null;
+  source_ids: Record<string, unknown>;
+};
+
+export type CitationValidationIssue = {
+  code: string;
+  message: string;
+  evidence_id: string | null;
+  sentence: string | null;
+};
+
+export type CitationValidation = {
+  status: "passed" | "failed";
+  cited_evidence_ids: string[];
+  allowed_evidence_ids: string[];
+  prompt_evidence_ids: string[];
+  errors: CitationValidationIssue[];
+};
+
+export type ResearchAnswerResponse = {
+  answer: string;
+  citations: AnswerCitation[];
+  retrieved_evidence_ids: string[];
+  prompt_evidence_ids: string[];
+  validation_status: "passed" | "failed" | "insufficient_evidence";
+  validation: CitationValidation;
+  limitations: string[];
+  source_coverage_summary: Record<string, unknown>;
+  retrieval_plan: RetrievalPlan;
+  final_evidence_pack: AnswerEvidencePack;
+};
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
 
@@ -324,6 +447,19 @@ export function retrieveEvidence(request: {
   section?: string;
 }): Promise<RetrievalAnalysisResponse> {
   return requestJson<RetrievalAnalysisResponse>("/research/retrieve?view=analysis", {
+    body: JSON.stringify(request),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+}
+
+export function queryResearch(request: {
+  ticker: string;
+  question: string;
+  form_type?: string;
+  section?: string;
+}): Promise<ResearchAnswerResponse> {
+  return requestJson<ResearchAnswerResponse>("/research/query", {
     body: JSON.stringify(request),
     headers: { "Content-Type": "application/json" },
     method: "POST",

@@ -31,6 +31,7 @@ def test_settings_load_sec_user_agent_and_openai_key_from_env_file(tmp_path) -> 
 def test_settings_default_sec_rate_limit_and_cache_ttl(monkeypatch) -> None:
     monkeypatch.delenv("SEC_RATE_LIMIT_PER_SECOND", raising=False)
     monkeypatch.delenv("SEC_CACHE_TTL_SECONDS", raising=False)
+    monkeypatch.delenv("QUERY_PLANNER_MODE", raising=False)
 
     settings = Settings(_env_file=None)
 
@@ -44,10 +45,10 @@ def test_settings_default_sec_rate_limit_and_cache_ttl(monkeypatch) -> None:
     assert settings.retrieval_lexical_candidates == 40
     assert settings.retrieval_fact_candidates == 20
     assert settings.retrieval_top_k == 10
-    assert settings.query_planner_mode == "rule_only"
+    assert settings.query_planner_mode == "llm"
     assert settings.query_planner_llm_model == "gpt-4o-mini"
-    assert settings.query_planner_llm_confidence_threshold == 0.75
-    assert settings.query_planner_llm_timeout_seconds == 8.0
+    assert settings.query_planner_llm_timeout_seconds == 20.0
+    assert settings.query_planner_llm_max_retries == 0
 
 
 def test_required_sec_user_agent_returns_trimmed_value() -> None:

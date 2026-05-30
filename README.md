@@ -69,7 +69,7 @@ Required values:
 | `SEC_USER_AGENT` | Yes | User-Agent sent to SEC APIs. Include app name and contact email. |
 | `SEC_RATE_LIMIT_PER_SECOND` | No | SEC request limit. Defaults to `10`, the maximum allowed by the app configuration. |
 | `SEC_CACHE_TTL_SECONDS` | No | SEC JSON response cache TTL. Defaults to `86400` seconds. |
-| `OPENAI_API_KEY` | Yes for embeddings and optional LLM planning | OpenAI API key used by the default embedding provider and by `rule_with_llm_fallback` query planning. Retrieval can still degrade to lexical and XBRL facts without dense embeddings. |
+| `OPENAI_API_KEY` | Yes for embeddings and LLM planning | OpenAI API key used by the default embedding provider and by LLM-first query planning. Retrieval can still degrade to lexical and XBRL facts without dense embeddings, and query planning falls back to broad text retrieval if the LLM is unavailable. |
 | `EMBEDDING_PROVIDER` | No | Embedding provider. Defaults to `openai`. |
 | `EMBEDDING_MODEL` | No | Embedding model. Defaults to `text-embedding-3-small`. |
 | `EMBEDDING_DIMENSIONS` | No | Embedding vector dimensions. Defaults to `1536`. |
@@ -79,10 +79,10 @@ Required values:
 | `RETRIEVAL_LEXICAL_CANDIDATES` | No | Lexical candidate budget. Defaults to `40`. |
 | `RETRIEVAL_FACT_CANDIDATES` | No | XBRL fact candidate budget. Defaults to `20`. |
 | `RETRIEVAL_TOP_K` | No | Final chunk evidence count before evidence-pack selection. Defaults to `10`. |
-| `QUERY_PLANNER_MODE` | No | Query planner mode. Defaults to `rule_only`; use `rule_with_llm_fallback` to call the LLM only when the rule planner is low-confidence. |
-| `QUERY_PLANNER_LLM_MODEL` | No | Model used by the optional LLM planner fallback. Defaults to `gpt-4o-mini`. |
-| `QUERY_PLANNER_LLM_CONFIDENCE_THRESHOLD` | No | Confidence threshold below which the LLM fallback may run. Defaults to `0.75`. |
-| `QUERY_PLANNER_LLM_TIMEOUT_SECONDS` | No | Timeout for the optional LLM planner call. Defaults to `8`. |
+| `QUERY_PLANNER_MODE` | No | Query planner mode. Defaults to `llm`. Legacy values `rule_only` and `rule_with_llm_fallback` are accepted for compatibility; `rule_with_llm_fallback` now uses the LLM-first planner. |
+| `QUERY_PLANNER_LLM_MODEL` | No | Model used by the LLM planner. Defaults to `gpt-4o-mini`. |
+| `QUERY_PLANNER_LLM_TIMEOUT_SECONDS` | No | Timeout for the LLM planner call. Defaults to `20`. |
+| `QUERY_PLANNER_LLM_MAX_RETRIES` | No | OpenAI SDK retry count for planner calls. Defaults to `0` so local planner tests fail fast instead of waiting through retries. |
 
 Example:
 
@@ -101,10 +101,10 @@ RETRIEVAL_DENSE_CANDIDATES=40
 RETRIEVAL_LEXICAL_CANDIDATES=40
 RETRIEVAL_FACT_CANDIDATES=20
 RETRIEVAL_TOP_K=10
-QUERY_PLANNER_MODE="rule_only"
+QUERY_PLANNER_MODE="llm"
 QUERY_PLANNER_LLM_MODEL="gpt-4o-mini"
-QUERY_PLANNER_LLM_CONFIDENCE_THRESHOLD=0.75
-QUERY_PLANNER_LLM_TIMEOUT_SECONDS=8
+QUERY_PLANNER_LLM_TIMEOUT_SECONDS=20
+QUERY_PLANNER_LLM_MAX_RETRIES=0
 ```
 
 ## Local Development
@@ -445,5 +445,5 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 - Chunk highlighted-source pages are generated dynamically from stored annotated HTML and chunk element ids.
 - XBRL metrics use a conservative US-GAAP tag mapping. Missing metrics are shown as unavailable rather than guessed.
 - Milestone 5 returns evidence, facts, spans, comparisons, and trace data. It does not generate final natural-language answers yet.
-- The LLM query planner fallback is optional and disabled by default. It may improve ambiguous questions but adds external API latency and cost.
+- Query planning is LLM-first. If the LLM is unavailable, the backend falls back to broad text retrieval instead of using brittle keyword slot rules.
 - HNSW auto mode, learned reranking, larger eval coverage, answer generation, and citation validation are deferred to later milestones.

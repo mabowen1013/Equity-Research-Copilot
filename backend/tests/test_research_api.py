@@ -25,7 +25,6 @@ class FakeRetrievalService:
                 "forms": [],
                 "dense_queries": [request.question],
                 "lexical_queries": ["revenue"],
-                "rule_confidence": 0.7,
                 "matched_rules": ["metric:revenue"],
             },
             "retrieved_chunks": [],
@@ -35,11 +34,72 @@ class FakeRetrievalService:
         }
 
 
+class FakePlanner:
+    def plan(self, question, *, form_type=None, section=None):
+        return FakePlan(
+            {
+                "question_type": "mixed",
+                "target_sections": ["Management's Discussion and Analysis"],
+                "metric_keys": ["revenue", "gross_margin"],
+                "time_scope": "comparison_trend",
+                "comparison_basis": "latest_quarter_yoy",
+                "comparison_candidates": ["latest_quarter_yoy"],
+                "default_comparison_basis": "latest_quarter_yoy",
+                "ambiguities": [],
+                "forms": [form_type] if form_type else ["10-Q"],
+                "preferred_forms": [form_type] if form_type else ["10-Q"],
+                "dense_queries": [question],
+                "dense_query_specs": [
+                    {"role": "mda", "text": question, "weight": 1.0},
+                ],
+                "lexical_queries": ["revenue growth", "gross margin"],
+                "matched_rules": ["planner:llm", "validation:schema"],
+                "planner_source": "llm_validated",
+                "needs_financial_facts": True,
+                "needs_text_chunks": True,
+                "needs_metric_comparisons": True,
+                "evidence_roles": [
+                    "metric_comparisons",
+                    "mda_explanation_chunks",
+                ],
+            }
+        )
+
+
+class FakePlan:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def to_dict(self):
+        return self.payload
+
+
 def override_db_session() -> None:
     def _override() -> Generator[FakeSession, None, None]:
         yield FakeSession()
 
     app.dependency_overrides[get_db_session] = _override
+
+
+def test_plan_endpoint_returns_llm_planner_slots(monkeypatch) -> None:
+    monkeypatch.setattr(research_route, "QueryPlanner", FakePlanner)
+    client = TestClient(app)
+
+    response = client.post(
+        "/research/plan",
+        json={
+            "question": "苹果最近一个季度收入增长和毛利率变化原因是什么？",
+            "form_type": "10-Q",
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["planner_source"] == "llm_validated"
+    assert body["question_type"] == "mixed"
+    assert body["metric_keys"] == ["revenue", "gross_margin"]
+    assert body["target_sections"] == ["Management's Discussion and Analysis"]
+    assert body["needs_metric_comparisons"]
 
 
 def test_retrieve_endpoint_returns_retrieval_trace(monkeypatch) -> None:
@@ -73,7 +133,6 @@ def test_retrieve_endpoint_supports_compact_analysis_view(monkeypatch) -> None:
                     "forms": [],
                     "dense_queries": [request.question],
                     "lexical_queries": ["risk factors"],
-                    "rule_confidence": 0.59,
                     "matched_rules": ["section:risk_factors", "time:latest"],
                 },
                 "retrieved_chunks": [

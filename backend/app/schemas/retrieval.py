@@ -16,6 +16,12 @@ class RetrievalRequest(BaseModel):
     section: str | None = None
 
 
+class QueryPlanRequest(BaseModel):
+    question: str = Field(min_length=1)
+    form_type: str | None = None
+    section: str | None = None
+
+
 class RetrievalPlanRead(BaseModel):
     question_type: str
     target_sections: list[str] = Field(default_factory=list)
@@ -30,10 +36,8 @@ class RetrievalPlanRead(BaseModel):
     dense_queries: list[str] = Field(default_factory=list)
     dense_query_specs: list[dict[str, Any]] = Field(default_factory=list)
     lexical_queries: list[str] = Field(default_factory=list)
-    rule_confidence: float
     matched_rules: list[str]
-    planner_source: str = "rule_validated"
-    confidence_breakdown: dict[str, float] = Field(default_factory=dict)
+    planner_source: str = "llm_validated"
     needs_financial_facts: bool = True
     needs_text_chunks: bool = True
     needs_metric_comparisons: bool = True

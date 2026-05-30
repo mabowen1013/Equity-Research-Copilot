@@ -2,6 +2,10 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchHealthStatus } from "./api/health";
 import {
+  AnswerCitation,
+  AnswerEvidenceChunk,
+  AnswerEvidenceSpan,
+  AnswerMetricComparison,
   Company,
   DocumentChunk,
   Filing,
@@ -9,10 +13,7 @@ import {
   FilingSectionSummary,
   FinancialFact,
   Job,
-  RetrievalAnalysisChunk,
-  RetrievalAnalysisComparison,
-  RetrievalAnalysisResponse,
-  RetrievalAnalysisSpan,
+  ResearchAnswerResponse,
   fetchCompany,
   fetchCompanyFilings,
   fetchCompanyMetrics,
@@ -24,7 +25,7 @@ import {
   ingestCompany,
   loadCompanyMetrics,
   parseFiling,
-  retrieveEvidence,
+  queryResearch,
 } from "./api/sec";
 import "./styles.css";
 
@@ -227,13 +228,13 @@ export function App() {
   const [researchQuestion, setResearchQuestion] = useState(
     "Why did revenue grow last quarter?",
   );
-  const [retrievalResult, setRetrievalResult] = useState<RetrievalAnalysisResponse | null>(
+  const [answerResult, setAnswerResult] = useState<ResearchAnswerResponse | null>(
     null,
   );
   const [isLoadingCompany, setIsLoadingCompany] = useState(false);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isLoadingParsedData, setIsLoadingParsedData] = useState(false);
-  const [isRetrieving, setIsRetrieving] = useState(false);
+  const [isAsking, setIsAsking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollingTimers = useRef<number[]>([]);
@@ -290,7 +291,7 @@ export function App() {
       setSelectedSectionId(null);
       setSectionDetail(null);
       setChunks([]);
-      setRetrievalResult(null);
+      setAnswerResult(null);
       if (loadedFilings[0]) {
         await loadParsedData(loadedFilings[0].id);
       }
@@ -303,7 +304,7 @@ export function App() {
       setSectionDetail(null);
       setChunks([]);
       setMetrics([]);
-      setRetrievalResult(null);
+      setAnswerResult(null);
       setError(getErrorMessage(loadError));
     } finally {
       setIsLoadingCompany(false);
@@ -481,22 +482,22 @@ export function App() {
       return;
     }
 
-    setIsRetrieving(true);
+    setIsAsking(true);
     setError(null);
     setMessage(null);
 
     try {
-      setRetrievalResult(
-        await retrieveEvidence({
+      setAnswerResult(
+        await queryResearch({
           ticker: company.ticker,
           question,
         }),
       );
     } catch (retrievalError) {
-      setRetrievalResult(null);
+      setAnswerResult(null);
       setError(getErrorMessage(retrievalError));
     } finally {
-      setIsRetrieving(false);
+      setIsAsking(false);
     }
   }
 
@@ -829,8 +830,8 @@ export function App() {
             ticker={company?.ticker ?? ticker.trim().toUpperCase()}
             hasCompany={company !== null}
             question={researchQuestion}
-            result={retrievalResult}
-            isRetrieving={isRetrieving}
+            result={answerResult}
+            isAsking={isAsking}
             onQuestionChange={setResearchQuestion}
             onSubmit={handleRetrieveEvidence}
           />
@@ -845,23 +846,23 @@ function ResearchPage({
   hasCompany,
   question,
   result,
-  isRetrieving,
+  isAsking,
   onQuestionChange,
   onSubmit,
 }: {
   ticker: string;
   hasCompany: boolean;
   question: string;
-  result: RetrievalAnalysisResponse | null;
-  isRetrieving: boolean;
+  result: ResearchAnswerResponse | null;
+  isAsking: boolean;
   onQuestionChange: (question: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
   const plan = result?.retrieval_plan;
   const evidenceSections: {
     title: string;
-    chunks: RetrievalAnalysisChunk[];
-    spans: RetrievalAnalysisSpan[];
+    chunks: AnswerEvidenceChunk[];
+    spans: AnswerEvidenceSpan[];
   }[] = result
     ? [
         {
@@ -892,19 +893,17 @@ function ResearchPage({
       ]
     : [];
   const visibleComparisons = result?.final_evidence_pack.metric_comparisons ?? [];
-  const candidateCounts = Object.entries(result?.analysis_trace.candidate_counts ?? {});
-  const totalMs = result?.analysis_trace.timing_ms.total_ms;
 
   return (
     <section className="research-page" aria-labelledby="research-heading">
       <div className="research-page__header">
         <div>
-          <h2 id="research-heading">Evidence Retrieval</h2>
+          <h2 id="research-heading">Cited Q&A</h2>
           <p className="muted">
-            {hasCompany ? `Planner and retriever for ${ticker}` : "Load a stored company first"}
+            {hasCompany ? `Grounded answers for ${ticker}` : "Load a stored company first"}
           </p>
         </div>
-        {totalMs !== undefined && <span>{totalMs.toFixed(0)} ms</span>}
+        {result && <span>{result.validation_status}</span>}
       </div>
 
       <form className="research-form" onSubmit={onSubmit}>
@@ -914,21 +913,64 @@ function ResearchPage({
           value={question}
           onChange={(event) => onQuestionChange(event.target.value)}
           rows={3}
-          disabled={!hasCompany || isRetrieving}
+          disabled={!hasCompany || isAsking}
         />
-        <button type="submit" disabled={!hasCompany || isRetrieving}>
-          {isRetrieving ? "Retrieving" : "Retrieve Evidence"}
+        <button type="submit" disabled={!hasCompany || isAsking}>
+          {isAsking ? "Asking" : "Ask Question"}
         </button>
       </form>
 
       {result === null ? (
         <p className="empty-state">
           {hasCompany
-            ? "Ask a question to inspect the retrieval plan and evidence pack."
+            ? "Ask a question to generate a cited, validator-checked answer."
             : "Load a company, parse filings, load metrics, and generate embeddings before retrieval."}
         </p>
       ) : (
         <div className="research-results">
+          <section className="research-card answer-card" aria-labelledby="answer-heading">
+            <div className="panel-header panel-header--compact">
+              <h3 id="answer-heading">Answer</h3>
+              <span>{result.validation_status}</span>
+            </div>
+            <p className="answer-text">{result.answer}</p>
+            {result.limitations.length > 0 && (
+              <div className="limitation-list">
+                {result.limitations.map((limitation) => (
+                  <span key={limitation}>{limitation}</span>
+                ))}
+              </div>
+            )}
+            {result.validation.errors.length > 0 && (
+              <details className="validation-debug">
+                <summary>Validation details</summary>
+                <div className="trace-warning-list">
+                  {result.validation.errors.map((issue) => (
+                    <span key={`${issue.code}:${issue.evidence_id ?? issue.sentence ?? ""}`}>
+                      {issue.code}: {issue.message}
+                    </span>
+                  ))}
+                </div>
+              </details>
+            )}
+          </section>
+
+          <section className="research-card" aria-labelledby="citations-heading">
+            <div className="panel-header panel-header--compact">
+              <h3 id="citations-heading">Citations</h3>
+              <span>{result.citations.length}</span>
+            </div>
+            {result.citations.length > 0 ? (
+              <div className="citation-list">
+                {result.citations.map((citation) => (
+                  <CitationCard citation={citation} key={citation.evidence_id} />
+                ))}
+              </div>
+            ) : (
+              <p className="metric-empty">No validated citations</p>
+            )}
+          </section>
+
           {plan && (
             <section className="research-card" aria-labelledby="plan-heading">
               <div className="panel-header panel-header--compact">
@@ -939,7 +981,7 @@ function ResearchPage({
                 <SummaryTile label="Type" value={plan.question_type} />
                 <SummaryTile label="Time" value={plan.time_scope} />
                 <SummaryTile label="Basis" value={plan.comparison_basis} />
-                <SummaryTile label="Confidence" value={plan.rule_confidence.toFixed(2)} />
+                <SummaryTile label="Source" value={plan.planner_source} />
               </div>
               <PillRow label="Metrics" values={plan.metric_keys} emptyValue="No metrics" />
               <PillRow label="Sections" values={plan.target_sections} emptyValue="No section filter" />
@@ -967,7 +1009,7 @@ function ResearchPage({
           <section className="research-card" aria-labelledby="evidence-heading">
             <div className="panel-header panel-header--compact">
               <h3 id="evidence-heading">Evidence Pack</h3>
-              <span>{result.source_coverage_summary.chunk_count as number} chunks</span>
+              <span>{result.prompt_evidence_ids.length} prompt ids</span>
             </div>
             <div className="evidence-section-grid">
               {evidenceSections.map((section) => (
@@ -988,43 +1030,6 @@ function ResearchPage({
                 </div>
               ))}
             </div>
-          </section>
-
-          <section className="research-card" aria-labelledby="top-chunks-heading">
-            <div className="panel-header panel-header--compact">
-              <h3 id="top-chunks-heading">Top Retrieved Chunks</h3>
-              <span>{result.top_chunks.length}</span>
-            </div>
-            {result.top_chunks.length > 0 ? (
-              <div className="top-chunk-list">
-                {result.top_chunks.map((chunk) => (
-                  <EvidenceChunkCard chunk={chunk} key={chunk.evidence_id} />
-                ))}
-              </div>
-            ) : (
-              <p className="metric-empty">No retrieved chunks</p>
-            )}
-          </section>
-
-          <section className="research-card" aria-labelledby="trace-heading">
-            <div className="panel-header panel-header--compact">
-              <h3 id="trace-heading">Trace</h3>
-              <span>{result.analysis_trace.degraded.length} warnings</span>
-            </div>
-            <div className="trace-grid">
-              {candidateCounts.map(([key, value]) => (
-                <SummaryTile key={key} label={key} value={String(value)} />
-              ))}
-            </div>
-            {result.analysis_trace.degraded.length > 0 && (
-              <div className="trace-warning-list">
-                {result.analysis_trace.degraded.map((warning) => (
-                  <span key={`${warning.stage}:${warning.reason}`}>
-                    {warning.stage}: {warning.reason}
-                  </span>
-                ))}
-              </div>
-            )}
           </section>
         </div>
       )}
@@ -1062,7 +1067,44 @@ function PillRow({
   );
 }
 
-function ComparisonCard({ comparison }: { comparison: RetrievalAnalysisComparison }) {
+function CitationCard({ citation }: { citation: AnswerCitation }) {
+  const chunkId = getNumericSourceId(citation, "chunk_id");
+  const filingId = getNumericSourceId(citation, "filing_id");
+
+  return (
+    <article className="citation-card">
+      <div className="evidence-card__top">
+        <span>{citation.evidence_type}</span>
+        <strong>{citation.evidence_id}</strong>
+      </div>
+      <h4>{citation.source_label ?? citation.section ?? "Citation"}</h4>
+      {citation.text && <p>{citation.text}</p>}
+      <div className="evidence-meta">
+        {citation.form_type && <span>{citation.form_type}</span>}
+        {citation.filing_date && <span>{citation.filing_date}</span>}
+        {citation.section && <span>{citation.section}</span>}
+        <span>Pages {citation.pages ?? "n/a"}</span>
+      </div>
+      {citation.sec_url && (
+        <a href={citation.sec_url} target="_blank" rel="noreferrer">
+          SEC Source
+        </a>
+      )}
+      {filingId !== null && chunkId !== null && (
+        <a href={getHighlightedSourceUrl(filingId, chunkId)} target="_blank" rel="noreferrer">
+          Highlighted Source
+        </a>
+      )}
+    </article>
+  );
+}
+
+function getNumericSourceId(citation: AnswerCitation, key: string): number | null {
+  const value = citation.source_ids[key];
+  return typeof value === "number" ? value : null;
+}
+
+function ComparisonCard({ comparison }: { comparison: AnswerMetricComparison }) {
   return (
     <article className="comparison-card">
       <div>
@@ -1081,7 +1123,7 @@ function ComparisonCard({ comparison }: { comparison: RetrievalAnalysisCompariso
   );
 }
 
-function EvidenceSpanCard({ span }: { span: RetrievalAnalysisSpan }) {
+function EvidenceSpanCard({ span }: { span: AnswerEvidenceSpan }) {
   return (
     <article className="evidence-span-card">
       <div className="evidence-card__top">
@@ -1092,7 +1134,7 @@ function EvidenceSpanCard({ span }: { span: RetrievalAnalysisSpan }) {
       <div className="evidence-meta">
         <span>{span.form_type}</span>
         <span>{span.filing_date}</span>
-        <span>Pages {span.pages ?? "n/a"}</span>
+        <span>Pages {formatPageRange(span.start_page, span.end_page)}</span>
         <span>chunk:{span.chunk_id}</span>
       </div>
       {span.reasons.length > 0 && (
@@ -1106,7 +1148,7 @@ function EvidenceSpanCard({ span }: { span: RetrievalAnalysisSpan }) {
   );
 }
 
-function EvidenceChunkCard({ chunk }: { chunk: RetrievalAnalysisChunk }) {
+function EvidenceChunkCard({ chunk }: { chunk: AnswerEvidenceChunk }) {
   return (
     <article className="evidence-card">
       <div className="evidence-card__top">
@@ -1117,7 +1159,7 @@ function EvidenceChunkCard({ chunk }: { chunk: RetrievalAnalysisChunk }) {
       <p>{chunk.snippet}</p>
       <div className="evidence-meta">
         <span>{chunk.filing_date}</span>
-        <span>Pages {chunk.pages ?? "n/a"}</span>
+        <span>Pages {formatPageRange(chunk.start_page, chunk.end_page)}</span>
         {Object.entries(chunk.source_ranks).map(([source, rank]) => (
           <span key={source}>
             {source} #{rank}

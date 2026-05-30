@@ -97,3 +97,7 @@
 
 # 2026/5/26
 - 在所选择的top 10 chunks中加入关键词span，更精准的找出chunks内真正和query相关的部分。
+
+# 2026/5/27
+- 准备开始Milestone7
+- Implement /research/query, answer generation, deterministic citation validation, one retry on validation failure, insufficient-evidence fallback, and a frontend Cited Q&A experience.

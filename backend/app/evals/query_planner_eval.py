@@ -224,9 +224,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--planner-mode",
-        choices=("rule_only", "rule_with_llm_fallback"),
-        default="rule_only",
-        help="Query planner mode to use during eval. Defaults to rule_only.",
+        choices=("llm", "rule_only", "rule_with_llm_fallback"),
+        default="llm",
+        help="Query planner mode to use during eval. Defaults to llm.",
     )
     parser.add_argument(
         "--llm-model",

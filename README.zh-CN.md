@@ -69,7 +69,7 @@ Copy-Item backend/.env.example backend/.env
 | `SEC_USER_AGENT` | 是 | 发送给 SEC API 的 User-Agent。应包含应用名称和联系邮箱。 |
 | `SEC_RATE_LIMIT_PER_SECOND` | 否 | SEC 请求限制。默认值为 `10`，也是应用配置允许的最大值。 |
 | `SEC_CACHE_TTL_SECONDS` | 否 | SEC JSON 响应缓存 TTL。默认值为 `86400` 秒。 |
-| `OPENAI_API_KEY` | embeddings 和可选 LLM planning 需要 | 默认 embedding provider 和 `rule_with_llm_fallback` query planning 使用的 OpenAI API key。即使没有 dense embeddings，retrieval 仍可降级为 lexical 和 XBRL facts 检索。 |
+| `OPENAI_API_KEY` | embeddings 和 LLM planning 需要 | 默认 embedding provider 和 LLM-first query planning 使用的 OpenAI API key。即使没有 dense embeddings，retrieval 仍可降级为 lexical 和 XBRL facts 检索；如果 LLM 不可用，query planning 会降级成宽泛文本检索。 |
 | `EMBEDDING_PROVIDER` | 否 | Embedding provider。默认值为 `openai`。 |
 | `EMBEDDING_MODEL` | 否 | Embedding 模型。默认值为 `text-embedding-3-small`。 |
 | `EMBEDDING_DIMENSIONS` | 否 | Embedding 向量维度。默认值为 `1536`。 |
@@ -79,10 +79,10 @@ Copy-Item backend/.env.example backend/.env
 | `RETRIEVAL_LEXICAL_CANDIDATES` | 否 | Lexical retrieval 候选数量预算。默认值为 `40`。 |
 | `RETRIEVAL_FACT_CANDIDATES` | 否 | XBRL fact 候选数量预算。默认值为 `20`。 |
 | `RETRIEVAL_TOP_K` | 否 | Final evidence-pack selection 之前的最终 chunk evidence 数量。默认值为 `10`。 |
-| `QUERY_PLANNER_MODE` | 否 | Query planner 模式。默认值为 `rule_only`；使用 `rule_with_llm_fallback` 时，只有 rule planner 低置信度才会调用 LLM。 |
-| `QUERY_PLANNER_LLM_MODEL` | 否 | 可选 LLM planner fallback 使用的模型。默认值为 `gpt-4o-mini`。 |
-| `QUERY_PLANNER_LLM_CONFIDENCE_THRESHOLD` | 否 | 低于该置信度时可能触发 LLM fallback。默认值为 `0.75`。 |
-| `QUERY_PLANNER_LLM_TIMEOUT_SECONDS` | 否 | 可选 LLM planner 调用超时时间。默认值为 `8`。 |
+| `QUERY_PLANNER_MODE` | 否 | Query planner 模式。默认值为 `llm`。兼容旧值 `rule_only` 和 `rule_with_llm_fallback`；其中 `rule_with_llm_fallback` 现在也走 LLM-first planner。 |
+| `QUERY_PLANNER_LLM_MODEL` | 否 | LLM planner 使用的模型。默认值为 `gpt-4o-mini`。 |
+| `QUERY_PLANNER_LLM_TIMEOUT_SECONDS` | 否 | LLM planner 调用超时时间。默认值为 `20`。 |
+| `QUERY_PLANNER_LLM_MAX_RETRIES` | 否 | Planner 调用的 OpenAI SDK 重试次数。默认值为 `0`，本地测试时会更快失败，不会被 SDK 自动重试拖住。 |
 
 示例：
 
@@ -101,10 +101,10 @@ RETRIEVAL_DENSE_CANDIDATES=40
 RETRIEVAL_LEXICAL_CANDIDATES=40
 RETRIEVAL_FACT_CANDIDATES=20
 RETRIEVAL_TOP_K=10
-QUERY_PLANNER_MODE="rule_only"
+QUERY_PLANNER_MODE="llm"
 QUERY_PLANNER_LLM_MODEL="gpt-4o-mini"
-QUERY_PLANNER_LLM_CONFIDENCE_THRESHOLD=0.75
-QUERY_PLANNER_LLM_TIMEOUT_SECONDS=8
+QUERY_PLANNER_LLM_TIMEOUT_SECONDS=20
+QUERY_PLANNER_LLM_MAX_RETRIES=0
 ```
 
 ## 本地开发
@@ -445,5 +445,5 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 - Chunk highlighted-source pages 会从已存储的 annotated HTML 和 chunk element ids 动态生成。
 - XBRL metrics 使用保守的 US-GAAP tag mapping。缺失指标会显示为 unavailable，而不是被系统猜测。
 - Milestone 5 当前返回 evidence、facts、spans、comparisons 和 trace data；还不会生成最终自然语言答案。
-- LLM query planner fallback 是可选项，默认关闭。它可能改善模糊问题，但会增加外部 API 延迟与成本。
+- Query planning 现在默认直接由 LLM 解析。LLM 不可用时，后端会降级为宽泛文本检索，而不是继续用脆弱的关键词 slot 规则。
 - HNSW auto mode、learned reranking、更大规模 eval coverage、answer generation 和 citation validation 会放到后续 milestone。
