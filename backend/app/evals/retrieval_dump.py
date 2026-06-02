@@ -198,6 +198,7 @@ def format_evidence_pack(pack: EvidencePackRead) -> list[str]:
     lines = [
         "## Final Evidence Pack",
         "",
+        f"- metric_observations: {', '.join(observation.evidence_id for observation in pack.metric_observations) or 'none'}",
         f"- metric_comparisons: {len(pack.metric_comparisons)}",
     ]
     for role, chunks in role_chunks.items():

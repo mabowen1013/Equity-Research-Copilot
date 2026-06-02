@@ -14,6 +14,12 @@ class MetricRetrievalProfile:
     default_comparison_basis: str = "latest_quarter_yoy"
     preferred_sections: tuple[str, ...] = ()
     fact_tags: tuple[str, ...] = ()
+    preferred_labels: tuple[str, ...] = ()
+    preferred_units: tuple[str, ...] = ()
+    consolidated_terms: tuple[str, ...] = ()
+    segment_terms: tuple[str, ...] = ()
+    period_value_type: str = "flow"
+    default_duration_class_for_latest: str = "quarter"
     formula_metadata: dict[str, str] | None = None
 
 
@@ -68,6 +74,36 @@ METRIC_RETRIEVAL_PROFILES: dict[str, MetricRetrievalProfile] = {
             "remaining performance obligations",
         ),
         preferred_sections=("Financial Statements", "Management's Discussion and Analysis"),
+        fact_tags=(
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "SalesRevenueNet",
+            "Revenues",
+        ),
+        preferred_labels=(
+            "total net sales",
+            "net sales",
+            "total revenue",
+            "revenue",
+        ),
+        preferred_units=("USD",),
+        consolidated_terms=("total", "consolidated"),
+        segment_terms=(
+            "iphone",
+            "ipad",
+            "mac",
+            "services",
+            "wearables",
+            "home",
+            "accessories",
+            "americas",
+            "europe",
+            "greater china",
+            "japan",
+            "rest of asia pacific",
+            "segment",
+            "product",
+            "geographic",
+        ),
     ),
     "gross_profit": MetricRetrievalProfile(
         lexical_queries=(
