@@ -69,6 +69,10 @@ def build_analysis_response(response: RetrievalResponse) -> RetrievalAnalysisRes
         retrieval_plan=response.retrieval_plan,
         source_coverage_summary=response.source_coverage_summary,
         final_evidence_pack={
+            "metric_observations": [
+                observation
+                for observation in response.final_evidence_pack.metric_observations
+            ],
             "metric_comparisons": [
                 build_analysis_comparison(comparison)
                 for comparison in response.final_evidence_pack.metric_comparisons

@@ -27,15 +27,20 @@ class RetrievalPlanRead(BaseModel):
     target_sections: list[str] = Field(default_factory=list)
     metric_keys: list[str] = Field(default_factory=list)
     time_scope: str
+    period_kind: str | None = None
+    target_period: str | None = None
+    duration_class: str | None = None
     comparison_basis: str = "none"
     comparison_candidates: list[str] = Field(default_factory=list)
     default_comparison_basis: str | None = None
     ambiguities: list[str] = Field(default_factory=list)
     forms: list[str] = Field(default_factory=list)
+    allowed_forms: list[str] = Field(default_factory=list)
     preferred_forms: list[str] = Field(default_factory=list)
     dense_queries: list[str] = Field(default_factory=list)
     dense_query_specs: list[dict[str, Any]] = Field(default_factory=list)
     lexical_queries: list[str] = Field(default_factory=list)
+    lexical_query_specs: list[dict[str, Any]] = Field(default_factory=list)
     matched_rules: list[str]
     planner_source: str = "llm_validated"
     needs_financial_facts: bool = True
@@ -93,6 +98,7 @@ class RetrievedFinancialFactRead(BaseModel):
     fact_id: int
     score: float
     canonical_metric_key: str
+    taxonomy_tag: str = ""
     label: str
     period_start: date | None
     period_end: date
@@ -111,6 +117,61 @@ class RetrievedFinancialFactRead(BaseModel):
     source_fact_id: str
     is_computed: bool
     calculation_notes: str | None
+    calculation_expression: str | None = None
+    component_fact_ids: list[int] = Field(default_factory=list)
+    component_facts: list["MetricObservationComponentRead"] = Field(default_factory=list)
+
+    @field_serializer("value")
+    def serialize_value(self, value: Decimal) -> str:
+        return format(value, "f")
+
+
+class MetricObservationComponentRead(BaseModel):
+    evidence_id: str
+    fact_id: int
+    canonical_metric_key: str
+    value: Decimal
+    unit: str
+    display_value: str
+    period_start: date | None
+    period_end: date
+    duration_class: str | None = None
+    fiscal_period: str | None
+    form_type: str | None
+    filed_date: date | None
+    source_filing_id: int | None
+    source_accession_number: str | None
+    source_filing_url: str | None
+    source_fact_id: str | None = None
+
+    @field_serializer("value")
+    def serialize_value(self, value: Decimal) -> str:
+        return format(value, "f")
+
+
+class MetricObservationRead(BaseModel):
+    evidence_id: str
+    type: Literal["metric_observation"] = "metric_observation"
+    canonical_metric_key: str
+    value: Decimal
+    unit: str
+    display_value: str
+    period_start: date | None
+    period_end: date
+    duration_class: str | None = None
+    fiscal_period: str | None
+    form_type: str | None
+    filed_date: date | None
+    source_filing_id: int | None
+    source_accession_number: str | None
+    source_filing_url: str | None
+    source_fact_id: str | None = None
+    source_fact_evidence_id: str | None = None
+    is_computed: bool = False
+    calculation_expression: str | None = None
+    component_fact_ids: list[int] = Field(default_factory=list)
+    component_observations: list[MetricObservationComponentRead] = Field(default_factory=list)
+    confidence: float
 
     @field_serializer("value")
     def serialize_value(self, value: Decimal) -> str:
@@ -152,6 +213,7 @@ class MetricComparisonRead(BaseModel):
 
 
 class EvidencePackRead(BaseModel):
+    metric_observations: list[MetricObservationRead] = Field(default_factory=list)
     metric_comparisons: list[MetricComparisonRead] = Field(default_factory=list)
     primary_financial_statement_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
     mda_explanation_chunks: list[RetrievedChunkRead] = Field(default_factory=list)
@@ -256,6 +318,7 @@ class RetrievalAnalysisEvidenceSpanRead(BaseModel):
 
 
 class RetrievalAnalysisEvidencePackRead(BaseModel):
+    metric_observations: list[MetricObservationRead] = Field(default_factory=list)
     metric_comparisons: list[RetrievalAnalysisComparisonRead] = Field(default_factory=list)
     primary_financial_statement_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)
     mda_explanation_chunks: list[RetrievalAnalysisChunkRead] = Field(default_factory=list)

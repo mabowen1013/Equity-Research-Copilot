@@ -17,15 +17,23 @@ from app.services.retrieval import (
     build_chunk_filter_sql,
     build_retrieved_chunk,
     build_retrieved_fact,
+    build_metric_observations,
+    classify_fact_duration,
     effective_dense_query_specs,
+    effective_lexical_query_specs,
     evidence_candidate_limit,
     evidence_pack_comparison_limit,
     effective_form_types,
     form_priority_boost,
+    format_fact_period_label,
     latest_filing_scope_reason,
     make_snippet,
+    metric_observation_value_in_text,
+    rerank_chunks,
+    RetrievalScope,
     select_evidence_spans_for_chunk,
     should_warn_empty_evidence_pack,
+    scope_from_metric_observations,
     weighted_rrf_sources,
 )
 from app.services.query_planner import RetrievalPlan
@@ -227,6 +235,33 @@ def test_weighted_rrf_sources_combines_multiple_dense_queries() -> None:
     assert fused[1].source_ranks == {"dense:original": 2, "lexical": 1}
 
 
+def test_effective_lexical_query_specs_preserves_roles_and_weights() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "lexical_query_specs": [
+                {
+                    "role": "primary_financial_statement",
+                    "queries": ['"net sales"', '"three months ended"'],
+                    "weight": 1.0,
+                },
+                {
+                    "role": "mda_explanation",
+                    "queries": ['"net sales increased"'],
+                    "weight": 0.35,
+                },
+            ],
+        }
+    )
+
+    specs = effective_lexical_query_specs(plan)
+
+    assert [(spec.source_name, spec.queries, spec.weight) for spec in specs] == [
+        ("lexical:primary_financial_statement", ('"net sales"', '"three months ended"'), 1.0),
+        ("lexical:mda_explanation", ('"net sales increased"',), 0.35),
+    ]
+
+
 def test_aggregate_source_candidates_exposes_dense_fused_ranking() -> None:
     aggregate = aggregate_source_candidates(
         [
@@ -283,6 +318,34 @@ def test_metric_text_boosts_reward_strong_revenue_statement_context() -> None:
     assert boosts["statement_context_match"] == 0.06
     assert "weak_metric_match" not in boosts
     assert "negative_metric_context" not in boosts
+
+
+def test_rerank_normalizes_fusion_before_metadata_boosts() -> None:
+    plan = make_metric_plan()
+    high_rank_chunk = make_chunk(
+        chunk_id=30,
+        section="Other",
+        text="Unrelated but semantically very close.",
+    )
+    boosted_chunk = make_chunk(
+        chunk_id=31,
+        section="PART I - ITEM 1 - Financial Statements",
+        text="CONDENSED CONSOLIDATED STATEMENTS OF OPERATIONS Net sales.",
+        has_table=True,
+    )
+    high_rank = Candidate(chunk_id=30, fusion_score=0.0160)
+    boosted = Candidate(chunk_id=31, fusion_score=0.0120)
+
+    ranked, _ = rerank_chunks(
+        [high_rank, boosted],
+        {30: high_rank_chunk, 31: boosted_chunk},
+        plan=plan,
+        top_k=2,
+    )
+
+    assert [candidate.chunk_id for candidate, _ in ranked] == [30, 31]
+    assert high_rank.rerank_score is not None
+    assert boosted.rerank_score is not None
 
 
 def test_metric_text_boosts_reward_non_revenue_metric_profiles() -> None:
@@ -408,6 +471,20 @@ def test_chunk_filter_request_form_overrides_planner_forms() -> None:
     assert params["filter_form_type"] == "10-K"
 
 
+def test_effective_form_types_uses_allowed_forms_as_soft_planner_scope() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "forms": [],
+            "allowed_forms": ["10-Q", "10-K"],
+            "preferred_forms": ["10-Q"],
+        }
+    )
+    request = RetrievalRequest(ticker="AAPL", question="How much revenue last quarter?")
+
+    assert effective_form_types(request, plan) == ["10-Q", "10-K"]
+
+
 def test_chunk_filter_can_pin_latest_filing_date() -> None:
     plan = RetrievalPlan(
         **{
@@ -429,6 +506,29 @@ def test_chunk_filter_can_pin_latest_filing_date() -> None:
     assert "AND dc.form_type = :filter_form_type" in sql
     assert "AND dc.filing_date = :latest_filing_date" in sql
     assert params["latest_filing_date"] == latest_filing_date
+
+
+def test_chunk_filter_can_pin_filing_identity_from_scope() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "forms": [],
+            "allowed_forms": ["10-Q", "10-K"],
+        }
+    )
+    request = RetrievalRequest(ticker="AAPL", question="How much revenue last quarter?")
+    params: dict[str, object] = {}
+
+    sql = build_chunk_filter_sql(
+        request,
+        params,
+        plan=plan,
+        retrieval_scope=RetrievalScope(filing_ids=(10,), accession_numbers=("accn-10",)),
+    )
+
+    assert "AND dc.filing_id IN (:filter_filing_id_0)" in sql
+    assert "filing_date = :latest_filing_date" not in sql
+    assert params["filter_filing_id_0"] == 10
 
 
 def test_latest_filing_scope_applies_to_explicit_latest_quarter_basis() -> None:
@@ -755,6 +855,140 @@ def test_fact_evidence_exposes_duration_class_and_period_label() -> None:
     assert evidence.period_label == "Q2 2026 quarter"
 
 
+def test_metric_observations_select_duration_matched_answer_fact() -> None:
+    quarter_fact = build_retrieved_fact(
+        make_fact(
+            fact_id=70,
+            period_start=(2026, 1, 1),
+            period_end=(2026, 3, 28),
+            fiscal_period="Q2",
+            value="111184000000",
+        ),
+        rank=2,
+    )
+    ytd_fact = build_retrieved_fact(
+        make_fact(
+            fact_id=71,
+            period_start=(2025, 9, 28),
+            period_end=(2026, 3, 28),
+            fiscal_period="Q2",
+            value="254940000000",
+        ),
+        rank=1,
+    )
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "question_type": "metric",
+            "time_scope": "latest",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+            "duration_class": "quarter",
+        }
+    )
+
+    observations = build_metric_observations([ytd_fact, quarter_fact], plan)
+
+    assert [observation.evidence_id for observation in observations] == [
+        "metric_observation:70"
+    ]
+    assert observations[0].duration_class == "quarter"
+    assert observations[0].display_value == "$111.18B"
+
+
+def test_scope_from_metric_observations_pins_fact_and_component_filings() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "question_type": "metric",
+            "time_scope": "latest",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+            "duration_class": "quarter",
+        }
+    )
+    computed_fact = make_fact(
+        fact_id=-9901,
+        period_start=(2025, 6, 29),
+        period_end=(2025, 9, 27),
+        fiscal_period="Q4",
+        value="100000000000",
+    )
+    computed_fact.source_filing_id = 100
+    computed_fact.source_accession_number = "fy-accession"
+    computed_fact.form_type = "10-K"
+    component = make_fact(
+        fact_id=9902,
+        period_start=(2024, 9, 29),
+        period_end=(2025, 6, 28),
+        fiscal_period="Q3",
+        value="300000000000",
+    )
+    component.source_filing_id = 101
+    component.source_accession_number = "ytd-accession"
+    component.form_type = "10-Q"
+    computed_fact._component_facts = (component,)
+    computed_fact._calculation_expression = "revenue FY - nine-month YTD"
+
+    observations = build_metric_observations(
+        [build_retrieved_fact(computed_fact, rank=1)],
+        plan,
+    )
+    scope = scope_from_metric_observations(CompanyStub(id=1), observations, plan)
+
+    assert scope is not None
+    assert scope.filing_ids == (100, 101)
+    assert scope.accession_numbers == ("fy-accession", "ytd-accession")
+    assert scope.form_types == ("10-K", "10-Q")
+    assert scope.reason == "metric_observation"
+
+
+class CompanyStub:
+    def __init__(self, id: int) -> None:
+        self.id = id
+
+
+def test_instant_facts_have_instant_duration_and_as_of_label() -> None:
+    instant_fact = FinancialFact(
+        id=90,
+        company_id=1,
+        canonical_metric_key="revenue",
+        taxonomy_tag="us-gaap:CashAndCashEquivalentsAtCarryingValue",
+        label="Cash and cash equivalents",
+        period_start=None,
+        period_end=datetime(2026, 3, 28, tzinfo=UTC).date(),
+        source_fiscal_year=2026,
+        fact_fiscal_year=2026,
+        fiscal_period="Q2",
+        form_type="10-Q",
+        filed_date=datetime(2026, 5, 1, tzinfo=UTC).date(),
+        unit="USD",
+        value=Decimal("48321000000"),
+        source_accession_number="accession-90",
+        source_filing_id=90,
+        source_filing_url="https://www.sec.gov/90",
+        source_fact_id="fact-90",
+        is_computed=False,
+        calculation_notes=None,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+    assert classify_fact_duration(instant_fact) == "instant"
+    assert format_fact_period_label(instant_fact) == "As of 2026-03-28"
+
+
+def test_metric_value_match_uses_numeric_boundaries() -> None:
+    assert metric_observation_value_in_text(
+        "Total net sales were $95,359 million.",
+        Decimal("95359000000"),
+    )
+    assert not metric_observation_value_in_text(
+        "Total net sales were $195,359 million.",
+        Decimal("95359000000"),
+    )
+
+
 def test_fact_period_label_uses_fact_fiscal_year_not_source_filing_year() -> None:
     quarter_fact = make_fact(
         fact_id=8,
@@ -924,6 +1158,53 @@ def test_final_evidence_pack_uses_role_quotas_for_metric_performance() -> None:
     assert [span.chunk_id for span in pack.segment_or_product_breakdown_spans] == [102, 104]
     assert trace["chunk_quotas"]["annual_context_chunks"] == 0
     assert trace["selected_spans"]["mda_explanation_chunks"]
+
+
+def test_final_evidence_pack_includes_primary_metric_observation() -> None:
+    plan = RetrievalPlan(
+        **{
+            **make_metric_plan().to_dict(),
+            "question_type": "metric",
+            "time_scope": "latest",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+            "duration_class": "quarter",
+        }
+    )
+    statement_chunk = make_chunk(
+        chunk_id=120,
+        section="PART I - ITEM 1 - Financial Statements",
+        form_type="10-Q",
+        text=(
+            "CONDENSED CONSOLIDATED STATEMENTS OF OPERATIONS "
+            "Three Months Ended Total net sales $111,184."
+        ),
+        has_table=True,
+    )
+    fact = make_fact(
+        fact_id=80,
+        period_start=(2026, 1, 1),
+        period_end=(2026, 3, 28),
+        fiscal_period="Q2",
+        value="111184000000",
+    )
+    fact.source_filing_id = statement_chunk.filing_id
+    fact.source_accession_number = statement_chunk.accession_number
+    observation = build_metric_observations([build_retrieved_fact(fact, rank=1)], plan)
+
+    pack, trace = build_final_evidence_pack(
+        [make_chunk_read(statement_chunk, score=0.50)],
+        [],
+        plan,
+        metric_observations=observation,
+        chunk_text_by_id={statement_chunk.id: statement_chunk.chunk_text},
+    )
+
+    assert [item.evidence_id for item in pack.metric_observations] == [
+        "metric_observation:80"
+    ]
+    assert "selected_fact_value" in pack.primary_financial_statement_spans[0].reasons
+    assert trace["selected"]["metric_observations"] == ["metric_observation:80"]
 
 
 def test_final_evidence_pack_includes_risk_chunks_without_metrics() -> None:

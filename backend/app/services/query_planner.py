@@ -34,6 +34,25 @@ VALID_TIME_SCOPES = {
     "comparison_trend",  # 比较趋势范围；用户问变化、增长、趋势、加速、或与前期相比。
     "unspecified",  # 未指定时间范围；query 中无法可靠推断应使用哪个时间区间。
 }
+VALID_PERIOD_KINDS = {
+    "quarter",  # 单季度口径；通常对应 three months ended。
+    "ytd",  # 年初至今口径；通常对应 six/nine months ended。
+    "fy",  # 完整财年口径；通常对应 year ended。
+    "instant",  # 资产负债表时点指标。
+    "unspecified",  # query 中没有足够信息判断期间口径。
+}
+VALID_TARGET_PERIODS = {
+    "latest",  # 最新已报告期间。
+    "previous",  # 上一个已报告期间。
+    "specified",  # 用户指定了具体期间或日期。
+    "unspecified",
+}
+VALID_DURATION_CLASSES = {
+    "quarter",
+    "ytd",
+    "fy",
+    "instant",
+}
 VALID_TARGET_SECTIONS = {
     "Financial Statements",  # 财务报表章节；用于取报表数字、附注式行项目、主要财务事实。
     "Management's Discussion and Analysis",  # MD&A 章节；用于取管理层解释、驱动因素、经营背景。
@@ -64,11 +83,15 @@ VALID_LLM_PLAN_FIELDS = {
     "target_sections",  # 值得检索的 filing 章节，用作文本证据来源。
     "metric_keys",  # 归一化后的指标 key，用于后续财务事实检索。
     "time_scope",  # 粗粒度时间意图，取值来自 VALID_TIME_SCOPES。
+    "period_kind",  # 事实期间口径，如 quarter/ytd/fy；用于过滤 XBRL facts。
+    "target_period",  # latest/previous/specified；用于决定 scope 和排序。
+    "duration_class",  # 与 financial fact duration_class 对齐的过滤字段。
     "comparison_basis",  # 主要比较口径，取值来自 VALID_COMPARISON_BASES。
     "comparison_candidates",  # 当比较口径不明确时，可尝试的候选比较口径。
     "default_comparison_basis",  # 多个候选口径存在时，后端优先采用的默认口径。
     "ambiguities",  # query 中仍未解决的歧义或假设，给后续链路参考。
     "forms",  # 当用户明确要求某类 filing 时，用来硬约束检索范围。
+    "allowed_forms",  # 当没有明确 form 要求时，retrieval 可搜索的 filing 类型。
     "preferred_forms",  # 不硬约束检索时，用来提高某类 filing 的优先级。
     "reasoning_summary",  # 可选的 LLM 理由摘要；schema 接受，但 RetrievalPlan 不保存。
 }
@@ -129,6 +152,23 @@ LEXICAL_COMPARISON_TERMS = {
         '"fiscal year"',
         '"compared to"',
         '"prior year"',
+    ),
+    "duration_quarter": (
+        '"three months ended"',
+    ),
+    "duration_ytd": (
+        '"six months ended"',
+        '"nine months ended"',
+        '"year to date"',
+    ),
+    "duration_fy": (
+        '"year ended"',
+        '"fiscal year"',
+    ),
+    "duration_instant": (
+        '"as of"',
+        '"period end"',
+        '"balance sheet"',
     ),
     "ambiguous": (
         '"compared to"',
@@ -295,8 +335,13 @@ class RetrievalPlan:
     dense_queries: list[str]
     lexical_queries: list[str]
     matched_rules: list[str]
+    period_kind: str | None = None
+    target_period: str | None = None
+    duration_class: str | None = None
+    allowed_forms: list[str] = field(default_factory=list)
     preferred_forms: list[str] = field(default_factory=list)
     dense_query_specs: list[dict[str, Any]] = field(default_factory=list)
+    lexical_query_specs: list[dict[str, Any]] = field(default_factory=list)
     planner_source: str = "llm_validated"
     needs_financial_facts: bool = True
     needs_text_chunks: bool = True
@@ -443,6 +488,7 @@ class CompiledQueries:
     dense_queries: list[str]
     dense_query_specs: list[dict[str, Any]]
     lexical_queries: list[str]
+    lexical_query_specs: list[dict[str, Any]]
 
 
 class QueryCompiler:
@@ -456,11 +502,13 @@ class QueryCompiler:
         time_scope: str,
         comparison_basis: str,
         needs_metric_comparisons: bool,
+        duration_class: str | None = None,
     ) -> CompiledQueries:
         # 先添加上硬编码的dense query fallback，后续会替换成 LLM 生成的版本
         metric_phrases = _metric_dense_phrases(metric_keys)
         section_phrases = _section_dense_phrases(target_sections)
         comparison_phrase = COMPARISON_DENSE_CONTEXT.get(comparison_basis, "")
+        period_phrase = " ".join(_period_terms_for_duration(duration_class))
         question_type_phrase = QUESTION_TYPE_DENSE_CONTEXT.get(question_type, "")
         time_phrase = _time_dense_context(time_scope)
 
@@ -473,6 +521,7 @@ class QueryCompiler:
                     question_type_phrase,
                     time_phrase,
                     comparison_phrase,
+                    period_phrase,
                     *section_phrases,
                     *metric_phrases,
                 ],
@@ -490,6 +539,7 @@ class QueryCompiler:
                     [
                         "financial statements consolidated statements of operations statements of cash flows line item reported amount",
                         comparison_phrase,
+                        period_phrase,
                         *metric_phrases,
                     ],
                     max_words=32,
@@ -560,18 +610,28 @@ class QueryCompiler:
 
         dense_query_specs = specs[:MAX_DENSE_QUERIES]
         dense_queries = [spec["text"] for spec in dense_query_specs]
-        lexical_queries = _compile_lexical_queries(
+        lexical_query_specs = _compile_lexical_query_specs(
             metric_keys=metric_keys,
             target_sections=target_sections,
-            comparison_basis=comparison_basis if needs_metric_comparisons else "none",
+            comparison_basis=(
+                comparison_basis
+                if needs_metric_comparisons
+                else _lexical_basis_for_duration(duration_class)
+            ),
+            question_type=question_type,
         )
+        lexical_queries = _flatten_lexical_query_specs(lexical_query_specs)
         if not lexical_queries:
             lexical_queries = [query.original]
+            lexical_query_specs = [
+                {"role": "original", "queries": lexical_queries, "weight": 0.45}
+            ]
 
         return CompiledQueries(
             dense_queries=dense_queries,
             dense_query_specs=dense_query_specs,
             lexical_queries=lexical_queries,
+            lexical_query_specs=lexical_query_specs,
         )
 
     def _add_spec(
@@ -656,25 +716,60 @@ class PlanValidator:
                 comparison_candidates,
             )
 
-        forms = _validated_forms(candidate.get("forms"))
+        period_kind = _validated_scalar(
+            candidate.get("period_kind"),
+            allowed=VALID_PERIOD_KINDS,
+            fallback="unspecified",
+        )
+        target_period = _validated_scalar(
+            candidate.get("target_period"),
+            allowed=VALID_TARGET_PERIODS,
+            fallback="unspecified",
+        )
+        duration_class = _validated_optional_scalar(
+            candidate.get("duration_class"),
+            allowed=VALID_DURATION_CLASSES,
+        )
+        duration_class = _infer_duration_class(
+            query.original,
+            period_kind=period_kind,
+            duration_class=duration_class,
+            comparison_basis=default_comparison_basis or comparison_basis,
+        )
+        if target_period == "unspecified" and time_scope == "latest":
+            target_period = "latest"
+        if duration_class is None and target_period == "latest":
+            duration_class = _default_duration_class_for_latest_metrics(metric_keys)
+        if period_kind == "unspecified" and duration_class in VALID_PERIOD_KINDS:
+            period_kind = duration_class
+
+        candidate_forms = _validated_forms(candidate.get("forms"))
+        explicit_form_in_question = _question_mentions_form_type(query.original)
+        forms = candidate_forms if explicit_form_in_question else []
         if query.form_type:
             forms = [query.form_type] if query.form_type in VALID_FORMS else forms
 
         preferred_forms = _validated_forms(candidate.get("preferred_forms"))
+        allowed_forms = _validated_forms(candidate.get("allowed_forms"))
         preferred_form = _preferred_form_for_comparison_basis(
             default_comparison_basis or comparison_basis
         )
+        for form in candidate_forms:
+            if form not in preferred_forms:
+                preferred_forms.append(form)
         if preferred_form and not query.form_type and preferred_form not in preferred_forms:
             preferred_forms.append(preferred_form)
-        if (
-            preferred_form
-            and comparison_basis != "ambiguous"
-            and not query.form_type
-            and preferred_form not in forms
-        ):
-            forms.append(preferred_form)
         if query.form_type and query.form_type in VALID_FORMS:
             preferred_forms = [query.form_type]
+            allowed_forms = [query.form_type]
+        elif forms:
+            allowed_forms = forms
+        else:
+            allowed_forms = _default_allowed_forms(
+                duration_class=duration_class,
+                comparison_basis=default_comparison_basis or comparison_basis,
+                preferred_forms=preferred_forms,
+            )
 
         needs_financial_facts = bool(metric_keys) and question_type not in {"risk", "prose"}
         needs_metric_comparisons = needs_financial_facts and _comparison_requested(
@@ -686,7 +781,13 @@ class PlanValidator:
             target_sections,
             needs_metric_comparisons,
         )
-        needs_text_chunks = bool(evidence_roles) or question_type not in {"metric"}
+        if metric_keys and not evidence_roles:
+            evidence_roles.append("primary_financial_statement_chunks")
+        needs_text_chunks = (
+            bool(evidence_roles)
+            or question_type not in {"metric"}
+            or bool(metric_keys)
+        )
         compiled_queries = self._compiler.compile(
             query,
             question_type=question_type,
@@ -695,6 +796,7 @@ class PlanValidator:
             time_scope=time_scope,
             comparison_basis=comparison_basis,
             needs_metric_comparisons=needs_metric_comparisons,
+            duration_class=duration_class,
         )
 
         return RetrievalPlan(
@@ -702,15 +804,20 @@ class PlanValidator:
             target_sections=target_sections,
             metric_keys=metric_keys,
             time_scope=time_scope,
+            period_kind=None if period_kind == "unspecified" else period_kind,
+            target_period=None if target_period == "unspecified" else target_period,
+            duration_class=duration_class,
             comparison_basis=comparison_basis,
             comparison_candidates=comparison_candidates,
             default_comparison_basis=default_comparison_basis,
             ambiguities=_as_nonempty_str_list(candidate.get("ambiguities")),
             forms=forms,
+            allowed_forms=allowed_forms,
             preferred_forms=preferred_forms,
             dense_queries=compiled_queries.dense_queries,
             dense_query_specs=compiled_queries.dense_query_specs,
             lexical_queries=compiled_queries.lexical_queries,
+            lexical_query_specs=compiled_queries.lexical_query_specs,
             matched_rules=["planner:llm", "validation:schema"],
             planner_source=planner_source,
             needs_financial_facts=needs_financial_facts,
@@ -764,6 +871,9 @@ class QueryPlanner:
             target_sections=target_sections,
             metric_keys=[],
             time_scope="unspecified",
+            period_kind=None,
+            target_period=None,
+            duration_class=None,
             comparison_basis="none",
             comparison_candidates=[],
             default_comparison_basis=None,
@@ -771,12 +881,16 @@ class QueryPlanner:
                 "LLM query planning was unavailable; using broad text retrieval only."
             ],
             forms=forms,
+            allowed_forms=forms,
             preferred_forms=forms,
             dense_queries=[query.original],
             dense_query_specs=[
                 {"role": "original", "text": query.original, "weight": 1.0}
             ],
             lexical_queries=[query.original],
+            lexical_query_specs=[
+                {"role": "original", "queries": [query.original], "weight": 0.45}
+            ],
             matched_rules=["planner:safe_text_fallback", reason],
             planner_source="fallback_validated",
             needs_financial_facts=False,
@@ -823,6 +937,7 @@ class QueryPlanner:
                 raw_specs,
                 requested_roles=requested_roles,
                 comparison_basis=plan.comparison_basis,
+                duration_class=plan.duration_class,
             )
         except Exception as exc:
             return replace(
@@ -888,6 +1003,15 @@ Allowed metric_keys values:
 Allowed time_scope values:
 {_format_allowed_values(VALID_TIME_SCOPES)}
 
+Allowed period_kind values:
+{_format_allowed_values(VALID_PERIOD_KINDS)}
+
+Allowed target_period values:
+{_format_allowed_values(VALID_TARGET_PERIODS)}
+
+Allowed duration_class values:
+{_format_allowed_values(VALID_DURATION_CLASSES)}
+
 Allowed comparison_basis values:
 {_format_allowed_values(VALID_COMPARISON_BASES)}
 
@@ -901,9 +1025,12 @@ Field guidance:
 - metric_keys should contain only normalized XBRL metrics that directly help answer the question.
 - For broad company performance questions, such as "How did Apple do last quarter?", use metric_keys=["revenue","gross_margin","operating_income","net_income"].
 - target_sections should name filing sections worth retrieving as text evidence.
-- forms should constrain retrieval only when the user asks for a specific form or when the question clearly implies latest 10-Q, latest 10-K, or 8-K evidence.
+- forms should constrain retrieval only when the user explicitly asks for a specific form such as latest 10-Q, latest 10-K, or 8-K.
+- allowed_forms can include non-explicit form fallbacks, e.g. last-quarter metric questions can prefer 10-Q but allow 10-K for Q4.
+- For "last/latest quarter" metric questions, set period_kind="quarter", target_period="latest", duration_class="quarter".
+- For balance sheet point-in-time metric questions, set period_kind="instant", target_period="latest", duration_class="instant".
 - comparison_basis is "none" for point-in-time or summary questions, "ambiguous" when the user asks for change/growth without specifying quarterly, YTD, or fiscal-year basis, and a specific basis when implied or stated.
-- Do not output dense_queries, dense_query_specs, lexical_queries, evidence_roles, needs_financial_facts, needs_text_chunks, or needs_metric_comparisons.
+- Do not output dense_queries, dense_query_specs, lexical_queries, lexical_query_specs, evidence_roles, needs_financial_facts, needs_text_chunks, or needs_metric_comparisons.
 
 Few-shot examples:
 
@@ -918,8 +1045,12 @@ Output:
   "comparison_basis": "latest_quarter_yoy",
   "comparison_candidates": ["latest_quarter_yoy"],
   "default_comparison_basis": "latest_quarter_yoy",
+  "period_kind": "quarter",
+  "target_period": "latest",
+  "duration_class": "quarter",
   "ambiguities": [],
-  "forms": ["10-Q"],
+  "forms": [],
+  "allowed_forms": ["10-Q", "10-K"],
   "preferred_forms": ["10-Q"]
 }}
 
@@ -934,8 +1065,12 @@ Output:
   "comparison_basis": "latest_quarter_yoy",
   "comparison_candidates": ["latest_quarter_yoy"],
   "default_comparison_basis": "latest_quarter_yoy",
+  "period_kind": "quarter",
+  "target_period": "latest",
+  "duration_class": "quarter",
   "ambiguities": [],
-  "forms": ["10-Q"],
+  "forms": [],
+  "allowed_forms": ["10-Q", "10-K"],
   "preferred_forms": ["10-Q"]
 }}
 
@@ -950,8 +1085,12 @@ Output:
   "comparison_basis": "none",
   "comparison_candidates": [],
   "default_comparison_basis": null,
+  "period_kind": "fy",
+  "target_period": "latest",
+  "duration_class": "fy",
   "ambiguities": [],
   "forms": ["10-K"],
+  "allowed_forms": ["10-K"],
   "preferred_forms": ["10-K"]
 }}
 
@@ -966,8 +1105,12 @@ Output:
   "comparison_basis": "none",
   "comparison_candidates": [],
   "default_comparison_basis": null,
+  "period_kind": "quarter",
+  "target_period": "latest",
+  "duration_class": "quarter",
   "ambiguities": [],
-  "forms": ["10-Q"],
+  "forms": [],
+  "allowed_forms": ["10-Q", "10-K"],
   "preferred_forms": ["10-Q"]
 }}
 
@@ -1119,6 +1262,9 @@ def _llm_dense_query_rewriter_payload(
             "metric_keys": plan.metric_keys,
             "target_sections": plan.target_sections,
             "time_scope": plan.time_scope,
+            "period_kind": plan.period_kind,
+            "target_period": plan.target_period,
+            "duration_class": plan.duration_class,
             "comparison_basis": plan.comparison_basis,
         },
         "requested_roles": requested_roles,
@@ -1132,7 +1278,20 @@ def _llm_dense_query_rewriter_payload(
             plan.comparison_basis,
             [],
         ),
+        "allowed_period_terms": _period_terms_for_duration(plan.duration_class),
     }
+
+
+def _period_terms_for_duration(duration_class: str | None) -> list[str]:
+    if duration_class == "quarter":
+        return ["latest quarter", "three months ended", "quarterly"]
+    if duration_class == "ytd":
+        return ["year to date", "six months ended", "nine months ended"]
+    if duration_class == "fy":
+        return ["fiscal year", "year ended", "annual"]
+    if duration_class == "instant":
+        return ["period end", "as of", "balance sheet"]
+    return []
 
 
 def _requested_dense_roles_for(
@@ -1193,6 +1352,7 @@ def _validated_llm_dense_query_specs(
     *,
     requested_roles: list[str],
     comparison_basis: str,
+    duration_class: str | None = None,
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -1211,6 +1371,7 @@ def _validated_llm_dense_query_specs(
             text,
             role=role,
             comparison_basis=comparison_basis,
+            duration_class=duration_class,
         ):
             continue
         specs.append(
@@ -1229,6 +1390,7 @@ def _valid_llm_dense_query_text(
     *,
     role: str,
     comparison_basis: str,
+    duration_class: str | None = None,
 ) -> bool:
     words = text.split()
     if not 8 <= len(words) <= 32:
@@ -1237,7 +1399,11 @@ def _valid_llm_dense_query_text(
         return False
     if _contains_forbidden_dense_fact_pattern(text):
         return False
-    if _has_disallowed_comparison_context(text, comparison_basis):
+    if _has_disallowed_comparison_context(
+        text,
+        comparison_basis,
+        duration_class=duration_class,
+    ):
         return False
     if not _has_role_anchor(text, role):
         return False
@@ -1264,7 +1430,12 @@ def _contains_forbidden_dense_fact_pattern(text: str) -> bool:
     )
 
 
-def _has_disallowed_comparison_context(text: str, comparison_basis: str) -> bool:
+def _has_disallowed_comparison_context(
+    text: str,
+    comparison_basis: str,
+    *,
+    duration_class: str | None = None,
+) -> bool:
     normalized = text.lower()
     if comparison_basis == "ambiguous":
         return False
@@ -1283,6 +1454,12 @@ def _has_disallowed_comparison_context(text: str, comparison_basis: str) -> bool
     elif comparison_basis in {"latest_ytd_yoy", "previous_ytd_yoy"}:
         disallowed_groups = (quarterly_terms, fiscal_year_terms)
     elif comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
+        disallowed_groups = (quarterly_terms, ytd_terms)
+    elif comparison_basis == "none" and duration_class == "quarter":
+        disallowed_groups = (ytd_terms, fiscal_year_terms)
+    elif comparison_basis == "none" and duration_class == "ytd":
+        disallowed_groups = (quarterly_terms, fiscal_year_terms)
+    elif comparison_basis == "none" and duration_class == "fy":
         disallowed_groups = (quarterly_terms, ytd_terms)
     else:
         disallowed_groups = ()
@@ -1416,63 +1593,193 @@ def _as_nonempty_str_list(value: Any) -> list[str]:
     )
 
 
-def _compile_lexical_queries(
+def _compile_lexical_query_specs(
     *,
     metric_keys: list[str],
     target_sections: list[str],
     comparison_basis: str,
-) -> list[str]:
+    question_type: str,
+) -> list[dict[str, Any]]:
+    statement_groups: list[list[str]] = []
+    mda_groups: list[list[str]] = []
+    supporting_groups: list[list[str]] = []
+
+    for section in target_sections:
+        terms = list(LEXICAL_SECTION_TERMS.get(section, ()))
+        if not terms:
+            continue
+        if section in {"Financial Statements", "Cash Flows"}:
+            statement_groups.append(terms)
+        elif section in {"Management's Discussion and Analysis", "Liquidity"}:
+            mda_groups.append(terms)
+        else:
+            supporting_groups.append(terms)
+
+    metric_statement_groups: list[list[str]] = []
+    metric_mda_groups: list[list[str]] = []
+    for metric_key in metric_keys:
+        statement_queries, mda_queries = _metric_lexical_query_groups(
+            metric_key,
+            comparison_basis,
+        )
+        if statement_queries:
+            metric_statement_groups.append(statement_queries)
+        if mda_queries:
+            metric_mda_groups.append(mda_queries)
+
+    comparison_terms = list(LEXICAL_COMPARISON_TERMS.get(comparison_basis, ()))
+    statement_queries: list[str] = []
+    statement_queries.extend(group[0] for group in statement_groups if group)
+    statement_queries.extend(comparison_terms)
+    statement_queries.extend(group[0] for group in metric_statement_groups if group)
+    statement_queries.extend(_round_robin_query_groups([group[1:] for group in statement_groups]))
+    statement_queries.extend(
+        _round_robin_query_groups([group[1:] for group in metric_statement_groups])
+    )
+
+    mda_weight = 0.75 if question_type in {
+        "mixed",
+        "management_discussion",
+        "trend",
+        "growth_acceleration",
+        "broad_comparison",
+        "performance_overview",
+        "performance_judgment",
+    } else 0.35
+    mda_queries: list[str] = []
+    mda_queries.extend(group[0] for group in mda_groups if group)
+    mda_queries.extend(group[0] for group in metric_mda_groups if group)
+    mda_queries.extend(_round_robin_query_groups([group[1:] for group in mda_groups]))
+    mda_queries.extend(_round_robin_query_groups([group[1:] for group in metric_mda_groups]))
+
+    supporting_queries = _round_robin_query_groups(supporting_groups)
+
+    specs: list[dict[str, Any]] = []
+    _add_lexical_spec(
+        specs,
+        role="primary_financial_statement",
+        queries=statement_queries,
+        weight=1.0,
+    )
+    _add_lexical_spec(
+        specs,
+        role="mda_explanation",
+        queries=mda_queries,
+        weight=mda_weight,
+    )
+    _add_lexical_spec(
+        specs,
+        role="supporting_text",
+        queries=supporting_queries,
+        weight=0.7,
+    )
+    return specs
+
+
+def _flatten_lexical_query_specs(specs: list[dict[str, Any]]) -> list[str]:
     queries: list[str] = []
-    section_groups = [
-        list(LEXICAL_SECTION_TERMS[section])
-        for section in target_sections
-        if section in LEXICAL_SECTION_TERMS
-    ]
-    metric_groups = [
-        _metric_lexical_query_group(metric_key, comparison_basis)
-        for metric_key in metric_keys
-    ]
-    metric_groups = [group for group in metric_groups if group]
-
-    queries.extend(group[0] for group in section_groups if group)
-    queries.extend(LEXICAL_COMPARISON_TERMS.get(comparison_basis, ()))
-    queries.extend(group[0] for group in metric_groups if group)
-    queries.extend(_round_robin_query_groups([group[1:] for group in section_groups]))
-    queries.extend(_round_robin_query_groups([group[1:] for group in metric_groups]))
-    return _dedupe(queries)[:MAX_LEXICAL_QUERIES]
+    max_group_length = max(
+        (len(spec.get("queries", [])) for spec in specs),
+        default=0,
+    )
+    for index in range(max_group_length):
+        for spec in specs:
+            spec_queries = spec.get("queries", [])
+            if isinstance(spec_queries, list) and index < len(spec_queries):
+                queries.append(str(spec_queries[index]))
+    return _dedupe(query for query in queries if query.strip())[:MAX_LEXICAL_QUERIES]
 
 
-def _metric_lexical_query_group(metric_key: str, comparison_basis: str) -> list[str]:
+def _add_lexical_spec(
+    specs: list[dict[str, Any]],
+    *,
+    role: str,
+    queries: list[str],
+    weight: float,
+) -> None:
+    deduped_queries = _dedupe(query for query in queries if query.strip())
+    if not deduped_queries:
+        return
+    specs.append(
+        {
+            "role": _normalize_role(role),
+            "queries": deduped_queries[:MAX_LEXICAL_QUERIES],
+            "weight": _coerce_weight(weight),
+        }
+    )
+
+
+def _metric_lexical_query_groups(
+    metric_key: str,
+    comparison_basis: str,
+) -> tuple[list[str], list[str]]:
     profile = get_metric_profile(metric_key)
     if profile is None:
-        return []
+        return [], []
     period_queries = [
         query
         for query in profile.lexical_queries
         if _matches_lexical_comparison_basis(query, comparison_basis)
     ]
-    metric_queries = [
+    metric_queries = _dedupe(
+        [
         *period_queries,
         *profile.lexical_queries[:6],
         *(f'"{term}"' for term in profile.strong_terms[:3]),
         *(f'"{term}"' for term in profile.statement_terms[:3]),
+        ]
+    )
+    statement_queries = [
+        query for query in metric_queries if not _is_mda_lexical_query(query)
     ]
-    return _dedupe(metric_queries)
+    mda_queries = [
+        query for query in metric_queries if _is_mda_lexical_query(query)
+    ]
+    return statement_queries, mda_queries
+
+
+def _is_mda_lexical_query(query: str) -> bool:
+    normalized = query.lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "growth",
+            "increased",
+            "decreased",
+            "primarily due",
+            "compared to",
+            "compared with",
+        )
+    )
 
 
 def _matches_lexical_comparison_basis(query: str, comparison_basis: str) -> bool:
     normalized = query.lower()
-    if comparison_basis in {"latest_quarter_yoy", "previous_quarter_yoy"}:
+    if comparison_basis in {
+        "latest_quarter_yoy",
+        "previous_quarter_yoy",
+        "duration_quarter",
+    }:
         markers = ("three months ended",)
-    elif comparison_basis in {"latest_ytd_yoy", "previous_ytd_yoy"}:
+    elif comparison_basis in {
+        "latest_ytd_yoy",
+        "previous_ytd_yoy",
+        "duration_ytd",
+    }:
         markers = (
             "six months ended",
             "nine months ended",
             "year to date",
             "year-to-date",
         )
-    elif comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
+    elif comparison_basis in {
+        "latest_fy_yoy",
+        "previous_fy_yoy",
+        "duration_fy",
+    }:
         markers = ("year ended", "fiscal year")
+    elif comparison_basis == "duration_instant":
+        markers = ("as of", "period end", "balance sheet")
     else:
         markers = ()
     return any(marker in normalized for marker in markers)
@@ -1588,6 +1895,18 @@ def _default_comparison_basis_for_metrics(metric_keys: list[str]) -> str:
     return "latest_quarter_yoy"
 
 
+def _lexical_basis_for_duration(duration_class: str | None) -> str:
+    if duration_class == "quarter":
+        return "duration_quarter"
+    if duration_class == "ytd":
+        return "duration_ytd"
+    if duration_class == "fy":
+        return "duration_fy"
+    if duration_class == "instant":
+        return "duration_instant"
+    return "none"
+
+
 def _preferred_form_for_comparison_basis(comparison_basis: str | None) -> str | None:
     if comparison_basis in {
         "latest_quarter_yoy",
@@ -1599,6 +1918,123 @@ def _preferred_form_for_comparison_basis(comparison_basis: str | None) -> str | 
     if comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
         return "10-K"
     return None
+
+
+def _default_duration_class_for_latest_metrics(metric_keys: list[str]) -> str | None:
+    defaults: list[str] = []
+    for metric_key in metric_keys:
+        profile = get_metric_profile(metric_key)
+        if profile is None:
+            continue
+        default = profile.default_duration_class_for_latest
+        if default in VALID_DURATION_CLASSES:
+            defaults.append(default)
+    unique_defaults = list(dict.fromkeys(defaults))
+    if len(unique_defaults) == 1:
+        return unique_defaults[0]
+    return None
+
+
+def _infer_duration_class(
+    question: str,
+    *,
+    period_kind: str,
+    duration_class: str | None,
+    comparison_basis: str | None,
+) -> str | None:
+    if duration_class in VALID_DURATION_CLASSES:
+        return duration_class
+    if period_kind in VALID_DURATION_CLASSES:
+        return period_kind
+    if comparison_basis in {"latest_quarter_yoy", "previous_quarter_yoy"}:
+        return "quarter"
+    if comparison_basis in {"latest_ytd_yoy", "previous_ytd_yoy"}:
+        return "ytd"
+    if comparison_basis in {"latest_fy_yoy", "previous_fy_yoy"}:
+        return "fy"
+
+    normalized = question.lower()
+    if any(
+        marker in normalized
+        for marker in (
+            "cash on hand",
+            "cash balance",
+            "cash did apple have",
+            "assets did",
+            "liabilities did",
+            "balance sheet",
+            "as of",
+            "period end",
+        )
+    ):
+        return "instant"
+    if any(
+        marker in normalized
+        for marker in (
+            "last quarter",
+            "latest quarter",
+            "most recent quarter",
+            "this quarter",
+            "quarterly",
+            "three months ended",
+        )
+    ):
+        return "quarter"
+    if any(
+        marker in normalized
+        for marker in (
+            "year to date",
+            "year-to-date",
+            "ytd",
+            "six months ended",
+            "nine months ended",
+        )
+    ):
+        return "ytd"
+    if any(
+        marker in normalized
+        for marker in (
+            "full year",
+            "fiscal year",
+            "latest year",
+            "annual",
+            "year ended",
+            "fy ",
+        )
+    ):
+        return "fy"
+    return None
+
+
+def _question_mentions_form_type(question: str) -> bool:
+    normalized = question.lower().replace(" ", "")
+    return any(form in normalized for form in ("10-k", "10q", "10-q", "8-k", "8k"))
+
+
+def _default_allowed_forms(
+    *,
+    duration_class: str | None,
+    comparison_basis: str | None,
+    preferred_forms: list[str],
+) -> list[str]:
+    if duration_class == "quarter" or comparison_basis in {
+        "latest_quarter_yoy",
+        "previous_quarter_yoy",
+    }:
+        return ["10-Q", "10-K"]
+    if duration_class == "instant":
+        return ["10-Q", "10-K"]
+    if duration_class == "ytd" or comparison_basis in {
+        "latest_ytd_yoy",
+        "previous_ytd_yoy",
+    }:
+        return ["10-Q"]
+    if duration_class == "fy" or comparison_basis in {
+        "latest_fy_yoy",
+        "previous_fy_yoy",
+    }:
+        return ["10-K"]
+    return []
 
 
 def _evidence_roles_for(

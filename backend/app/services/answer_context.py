@@ -33,6 +33,12 @@ def collect_answer_evidence_ids(response: RetrievalResponse) -> list[str]:
 
 def collect_evidence_pack_ids(pack: EvidencePackRead) -> list[str]:
     ids = [
+        *(observation.evidence_id for observation in pack.metric_observations),
+        *(
+            component.evidence_id
+            for observation in pack.metric_observations
+            for component in observation.component_observations
+        ),
         *(comparison.evidence_id for comparison in pack.metric_comparisons),
         *(chunk.evidence_id for chunk in pack.primary_financial_statement_chunks),
         *(chunk.evidence_id for chunk in pack.mda_explanation_chunks),

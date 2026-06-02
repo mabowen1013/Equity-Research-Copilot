@@ -4,6 +4,7 @@ from app.services.query_planner import (
     PlanValidator,
     QueryNormalizer,
     QueryPlanner,
+    _llm_dense_query_rewriter_payload,
     _llm_dense_query_rewriter_system_prompt,
     _llm_planner_system_prompt,
 )
@@ -58,7 +59,8 @@ def test_llm_mode_uses_llm_candidate_as_planner_source() -> None:
     assert plan.question_type == "trend"
     assert plan.metric_keys == ["revenue"]
     assert plan.default_comparison_basis == "latest_fy_yoy"
-    assert plan.forms == ["10-K"]
+    assert plan.forms == []
+    assert plan.allowed_forms == ["10-K"]
     assert plan.preferred_forms == ["10-K"]
     assert plan.needs_financial_facts
     assert plan.needs_metric_comparisons
@@ -258,6 +260,7 @@ def test_rule_only_mode_uses_conservative_text_fallback_without_llm() -> None:
     assert plan.question_type == "prose"
     assert plan.metric_keys == []
     assert plan.forms == ["10-Q"]
+    assert plan.allowed_forms == ["10-Q"]
     assert not plan.needs_financial_facts
     assert "legacy_rule_only_mode" in plan.matched_rules
 
@@ -321,6 +324,7 @@ def test_validator_filters_to_allowed_schema_values_and_preserves_request_filter
         "Management's Discussion and Analysis",
     ]
     assert plan.forms == ["10-Q"]
+    assert plan.allowed_forms == ["10-Q"]
     assert plan.preferred_forms == ["10-Q"]
     assert plan.evidence_roles == [
         "metric_comparisons",
@@ -387,7 +391,8 @@ def test_validator_repairs_broad_performance_plan_for_retrieval() -> None:
     assert plan.needs_financial_facts
     assert plan.needs_text_chunks
     assert plan.needs_metric_comparisons
-    assert plan.forms == ["10-Q"]
+    assert plan.forms == []
+    assert plan.allowed_forms == ["10-Q", "10-K"]
     assert plan.preferred_forms == ["10-Q"]
     assert any(
         "latest quarter financial performance results of operations" in spec["text"]
@@ -397,6 +402,157 @@ def test_validator_repairs_broad_performance_plan_for_retrieval() -> None:
     assert "primary_financial_statement_chunks" in plan.evidence_roles
     assert "mda_explanation_chunks" in plan.evidence_roles
     assert "segment_or_product_breakdown_chunks" in plan.evidence_roles
+
+
+def test_validator_infers_quarter_duration_and_soft_form_scope() -> None:
+    query = QueryNormalizer().normalize("How much revenue did Apple report last quarter?")
+
+    plan = PlanValidator().validate(
+        {
+            "question_type": "metric",
+            "target_sections": ["Financial Statements"],
+            "metric_keys": ["revenue"],
+            "time_scope": "latest",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+            "forms": ["10-Q"],
+            "preferred_forms": ["10-Q"],
+        },
+        query,
+    )
+
+    assert plan.period_kind == "quarter"
+    assert plan.target_period == "latest"
+    assert plan.duration_class == "quarter"
+    assert plan.forms == []
+    assert plan.allowed_forms == ["10-Q", "10-K"]
+    assert plan.preferred_forms == ["10-Q"]
+    assert plan.lexical_query_specs[0]["role"] == "primary_financial_statement"
+    assert '"three months ended"' in plan.lexical_query_specs[0]["queries"]
+    assert '"three months ended" "net sales"' in plan.lexical_query_specs[0]["queries"]
+    assert any(
+        spec["role"] == "mda_explanation" and spec["weight"] == 0.35
+        for spec in plan.lexical_query_specs
+    )
+
+
+def test_validator_keeps_metric_text_chunks_when_sections_are_missing() -> None:
+    query = QueryNormalizer().normalize("How much revenue did Apple report last quarter?")
+
+    plan = PlanValidator().validate(
+        {
+            "question_type": "metric",
+            "target_sections": [],
+            "metric_keys": ["revenue"],
+            "time_scope": "latest",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+        },
+        query,
+    )
+
+    assert plan.needs_text_chunks
+    assert "primary_financial_statement_chunks" in plan.evidence_roles
+
+
+def test_dense_rewriter_payload_includes_period_slots() -> None:
+    query = QueryNormalizer().normalize("How much revenue did Apple report last quarter?")
+    plan = PlanValidator().validate(
+        {
+            "question_type": "metric",
+            "target_sections": ["Financial Statements"],
+            "metric_keys": ["revenue"],
+            "time_scope": "latest",
+            "period_kind": "quarter",
+            "target_period": "latest",
+            "duration_class": "quarter",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+        },
+        query,
+    )
+
+    payload = _llm_dense_query_rewriter_payload(
+        question=query.original,
+        plan=plan,
+        requested_roles=["slot", "financial_statement"],
+    )
+
+    assert payload["validated_slots"]["period_kind"] == "quarter"
+    assert payload["validated_slots"]["target_period"] == "latest"
+    assert payload["validated_slots"]["duration_class"] == "quarter"
+    assert payload["allowed_period_terms"] == [
+        "latest quarter",
+        "three months ended",
+        "quarterly",
+    ]
+
+
+def test_validator_accepts_instant_duration_class() -> None:
+    query = QueryNormalizer().normalize("How much cash did Apple have as of last quarter?")
+
+    plan = PlanValidator().validate(
+        {
+            "question_type": "metric",
+            "target_sections": ["Financial Statements"],
+            "metric_keys": ["revenue"],
+            "time_scope": "latest",
+            "period_kind": "instant",
+            "target_period": "latest",
+            "duration_class": "instant",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+        },
+        query,
+    )
+
+    assert plan.period_kind == "instant"
+    assert plan.duration_class == "instant"
+    assert plan.allowed_forms == ["10-Q", "10-K"]
+
+
+def test_validator_keeps_explicit_form_as_hard_filter() -> None:
+    query = QueryNormalizer().normalize("How much revenue was in Apple's latest 10-Q?")
+
+    plan = PlanValidator().validate(
+        {
+            "question_type": "metric",
+            "target_sections": ["Financial Statements"],
+            "metric_keys": ["revenue"],
+            "time_scope": "latest",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+            "forms": ["10-Q"],
+            "preferred_forms": ["10-Q"],
+        },
+        query,
+    )
+
+    assert plan.forms == ["10-Q"]
+    assert plan.allowed_forms == ["10-Q"]
+
+
+def test_validator_does_not_treat_implicit_forms_as_hard_filters() -> None:
+    query = QueryNormalizer().normalize("How much cash did Apple generate?")
+
+    plan = PlanValidator().validate(
+        {
+            "question_type": "metric",
+            "target_sections": ["Cash Flows"],
+            "metric_keys": ["operating_cash_flow"],
+            "time_scope": "latest",
+            "comparison_basis": "none",
+            "comparison_candidates": [],
+            "forms": ["10-Q"],
+            "preferred_forms": ["10-Q"],
+        },
+        query,
+    )
+
+    assert plan.forms == []
+    assert plan.duration_class == "quarter"
+    assert plan.allowed_forms == ["10-Q", "10-K"]
+    assert plan.preferred_forms == ["10-Q"]
 
 
 def test_validator_enriches_cash_flow_queries_with_sec_filing_context() -> None:
