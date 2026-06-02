@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchHealthStatus } from "./api/health";
 import {
@@ -45,6 +45,8 @@ const CORE_METRIC_LABELS: Record<string, string> = {
 const CORE_METRIC_ORDER = Object.keys(CORE_METRIC_LABELS);
 const DEFAULT_METRIC_KEY = CORE_METRIC_ORDER[0];
 const DEFAULT_DETAIL_LIMIT = 12;
+const EVIDENCE_MARKER_PATTERN =
+  /\[((?:chunk|span|financial_fact|metric_observation|metric_comparison):[^\]\s]+)\]/g;
 
 type AppView = "filings" | "metrics" | "research";
 
@@ -893,6 +895,12 @@ function ResearchPage({
       ]
     : [];
   const visibleComparisons = result?.final_evidence_pack.metric_comparisons ?? [];
+  const citationNumberById = useMemo(
+    () => buildCitationNumberMap(result?.citations ?? []),
+    [result?.citations],
+  );
+  const showLimitations = result !== null && result.limitations.length > 0;
+  const keepLimitationsOpen = result?.validation_status !== "passed";
 
   return (
     <section className="research-page" aria-labelledby="research-heading">
@@ -933,13 +941,20 @@ function ResearchPage({
               <h3 id="answer-heading">Answer</h3>
               <span>{result.validation_status}</span>
             </div>
-            <p className="answer-text">{result.answer}</p>
-            {result.limitations.length > 0 && (
-              <div className="limitation-list">
-                {result.limitations.map((limitation) => (
-                  <span key={limitation}>{limitation}</span>
-                ))}
-              </div>
+            <AnswerText
+              answer={result.answer}
+              citationNumberById={citationNumberById}
+              citations={result.citations}
+            />
+            {showLimitations && (
+              <details className="limitation-details" open={keepLimitationsOpen}>
+                <summary>Limitations ({result.limitations.length})</summary>
+                <div className="limitation-list">
+                  {result.limitations.map((limitation) => (
+                    <span key={limitation}>{limitation}</span>
+                  ))}
+                </div>
+              </details>
             )}
             {result.validation.errors.length > 0 && (
               <details className="validation-debug">
@@ -963,7 +978,11 @@ function ResearchPage({
             {result.citations.length > 0 ? (
               <div className="citation-list">
                 {result.citations.map((citation) => (
-                  <CitationCard citation={citation} key={citation.evidence_id} />
+                  <CitationCard
+                    citation={citation}
+                    key={citation.evidence_id}
+                    number={citationNumberById.get(citation.evidence_id) ?? 0}
+                  />
                 ))}
               </div>
             ) : (
@@ -1037,6 +1056,94 @@ function ResearchPage({
   );
 }
 
+function AnswerText({
+  answer,
+  citationNumberById,
+  citations,
+}: {
+  answer: string;
+  citationNumberById: Map<string, number>;
+  citations: AnswerCitation[];
+}) {
+  const citationById = useMemo(
+    () => new Map(citations.map((citation) => [citation.evidence_id, citation])),
+    [citations],
+  );
+  const paragraphs = answer.split(/\n+/).map((paragraph) => paragraph.trim()).filter(Boolean);
+
+  return (
+    <div className="answer-text">
+      {paragraphs.map((paragraph, index) => (
+        <p key={`${paragraph.slice(0, 32)}:${index}`}>
+          {renderAnswerWithCitationRefs(paragraph, citationNumberById, citationById)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function renderAnswerWithCitationRefs(
+  text: string,
+  citationNumberById: Map<string, number>,
+  citationById: Map<string, AnswerCitation>,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(EVIDENCE_MARKER_PATTERN)) {
+    const marker = match[0];
+    const evidenceId = match[1];
+    const start = match.index ?? 0;
+    if (start > cursor) {
+      nodes.push(text.slice(cursor, start));
+    }
+
+    const number = citationNumberById.get(evidenceId);
+    const citation = citationById.get(evidenceId);
+    if (number !== undefined && citation !== undefined) {
+      nodes.push(
+        <button
+          aria-label={`Source ${number}: ${citation.source_label ?? citation.evidence_type}`}
+          className="citation-ref"
+          key={`${evidenceId}:${start}`}
+          onClick={() => scrollToCitation(evidenceId)}
+          title={`${citation.source_label ?? citation.evidence_type} | ${citation.form_type ?? "source"}`}
+          type="button"
+        >
+          [{number}]
+        </button>,
+      );
+    } else {
+      nodes.push(
+        <span className="citation-ref citation-ref--unknown" key={`${marker}:${start}`} title={evidenceId}>
+          [?]
+        </span>,
+      );
+    }
+    cursor = start + marker.length;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+  return nodes;
+}
+
+function buildCitationNumberMap(citations: AnswerCitation[]): Map<string, number> {
+  return new Map(citations.map((citation, index) => [citation.evidence_id, index + 1]));
+}
+
+function scrollToCitation(evidenceId: string): void {
+  document.getElementById(citationDomId(evidenceId))?.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+  });
+}
+
+function citationDomId(evidenceId: string): string {
+  return `citation-${evidenceId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
 function SummaryTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="summary-tile">
@@ -1067,15 +1174,15 @@ function PillRow({
   );
 }
 
-function CitationCard({ citation }: { citation: AnswerCitation }) {
+function CitationCard({ citation, number }: { citation: AnswerCitation; number: number }) {
   const chunkId = getNumericSourceId(citation, "chunk_id");
   const filingId = getNumericSourceId(citation, "filing_id");
 
   return (
-    <article className="citation-card">
+    <article className="citation-card" id={citationDomId(citation.evidence_id)}>
       <div className="evidence-card__top">
-        <span>{citation.evidence_type}</span>
-        <strong>{citation.evidence_id}</strong>
+        <span>Source {number || "n/a"}</span>
+        <strong>{formatCitationType(citation.evidence_type)}</strong>
       </div>
       <h4>{citation.source_label ?? citation.section ?? "Citation"}</h4>
       {citation.text && <p>{citation.text}</p>}
@@ -1097,6 +1204,13 @@ function CitationCard({ citation }: { citation: AnswerCitation }) {
       )}
     </article>
   );
+}
+
+function formatCitationType(type: string): string {
+  return type
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function getNumericSourceId(citation: AnswerCitation, key: string): number | null {

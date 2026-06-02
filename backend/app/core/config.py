@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     query_planner_llm_model: str = "gpt-4o-mini"
     query_planner_llm_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
     query_planner_llm_max_retries: int = Field(default=0, ge=0, le=5)
+    answer_generator_mode: Literal[
+        "llm",
+        "extractive",
+        "llm_with_extractive_fallback",
+    ] = "llm_with_extractive_fallback"
+    answer_llm_model: str = "gpt-4o-mini"
+    answer_llm_timeout_seconds: float = Field(default=30.0, gt=0, le=90)
+    answer_llm_max_retries: int = Field(default=0, ge=0, le=5)
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

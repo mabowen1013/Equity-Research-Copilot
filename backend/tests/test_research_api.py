@@ -118,6 +118,70 @@ def test_retrieve_endpoint_returns_retrieval_trace(monkeypatch) -> None:
     assert response.json()["retrieval_trace"]["candidate_counts"]["dense"] == 0
 
 
+def test_query_endpoint_returns_cited_answer(monkeypatch) -> None:
+    class FakeResearchAnswerService:
+        def __init__(self, db) -> None:
+            self.db = db
+
+        def answer(self, request):
+            return {
+                "answer": f"{request.ticker} revenue was supported by filings. [financial_fact:501]",
+                "citations": [
+                    {
+                        "evidence_id": "financial_fact:501",
+                        "evidence_type": "financial_fact",
+                        "source_label": "Revenue",
+                        "text": "Revenue was $111.2B.",
+                        "sec_url": "https://www.sec.gov/Archives/example.htm",
+                        "form_type": "10-Q",
+                        "filing_date": "2026-05-01",
+                        "section": None,
+                        "pages": None,
+                        "source_ids": {"fact_id": 501},
+                    }
+                ],
+                "retrieved_evidence_ids": ["financial_fact:501"],
+                "prompt_evidence_ids": ["financial_fact:501"],
+                "validation_status": "passed",
+                "validation": {
+                    "status": "passed",
+                    "cited_evidence_ids": ["financial_fact:501"],
+                    "allowed_evidence_ids": ["financial_fact:501"],
+                    "prompt_evidence_ids": ["financial_fact:501"],
+                    "errors": [],
+                },
+                "limitations": [],
+                "source_coverage_summary": {"fact_count": 1},
+                "retrieval_plan": {
+                    "question_type": "metric",
+                    "target_sections": [],
+                    "metric_keys": ["revenue"],
+                    "time_scope": "latest",
+                    "forms": ["10-Q"],
+                    "dense_queries": [request.question],
+                    "lexical_queries": ["revenue"],
+                    "matched_rules": ["metric:revenue"],
+                },
+                "final_evidence_pack": {},
+            }
+
+    monkeypatch.setattr(research_route, "ResearchAnswerService", FakeResearchAnswerService)
+    override_db_session()
+    client = TestClient(app)
+
+    response = client.post(
+        "/research/query",
+        json={"ticker": "AAPL", "question": "What was latest revenue?"},
+    )
+
+    app.dependency_overrides.clear()
+    body = response.json()
+    assert response.status_code == 200
+    assert body["validation_status"] == "passed"
+    assert body["citations"][0]["evidence_id"] == "financial_fact:501"
+    assert body["retrieval_plan"]["metric_keys"] == ["revenue"]
+
+
 def test_retrieve_endpoint_supports_compact_analysis_view(monkeypatch) -> None:
     class FakeAnalysisRetrievalService:
         def __init__(self, db) -> None:

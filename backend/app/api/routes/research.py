@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db_session
 from app.schemas import (
     QueryPlanRequest,
+    ResearchAnswerResponseRead,
     RetrievalAnalysisResponse,
     RetrievalPlanRead,
     RetrievalRequest,
@@ -13,6 +14,7 @@ from app.schemas import (
 )
 from app.services import (
     QueryPlanner,
+    ResearchAnswerService,
     RetrievalCompanyNotFoundError,
     RetrievalError,
     RetrievalService,
@@ -50,6 +52,19 @@ def retrieve_evidence(
     if view == "analysis":
         return build_analysis_response(response)
     return response
+
+
+@router.post("/query", response_model=ResearchAnswerResponseRead)
+def query_research(
+    request: RetrievalRequest,
+    db: Session = Depends(get_db_session),
+) -> ResearchAnswerResponseRead:
+    try:
+        return ResearchAnswerService(db).answer(request)
+    except RetrievalCompanyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RetrievalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def build_analysis_response(response: RetrievalResponse) -> RetrievalAnalysisResponse:

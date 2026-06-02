@@ -622,6 +622,11 @@ h3 {
   background: #f4f8fc;
 }
 
+.citation-card:target {
+  border-color: #184ca8;
+  box-shadow: 0 0 0 3px rgba(24, 76, 168, 0.12);
+}
+
 .comparison-card p,
 .comparison-card small {
   margin: 4px 0 0;
@@ -650,22 +655,72 @@ h3 {
 
 .evidence-card p,
 .evidence-span-card p,
-.citation-card p,
-.answer-text {
+.citation-card p {
   margin: 8px 0;
   color: #334155;
   font-size: 0.86rem;
 }
 
 .answer-text {
-  white-space: pre-wrap;
+  display: grid;
+  gap: 10px;
+  margin: 8px 0;
+  color: #263445;
+  font-size: 0.92rem;
+  line-height: 1.68;
+}
+
+.answer-text p {
+  margin: 0;
+}
+
+.citation-ref {
+  display: inline-flex;
+  min-width: 24px;
+  min-height: 22px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 1px;
+  border: 1px solid #bdd0e6;
+  border-radius: 999px;
+  background: #f3f7fc;
+  color: #184ca8;
+  padding: 0 6px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  vertical-align: 0.08em;
+}
+
+.citation-ref:hover,
+.citation-ref:focus-visible {
+  border-color: #184ca8;
+  background: #e8f1fb;
+  outline: none;
+}
+
+.citation-ref--unknown {
+  border-color: #f0d28a;
+  background: #fff8e5;
+  color: #805a12;
+}
+
+.limitation-details {
+  margin-top: 10px;
+}
+
+.limitation-details summary {
+  cursor: pointer;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .limitation-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .limitation-list span {
