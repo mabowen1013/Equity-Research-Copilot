@@ -322,11 +322,11 @@ curl -X POST "http://127.0.0.1:8000/research/runs" \
 
 The research-run response includes `answer`, `validation`, `limitations`, `plan`, `steps`, normalized `evidence`, and `diagnostics`. Each step carries evidence ids that point into the normalized evidence list, and `diagnostics` preserves planner summary, retrieval configuration, source coverage, and score-breakdown details when available.
 
-`POST /research/retrieve?view=analysis` remains the lower-level developer/debug retrieval endpoint. Its response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, `final_evidence_pack`, and `retrieval_trace`. The compact `view=analysis` response keeps the same diagnostic shape but trims long payloads for terminal inspection.
+`POST /research/retrieve?view=analysis` remains the lower-level developer/debug retrieval endpoint. Its compact response includes `retrieval_plan`, `source_coverage_summary`, `final_evidence_pack`, `top_chunks`, `top_facts`, `metric_comparisons`, and `analysis_trace` for terminal inspection. The full retrieval response and retrieval dump utilities expose the raw `retrieved_chunks`, `retrieved_facts`, and `retrieval_trace` payloads when deeper debugging is needed.
 
 `final_evidence_pack` groups selected evidence into primary financial statement chunks, MD&A explanation chunks, segment or product breakdown chunks, annual context chunks, metric comparisons, and selected evidence spans. Spans are short excerpts selected from retrieved chunks because they are the most directly useful text for answering the question; they retain their source chunk evidence id, page metadata, SEC URL, and selection reasons.
 
-Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible. The frontend Research view calls `/research/runs` and shows the cited answer, validation result, agent step timeline, selected-step evidence, and retrieval diagnostics. Raw retrieval details remain available through `/research/retrieve` and the retrieval dump utilities.
+Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible. The frontend Research view calls `/research/runs` and shows the cited answer, validation result, agent step timeline, selected-step evidence, and retrieval diagnostics. Raw retrieval details remain available through the full `/research/retrieve` response and retrieval dump utilities.
 
 ## Evaluation Utilities
 

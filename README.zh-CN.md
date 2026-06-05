@@ -324,11 +324,11 @@ curl -X POST "http://127.0.0.1:8000/research/runs" \
 
 research-run 响应包含 `answer`、`validation`、`limitations`、`plan`、`steps`、标准化 `evidence` 和 `diagnostics`。每个 step 都带有指向标准化 evidence list 的 evidence ids；当可用时，`diagnostics` 会保留 planner summary、retrieval configuration、source coverage 和 score-breakdown 细节。
 
-`POST /research/retrieve?view=analysis` 仍是更底层的 developer/debug retrieval endpoint。它的响应包含 `retrieval_plan`、`retrieved_chunks`、`retrieved_facts`、`metric_comparisons`、`source_coverage_summary`、`final_evidence_pack` 和 `retrieval_trace`。紧凑的 `view=analysis` 响应保留同样的诊断结构，但会裁剪长 payload，适合在终端检查。
+`POST /research/retrieve?view=analysis` 仍是更底层的 developer/debug retrieval endpoint。它的紧凑响应包含 `retrieval_plan`、`source_coverage_summary`、`final_evidence_pack`、`top_chunks`、`top_facts`、`metric_comparisons` 和 `analysis_trace`，适合在终端检查。完整 retrieval response 和 retrieval dump 工具会暴露 raw `retrieved_chunks`、`retrieved_facts` 和 `retrieval_trace` payload，便于更深层调试。
 
 `final_evidence_pack` 会将已选证据分为 primary financial statement chunks、MD&A explanation chunks、segment or product breakdown chunks、annual context chunks、metric comparisons，以及 selected evidence spans。Spans 是从 retrieved chunks 中挑出的短摘录，因为它们是最直接支撑回答的文本；它们保留 source chunk evidence id、页码元数据、SEC URL 和 selection reasons。
 
-当 embeddings 缺失或不可用时，dense retrieval 会优雅降级；只要条件允许，lexical retrieval 和 XBRL fact retrieval 仍会继续运行。前端 Research 视图会调用 `/research/runs`，展示引用答案、验证结果、agent step timeline、selected-step evidence 和 retrieval diagnostics。Raw retrieval details 仍可通过 `/research/retrieve` 和 retrieval dump 工具查看。
+当 embeddings 缺失或不可用时，dense retrieval 会优雅降级；只要条件允许，lexical retrieval 和 XBRL fact retrieval 仍会继续运行。前端 Research 视图会调用 `/research/runs`，展示引用答案、验证结果、agent step timeline、selected-step evidence 和 retrieval diagnostics。Raw retrieval details 仍可通过完整 `/research/retrieve` 响应和 retrieval dump 工具查看。
 
 ## 评估工具
 
