@@ -356,6 +356,67 @@ export type ResearchAnswerResponse = {
   final_evidence_pack: AnswerEvidencePack;
 };
 
+export type ResearchRunStep = {
+  step_id: string;
+  step_index: number;
+  phase: string;
+  name: string;
+  status: "completed" | "failed" | "degraded";
+  summary: string;
+  tool_name: string | null;
+  tool_input_summary: Record<string, unknown> | null;
+  evidence_ids: string[];
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  degraded_reason: string | null;
+};
+
+export type ResearchRunEvidence = {
+  evidence_id: string;
+  evidence_type: string;
+  role: string;
+  title: string;
+  text: string | null;
+  metric_key: string | null;
+  value: string | null;
+  period: string | null;
+  form_type: string | null;
+  filing_date: string | null;
+  section: string | null;
+  sec_url: string | null;
+  source_ids: Record<string, unknown>;
+};
+
+export type ResearchRunDiagnostics = {
+  candidate_counts: Record<string, number>;
+  timing_ms: Record<string, number>;
+  degraded: { stage: string; reason: string }[];
+  retrieval_config: Record<string, unknown>;
+  source_coverage_summary: Record<string, unknown>;
+  top_score_breakdown: Record<string, unknown>[];
+};
+
+export type ResearchRunResponse = {
+  run_id: string;
+  contract_version: "research_run.v1";
+  status: "completed" | "failed" | "insufficient_evidence";
+  ticker: string;
+  question: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  answer: string;
+  citations: AnswerCitation[];
+  validation_status: "passed" | "failed" | "insufficient_evidence";
+  validation: CitationValidation;
+  limitations: string[];
+  plan: RetrievalPlan;
+  steps: ResearchRunStep[];
+  evidence: ResearchRunEvidence[];
+  diagnostics: ResearchRunDiagnostics;
+};
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
 
@@ -460,6 +521,19 @@ export function queryResearch(request: {
   section?: string;
 }): Promise<ResearchAnswerResponse> {
   return requestJson<ResearchAnswerResponse>("/research/query", {
+    body: JSON.stringify(request),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+}
+
+export function runResearch(request: {
+  ticker: string;
+  question: string;
+  form_type?: string;
+  section?: string;
+}): Promise<ResearchRunResponse> {
+  return requestJson<ResearchRunResponse>("/research/runs", {
     body: JSON.stringify(request),
     headers: { "Content-Type": "application/json" },
     method: "POST",
