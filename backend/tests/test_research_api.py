@@ -248,3 +248,54 @@ def test_retrieve_endpoint_supports_compact_analysis_view(monkeypatch) -> None:
     assert body["analysis_trace"]["candidate_counts"] == {"dense": 40, "lexical": 40}
     assert body["top_chunks"][0]["evidence_id"] == "chunk:47"
     assert len(body["top_chunks"][0]["snippet"]) < 280
+
+
+def test_research_runs_endpoint_returns_auditable_run(monkeypatch) -> None:
+    from app.api.routes import research as research_routes
+    from app.schemas import ResearchRunDiagnosticsRead, ResearchRunRead, ResearchRunStepRead
+
+    class FakeResearchRunService:
+        def __init__(self, db):
+            self.db = db
+
+        def run(self, request):
+            return ResearchRunRead(
+                run_id="run-api",
+                status="completed",
+                ticker=request.ticker,
+                question=request.question,
+                answer="AAPL answer. [financial_fact:501]",
+                citations=[],
+                validation_status="passed",
+                validation={"status": "passed", "cited_evidence_ids": []},
+                limitations=[],
+                plan={"question_type": "metric"},
+                steps=[
+                    ResearchRunStepRead(
+                        step_id="step-1",
+                        step_index=0,
+                        phase="planning",
+                        name="Plan query",
+                        status="completed",
+                        summary="Planned query.",
+                    )
+                ],
+                evidence=[],
+                diagnostics=ResearchRunDiagnosticsRead(),
+            )
+
+    monkeypatch.setattr(research_routes, "ResearchRunService", FakeResearchRunService)
+    override_db_session()
+    client = TestClient(app)
+
+    response = client.post(
+        "/research/runs",
+        json={"ticker": "AAPL", "question": "What was revenue?"},
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["contract_version"] == "research_run.v1"
+    assert body["run_id"] == "run-api"
+    assert body["steps"][0]["phase"] == "planning"

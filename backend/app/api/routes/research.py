@@ -7,6 +7,7 @@ from app.db import get_db_session
 from app.schemas import (
     QueryPlanRequest,
     ResearchAnswerResponseRead,
+    ResearchRunRead,
     RetrievalAnalysisResponse,
     RetrievalPlanRead,
     RetrievalRequest,
@@ -15,6 +16,7 @@ from app.schemas import (
 from app.services import (
     QueryPlanner,
     ResearchAnswerService,
+    ResearchRunService,
     RetrievalCompanyNotFoundError,
     RetrievalError,
     RetrievalService,
@@ -61,6 +63,19 @@ def query_research(
 ) -> ResearchAnswerResponseRead:
     try:
         return ResearchAnswerService(db).answer(request)
+    except RetrievalCompanyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RetrievalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/runs", response_model=ResearchRunRead)
+def run_research(
+    request: RetrievalRequest,
+    db: Session = Depends(get_db_session),
+) -> ResearchRunRead:
+    try:
+        return ResearchRunService(db).run(request)
     except RetrievalCompanyNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RetrievalError as exc:
