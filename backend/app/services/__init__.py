@@ -105,6 +105,7 @@ from app.services.research_agent import (
     ResearchAgentService,
     ResearchAgentState,
 )
+from app.services.research_run import ResearchRunService
 from app.services.retrieval import (
     RetrievalCompanyNotFoundError,
     RetrievalError,
@@ -188,6 +189,7 @@ __all__ = [
     "ResearchAgentObservation",
     "ResearchAgentService",
     "ResearchAgentState",
+    "ResearchRunService",
     "SEC2MD_PARSER_NAME",
     "SEC2MD_PARSER_VERSION",
     "SecCacheResult",
