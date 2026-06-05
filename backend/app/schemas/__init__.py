@@ -17,6 +17,13 @@ from app.schemas.filing_sec2md import (
 )
 from app.schemas.financial_fact import FinancialFactRead
 from app.schemas.job import JobRead
+from app.schemas.research_run import (
+    RESEARCH_RUN_CONTRACT_VERSION,
+    ResearchRunDiagnosticsRead,
+    ResearchRunEvidenceRead,
+    ResearchRunRead,
+    ResearchRunStepRead,
+)
 from app.schemas.retrieval import (
     EvidencePackRead,
     EvidenceSpanRead,
@@ -52,6 +59,11 @@ __all__ = [
     "FilingSectionSummary",
     "FinancialFactRead",
     "JobRead",
+    "RESEARCH_RUN_CONTRACT_VERSION",
+    "ResearchRunDiagnosticsRead",
+    "ResearchRunEvidenceRead",
+    "ResearchRunRead",
+    "ResearchRunStepRead",
     "EvidencePackRead",
     "EvidenceSpanRead",
     "MetricComparisonRead",
