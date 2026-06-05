@@ -504,6 +504,134 @@ h3 {
   background: #ffffff;
 }
 
+.research-audit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.9fr) minmax(260px, 1fr);
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.answer-panel,
+.trace-panel,
+.evidence-panel,
+.diagnostics-panel {
+  min-width: 0;
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.validation-pill,
+.research-page__header .validation-pill {
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #eef4fb;
+  color: #2459b3;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.validation-pill--passed,
+.research-page__header .validation-pill--passed {
+  background: #e7f6ef;
+  color: #166343;
+}
+
+.validation-pill--failed,
+.validation-pill--insufficient_evidence,
+.research-page__header .validation-pill--failed,
+.research-page__header .validation-pill--insufficient_evidence {
+  background: #fff1e8;
+  color: #9a4b13;
+}
+
+.trace-list,
+.run-evidence-list {
+  display: grid;
+  gap: 10px;
+}
+
+.trace-step {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+  text-align: left;
+}
+
+.trace-step span {
+  color: #52606f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.trace-step strong {
+  color: #1f2933;
+  font-size: 0.88rem;
+}
+
+.trace-step small {
+  color: #52606f;
+  line-height: 1.35;
+}
+
+.trace-step--active {
+  border-color: #2459b3;
+  background: #eef4fb;
+}
+
+.run-evidence-card {
+  border: 1px solid #e3e9f0;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.run-evidence-card h4 {
+  margin: 6px 0;
+  font-size: 0.9rem;
+}
+
+.run-evidence-card p {
+  color: #334155;
+  font-size: 0.86rem;
+}
+
+.run-evidence-card a {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  margin-top: 10px;
+  border: 1px solid #aab7c4;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
+.diagnostics-panel {
+  margin-top: 16px;
+}
+
+.diagnostics-panel summary {
+  cursor: pointer;
+  color: #334155;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.diagnostics-panel pre {
+  max-height: 280px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 12px;
+  font-size: 0.78rem;
+}
+
 .research-summary-grid,
 .trace-grid {
   display: grid;
@@ -1135,6 +1263,12 @@ h3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     max-height: none;
     padding-right: 0;
+  }
+}
+
+@media (max-width: 1180px) {
+  .research-audit-grid {
+    grid-template-columns: 1fr;
   }
 }
 

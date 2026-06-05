@@ -3,9 +3,6 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "reac
 import { fetchHealthStatus } from "./api/health";
 import {
   AnswerCitation,
-  AnswerEvidenceChunk,
-  AnswerEvidenceSpan,
-  AnswerMetricComparison,
   Company,
   DocumentChunk,
   Filing,
@@ -13,7 +10,9 @@ import {
   FilingSectionSummary,
   FinancialFact,
   Job,
-  ResearchAnswerResponse,
+  ResearchRunEvidence,
+  ResearchRunResponse,
+  ResearchRunStep,
   fetchCompany,
   fetchCompanyFilings,
   fetchCompanyMetrics,
@@ -25,7 +24,7 @@ import {
   ingestCompany,
   loadCompanyMetrics,
   parseFiling,
-  queryResearch,
+  runResearch,
 } from "./api/sec";
 import "./styles.css";
 
@@ -165,6 +164,38 @@ function formatMetricFilingContext(fact: FinancialFact): string | null {
   return context || null;
 }
 
+function getSelectedStep(
+  steps: ResearchRunStep[],
+  selectedStepId: string | null,
+): ResearchRunStep | null {
+  return (
+    steps.find((step) => step.step_id === selectedStepId) ??
+    steps[0] ??
+    null
+  );
+}
+
+function getStepEvidence(
+  evidence: ResearchRunEvidence[],
+  step: ResearchRunStep | null,
+): ResearchRunEvidence[] {
+  if (!step) {
+    return [];
+  }
+  const ids = new Set(step.evidence_ids);
+  return evidence.filter((item) => ids.has(item.evidence_id));
+}
+
+function formatRunDuration(durationMs: number | null): string {
+  if (durationMs === null) {
+    return "n/a";
+  }
+  if (durationMs < 1000) {
+    return `${Math.round(durationMs)} ms`;
+  }
+  return `${(durationMs / 1000).toFixed(2)} s`;
+}
+
 function compareFactsByRecentPeriod(first: FinancialFact, second: FinancialFact): number {
   const periodEndCompare = second.period_end.localeCompare(first.period_end);
   if (periodEndCompare !== 0) {
@@ -230,9 +261,10 @@ export function App() {
   const [researchQuestion, setResearchQuestion] = useState(
     "Why did revenue grow last quarter?",
   );
-  const [answerResult, setAnswerResult] = useState<ResearchAnswerResponse | null>(
+  const [researchRun, setResearchRun] = useState<ResearchRunResponse | null>(
     null,
   );
+  const [selectedRunStepId, setSelectedRunStepId] = useState<string | null>(null);
   const [isLoadingCompany, setIsLoadingCompany] = useState(false);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isLoadingParsedData, setIsLoadingParsedData] = useState(false);
@@ -293,7 +325,8 @@ export function App() {
       setSelectedSectionId(null);
       setSectionDetail(null);
       setChunks([]);
-      setAnswerResult(null);
+      setResearchRun(null);
+      setSelectedRunStepId(null);
       if (loadedFilings[0]) {
         await loadParsedData(loadedFilings[0].id);
       }
@@ -306,7 +339,8 @@ export function App() {
       setSectionDetail(null);
       setChunks([]);
       setMetrics([]);
-      setAnswerResult(null);
+      setResearchRun(null);
+      setSelectedRunStepId(null);
       setError(getErrorMessage(loadError));
     } finally {
       setIsLoadingCompany(false);
@@ -489,14 +523,15 @@ export function App() {
     setMessage(null);
 
     try {
-      setAnswerResult(
-        await queryResearch({
-          ticker: company.ticker,
-          question,
-        }),
-      );
+      const nextRun = await runResearch({
+        ticker: company.ticker,
+        question,
+      });
+      setResearchRun(nextRun);
+      setSelectedRunStepId(nextRun.steps[0]?.step_id ?? null);
     } catch (retrievalError) {
-      setAnswerResult(null);
+      setResearchRun(null);
+      setSelectedRunStepId(null);
       setError(getErrorMessage(retrievalError));
     } finally {
       setIsAsking(false);
@@ -832,9 +867,11 @@ export function App() {
             ticker={company?.ticker ?? ticker.trim().toUpperCase()}
             hasCompany={company !== null}
             question={researchQuestion}
-            result={answerResult}
+            run={researchRun}
+            selectedStepId={selectedRunStepId}
             isAsking={isAsking}
             onQuestionChange={setResearchQuestion}
+            onSelectStep={setSelectedRunStepId}
             onSubmit={handleRetrieveEvidence}
           />
         )}
@@ -847,60 +884,34 @@ function ResearchPage({
   ticker,
   hasCompany,
   question,
-  result,
+  run,
+  selectedStepId,
   isAsking,
   onQuestionChange,
+  onSelectStep,
   onSubmit,
 }: {
   ticker: string;
   hasCompany: boolean;
   question: string;
-  result: ResearchAnswerResponse | null;
+  run: ResearchRunResponse | null;
+  selectedStepId: string | null;
   isAsking: boolean;
   onQuestionChange: (question: string) => void;
+  onSelectStep: (stepId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
-  const plan = result?.retrieval_plan;
-  const evidenceSections: {
-    title: string;
-    chunks: AnswerEvidenceChunk[];
-    spans: AnswerEvidenceSpan[];
-  }[] = result
-    ? [
-        {
-          title: "Primary Statements",
-          chunks: result.final_evidence_pack.primary_financial_statement_chunks,
-          spans: result.final_evidence_pack.primary_financial_statement_spans,
-        },
-        {
-          title: "MD&A Explanations",
-          chunks: result.final_evidence_pack.mda_explanation_chunks,
-          spans: result.final_evidence_pack.mda_explanation_spans,
-        },
-        {
-          title: "Segment / Product",
-          chunks: result.final_evidence_pack.segment_or_product_breakdown_chunks,
-          spans: result.final_evidence_pack.segment_or_product_breakdown_spans,
-        },
-        {
-          title: "Risk Factors",
-          chunks: result.final_evidence_pack.risk_factor_chunks,
-          spans: result.final_evidence_pack.risk_factor_spans,
-        },
-        {
-          title: "Annual Context",
-          chunks: result.final_evidence_pack.annual_context_chunks,
-          spans: result.final_evidence_pack.annual_context_spans,
-        },
-      ]
-    : [];
-  const visibleComparisons = result?.final_evidence_pack.metric_comparisons ?? [];
+  const plan = run?.plan;
   const citationNumberById = useMemo(
-    () => buildCitationNumberMap(result?.citations ?? []),
-    [result?.citations],
+    () => buildCitationNumberMap(run?.citations ?? []),
+    [run?.citations],
   );
-  const showLimitations = result !== null && result.limitations.length > 0;
-  const keepLimitationsOpen = result?.validation_status !== "passed";
+  const showLimitations = run !== null && run.limitations.length > 0;
+  const keepLimitationsOpen = run?.validation_status !== "passed";
+  const selectedStep = getSelectedStep(run?.steps ?? [], selectedStepId);
+  const selectedEvidence = getStepEvidence(run?.evidence ?? [], selectedStep);
+  const visibleEvidence =
+    selectedEvidence.length > 0 ? selectedEvidence : (run?.evidence ?? []).slice(0, 6);
 
   return (
     <section className="research-page" aria-labelledby="research-heading">
@@ -911,7 +922,11 @@ function ResearchPage({
             {hasCompany ? `Grounded answers for ${ticker}` : "Load a stored company first"}
           </p>
         </div>
-        {result && <span>{result.validation_status}</span>}
+        {run && (
+          <span className={`validation-pill validation-pill--${run.validation_status}`}>
+            {run.validation_status}
+          </span>
+        )}
       </div>
 
       <form className="research-form" onSubmit={onSubmit}>
@@ -928,7 +943,7 @@ function ResearchPage({
         </button>
       </form>
 
-      {result === null ? (
+      {run === null ? (
         <p className="empty-state">
           {hasCompany
             ? "Ask a question to generate a cited, validator-checked answer."
@@ -936,48 +951,89 @@ function ResearchPage({
         </p>
       ) : (
         <div className="research-results">
-          <section className="research-card answer-card" aria-labelledby="answer-heading">
-            <div className="panel-header panel-header--compact">
-              <h3 id="answer-heading">Answer</h3>
-              <span>{result.validation_status}</span>
-            </div>
-            <AnswerText
-              answer={result.answer}
-              citationNumberById={citationNumberById}
-              citations={result.citations}
-            />
-            {showLimitations && (
-              <details className="limitation-details" open={keepLimitationsOpen}>
-                <summary>Limitations ({result.limitations.length})</summary>
-                <div className="limitation-list">
-                  {result.limitations.map((limitation) => (
-                    <span key={limitation}>{limitation}</span>
-                  ))}
-                </div>
-              </details>
-            )}
-            {result.validation.errors.length > 0 && (
-              <details className="validation-debug">
-                <summary>Validation details</summary>
-                <div className="trace-warning-list">
-                  {result.validation.errors.map((issue) => (
-                    <span key={`${issue.code}:${issue.evidence_id ?? issue.sentence ?? ""}`}>
-                      {issue.code}: {issue.message}
+          <div className="research-audit-grid">
+            <section className="answer-panel" aria-labelledby="answer-heading">
+              <div className="panel-header panel-header--compact">
+                <h3 id="answer-heading">Answer</h3>
+                <span className={`validation-pill validation-pill--${run.validation_status}`}>
+                  {run.validation_status}
+                </span>
+              </div>
+              <CitedAnswer
+                answer={run.answer}
+                citationNumberById={citationNumberById}
+                citations={run.citations}
+              />
+              {showLimitations && (
+                <details className="limitation-details" open={keepLimitationsOpen}>
+                  <summary>Limitations ({run.limitations.length})</summary>
+                  <div className="limitation-list">
+                    {run.limitations.map((limitation) => (
+                      <span key={limitation}>{limitation}</span>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {run.validation.errors.length > 0 && (
+                <details className="validation-debug">
+                  <summary>Validation details</summary>
+                  <div className="trace-warning-list">
+                    {run.validation.errors.map((issue) => (
+                      <span key={`${issue.code}:${issue.evidence_id ?? issue.sentence ?? ""}`}>
+                        {issue.code}: {issue.message}
+                      </span>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </section>
+
+            <section className="trace-panel" aria-labelledby="trace-heading">
+              <div className="panel-header panel-header--compact">
+                <h3 id="trace-heading">Agent Trace</h3>
+                <span>{run.steps.length} steps</span>
+              </div>
+              <div className="trace-list">
+                {run.steps.map((step) => (
+                  <button
+                    className={`trace-step ${
+                      step.step_id === selectedStep?.step_id ? "trace-step--active" : ""
+                    }`}
+                    key={step.step_id}
+                    type="button"
+                    onClick={() => onSelectStep(step.step_id)}
+                  >
+                    <span>
+                      {step.phase} | {step.status} | {formatRunDuration(step.duration_ms)}
                     </span>
-                  ))}
-                </div>
-              </details>
-            )}
-          </section>
+                    <strong>{step.name}</strong>
+                    <small>{step.summary}</small>
+                    {step.degraded_reason && <small>{step.degraded_reason}</small>}
+                  </button>
+                ))}
+                {run.steps.length === 0 && <p className="empty-state">No trace steps returned.</p>}
+              </div>
+            </section>
+
+            <section className="evidence-panel" aria-labelledby="run-evidence-heading">
+              <div className="panel-header panel-header--compact">
+                <h3 id="run-evidence-heading">
+                  {selectedEvidence.length > 0 ? "Step Evidence" : "Run Evidence"}
+                </h3>
+                <span>{visibleEvidence.length}</span>
+              </div>
+              <EvidenceCards evidence={visibleEvidence} />
+            </section>
+          </div>
 
           <section className="research-card" aria-labelledby="citations-heading">
             <div className="panel-header panel-header--compact">
               <h3 id="citations-heading">Citations</h3>
-              <span>{result.citations.length}</span>
+              <span>{run.citations.length}</span>
             </div>
-            {result.citations.length > 0 ? (
+            {run.citations.length > 0 ? (
               <div className="citation-list">
-                {result.citations.map((citation) => (
+                {run.citations.map((citation) => (
                   <CitationCard
                     citation={citation}
                     key={citation.evidence_id}
@@ -1011,52 +1067,29 @@ function ResearchPage({
             </section>
           )}
 
-          {visibleComparisons.length > 0 && (
-            <section className="research-card" aria-labelledby="comparisons-heading">
-              <div className="panel-header panel-header--compact">
-                <h3 id="comparisons-heading">Metric Comparisons</h3>
-                <span>{visibleComparisons.length}</span>
-              </div>
-              <div className="comparison-list">
-                {visibleComparisons.map((comparison) => (
-                  <ComparisonCard comparison={comparison} key={comparison.evidence_id} />
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className="research-card" aria-labelledby="evidence-heading">
-            <div className="panel-header panel-header--compact">
-              <h3 id="evidence-heading">Evidence Pack</h3>
-              <span>{result.prompt_evidence_ids.length} prompt ids</span>
-            </div>
-            <div className="evidence-section-grid">
-              {evidenceSections.map((section) => (
-                <div className="evidence-section" key={section.title}>
-                  <h4>{section.title}</h4>
-                  {section.chunks.length > 0 ? (
-                    <div className="evidence-list">
-                      {section.spans.map((span) => (
-                        <EvidenceSpanCard span={span} key={span.evidence_id} />
-                      ))}
-                      {section.chunks.map((chunk) => (
-                        <EvidenceChunkCard chunk={chunk} key={chunk.evidence_id} />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="metric-empty">No selected chunks</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
+          <details className="diagnostics-panel">
+            <summary>Diagnostics</summary>
+            <pre>
+              {JSON.stringify(
+                {
+                  candidate_counts: run.diagnostics.candidate_counts,
+                  timing_ms: run.diagnostics.timing_ms,
+                  degraded: run.diagnostics.degraded,
+                  retrieval_config: run.diagnostics.retrieval_config,
+                  source_coverage_summary: run.diagnostics.source_coverage_summary,
+                },
+                null,
+                2,
+              )}
+            </pre>
+          </details>
         </div>
       )}
     </section>
   );
 }
 
-function AnswerText({
+function CitedAnswer({
   answer,
   citationNumberById,
   citations,
@@ -1077,6 +1110,38 @@ function AnswerText({
         <p key={`${paragraph.slice(0, 32)}:${index}`}>
           {renderAnswerWithCitationRefs(paragraph, citationNumberById, citationById)}
         </p>
+      ))}
+    </div>
+  );
+}
+
+function EvidenceCards({ evidence }: { evidence: ResearchRunEvidence[] }) {
+  if (evidence.length === 0) {
+    return <p className="empty-state">No evidence attached to this step.</p>;
+  }
+
+  return (
+    <div className="run-evidence-list">
+      {evidence.map((item) => (
+        <article className="run-evidence-card" key={item.evidence_id}>
+          <div className="chunk-meta">
+            <span>{item.evidence_type}</span>
+            <span>{item.role}</span>
+            {item.form_type && <span>{item.form_type}</span>}
+          </div>
+          <h4>{item.title}</h4>
+          {item.text && <p>{item.text}</p>}
+          <div className="chunk-meta chunk-meta--subtle">
+            {item.period && <span>{item.period}</span>}
+            {item.section && <span>{item.section}</span>}
+            {item.filing_date && <span>{item.filing_date}</span>}
+          </div>
+          {item.sec_url && (
+            <a href={item.sec_url} target="_blank" rel="noreferrer">
+              SEC Source
+            </a>
+          )}
+        </article>
       ))}
     </div>
   );
@@ -1216,82 +1281,6 @@ function formatCitationType(type: string): string {
 function getNumericSourceId(citation: AnswerCitation, key: string): number | null {
   const value = citation.source_ids[key];
   return typeof value === "number" ? value : null;
-}
-
-function ComparisonCard({ comparison }: { comparison: AnswerMetricComparison }) {
-  return (
-    <article className="comparison-card">
-      <div>
-        <span>{comparison.canonical_metric_key}</span>
-        <strong>{formatGrowthRate(comparison.growth_rate)}</strong>
-      </div>
-      <p>
-        {formatDecimalValue(comparison.current_value)} vs{" "}
-        {formatDecimalValue(comparison.prior_value)}
-      </p>
-      <small>
-        {comparison.current_period_label ?? comparison.current_period_end} /{" "}
-        {comparison.prior_period_label ?? comparison.prior_period_end} | {comparison.basis}
-      </small>
-    </article>
-  );
-}
-
-function EvidenceSpanCard({ span }: { span: AnswerEvidenceSpan }) {
-  return (
-    <article className="evidence-span-card">
-      <div className="evidence-card__top">
-        <span>{span.support_kind}</span>
-        <strong>{span.score.toFixed(2)}</strong>
-      </div>
-      <p>{span.text}</p>
-      <div className="evidence-meta">
-        <span>{span.form_type}</span>
-        <span>{span.filing_date}</span>
-        <span>Pages {formatPageRange(span.start_page, span.end_page)}</span>
-        <span>chunk:{span.chunk_id}</span>
-      </div>
-      {span.reasons.length > 0 && (
-        <div className="evidence-reasons">
-          {span.reasons.slice(0, 4).map((reason) => (
-            <span key={reason}>{reason}</span>
-          ))}
-        </div>
-      )}
-    </article>
-  );
-}
-
-function EvidenceChunkCard({ chunk }: { chunk: AnswerEvidenceChunk }) {
-  return (
-    <article className="evidence-card">
-      <div className="evidence-card__top">
-        <span>{chunk.form_type}</span>
-        <strong>{chunk.score.toFixed(3)}</strong>
-      </div>
-      <h4>{chunk.section_label}</h4>
-      <p>{chunk.snippet}</p>
-      <div className="evidence-meta">
-        <span>{chunk.filing_date}</span>
-        <span>Pages {formatPageRange(chunk.start_page, chunk.end_page)}</span>
-        {Object.entries(chunk.source_ranks).map(([source, rank]) => (
-          <span key={source}>
-            {source} #{rank}
-          </span>
-        ))}
-      </div>
-      <a href={chunk.sec_url} target="_blank" rel="noreferrer">
-        SEC Source
-      </a>
-      <a
-        href={getHighlightedSourceUrl(chunk.filing_id, chunk.chunk_id)}
-        target="_blank"
-        rel="noreferrer"
-      >
-        Highlighted Source
-      </a>
-    </article>
-  );
 }
 
 function FinancialMetricsPage({
