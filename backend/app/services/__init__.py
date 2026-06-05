@@ -98,6 +98,13 @@ from app.services.query_planner import (
     QueryPlanner,
     RetrievalPlan,
 )
+from app.services.research_agent import (
+    REACT_AGENT_TRACE_VERSION,
+    ResearchAgentAction,
+    ResearchAgentObservation,
+    ResearchAgentService,
+    ResearchAgentState,
+)
 from app.services.retrieval import (
     RetrievalCompanyNotFoundError,
     RetrievalError,
@@ -175,7 +182,12 @@ __all__ = [
     "RetrievalError",
     "RetrievalPlan",
     "RetrievalService",
+    "REACT_AGENT_TRACE_VERSION",
     "ResearchAnswerService",
+    "ResearchAgentAction",
+    "ResearchAgentObservation",
+    "ResearchAgentService",
+    "ResearchAgentState",
     "SEC2MD_PARSER_NAME",
     "SEC2MD_PARSER_VERSION",
     "SecCacheResult",

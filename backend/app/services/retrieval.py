@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import Decimal
 import re
@@ -31,6 +31,12 @@ from app.services.embedding_provider import (
 )
 from app.services.metric_profiles import get_metric_profile
 from app.services.query_planner import QueryPlanner, RetrievalPlan
+from app.services.research_agent import (
+    ResearchAgentAction,
+    ResearchAgentObservation,
+    ResearchAgentService,
+    ResearchAgentState,
+)
 
 RRF_K = 60
 DENSE_WEIGHT = 1.0
@@ -51,6 +57,7 @@ EVIDENCE_PACK_SPAN_QUOTAS = {
     "annual_context_chunks": 1,
 }
 EVIDENCE_PACK_CHUNK_ROLE_ORDER = tuple(EVIDENCE_PACK_CHUNK_QUOTAS)
+MAX_AGENT_LEXICAL_QUERIES = 14
 MAX_EVIDENCE_SPAN_CHARS = 700
 MAX_EVIDENCE_SPANS_PER_CHUNK_ROLE = 2
 MIN_EVIDENCE_SPAN_SCORE = 0.28
@@ -130,6 +137,41 @@ class ValueMatch:
     matched_text: str | None = None
 
 
+@dataclass
+class RetrievalAgentAccumulator:
+    facts: list[FinancialFact] = field(default_factory=list)
+    fact_reads: list[RetrievedFinancialFactRead] = field(default_factory=list)
+    metric_observations: list[MetricObservationRead] = field(default_factory=list)
+    metric_comparisons: list[MetricComparisonRead] = field(default_factory=list)
+    chunk_reads_by_id: dict[int, RetrievedChunkRead] = field(default_factory=dict)
+    evidence_chunk_reads_by_id: dict[int, RetrievedChunkRead] = field(default_factory=dict)
+    chunk_text_by_id: dict[int, str] = field(default_factory=dict)
+    retrieval_scope: RetrievalScope | None = None
+    dense_query_sources: list[dict[str, Any]] = field(default_factory=list)
+    lexical_query_sources: list[dict[str, Any]] = field(default_factory=list)
+    fusion: dict[str, dict[str, Any]] = field(default_factory=dict)
+    rerank_trace: dict[int, dict[str, float]] = field(default_factory=dict)
+    dense_candidate_count: int = 0
+    lexical_candidate_count: int = 0
+    fused_chunk_count: int = 0
+    evidence_pack_trace: dict[str, Any] = field(default_factory=dict)
+
+    def chunk_reads(self, *, limit: int | None = None) -> list[RetrievedChunkRead]:
+        chunks = sorted(
+            self.chunk_reads_by_id.values(),
+            key=lambda chunk: (chunk.score, chunk.filing_date, chunk.chunk_id),
+            reverse=True,
+        )
+        return chunks if limit is None else chunks[:limit]
+
+    def evidence_chunk_reads(self) -> list[RetrievedChunkRead]:
+        return sorted(
+            self.evidence_chunk_reads_by_id.values(),
+            key=lambda chunk: (chunk.score, chunk.filing_date, chunk.chunk_id),
+            reverse=True,
+        )
+
+
 class RetrievalService:
     def __init__(
         self,
@@ -159,6 +201,47 @@ class RetrievalService:
         )
         timings["planner_ms"] = _elapsed_ms(planned_at)
 
+        try:
+            return self._retrieve_with_agent(
+                request,
+                company,
+                plan,
+                started=started,
+                timings=timings,
+                degraded=degraded,
+            )
+        except Exception as exc:
+            degraded.append(
+                {
+                    "stage": "agent",
+                    "reason": f"react_agent_fallback:{exc.__class__.__name__}",
+                }
+            )
+            return self._retrieve_planned(
+                request,
+                company,
+                plan,
+                started=started,
+                timings=timings,
+                degraded=degraded,
+                agent_trace={
+                    "mode": "static_fallback",
+                    "stop_reason": "agent_unavailable",
+                    "reason": str(exc),
+                },
+            )
+
+    def _retrieve_planned(
+        self,
+        request: RetrievalRequest,
+        company: Company,
+        plan: RetrievalPlan,
+        *,
+        started: float,
+        timings: dict[str, float],
+        degraded: list[dict[str, str]],
+        agent_trace: dict[str, Any] | None = None,
+    ) -> RetrievalResponse:
         fact_at = perf_counter()
         facts: list[FinancialFact] = []
         fact_reads: list[RetrievedFinancialFactRead] = []
@@ -351,6 +434,8 @@ class RetrievalService:
                 "top_k": self._settings.retrieval_top_k,
             },
         }
+        if agent_trace is not None:
+            trace["agent"] = agent_trace
 
         return RetrievalResponse(
             retrieval_plan=plan.to_dict(),
@@ -362,6 +447,408 @@ class RetrievalService:
                 chunk_reads,
                 fact_reads,
                 metric_comparisons,
+                final_evidence_pack,
+            ),
+            retrieval_trace=trace,
+        )
+
+    def _retrieve_with_agent(
+        self,
+        request: RetrievalRequest,
+        company: Company,
+        plan: RetrievalPlan,
+        *,
+        started: float,
+        timings: dict[str, float],
+        degraded: list[dict[str, str]],
+    ) -> RetrievalResponse:
+        agent = ResearchAgentService(settings=self._settings)
+        state = agent.start(question=request.question, plan=plan)
+        accumulator = RetrievalAgentAccumulator()
+
+        while True:
+            action = agent.next_action(state)
+            if action.action == "finalize_answer":
+                agent.finish(state, action)
+                break
+
+            action_at = perf_counter()
+            observation = self._run_agent_action(
+                action,
+                request,
+                company,
+                plan,
+                state,
+                accumulator,
+                degraded,
+            )
+            timings[f"agent_{state.tool_step_count + 1}_{action.action}_ms"] = _elapsed_ms(
+                action_at
+            )
+            agent.observe(state, action, observation)
+
+        return self._build_agent_response(
+            request,
+            company,
+            plan,
+            state,
+            accumulator,
+            agent,
+            started=started,
+            timings=timings,
+            degraded=degraded,
+        )
+
+    def _run_agent_action(
+        self,
+        action: ResearchAgentAction,
+        request: RetrievalRequest,
+        company: Company,
+        plan: RetrievalPlan,
+        state: ResearchAgentState,
+        accumulator: RetrievalAgentAccumulator,
+        degraded: list[dict[str, str]],
+    ) -> ResearchAgentObservation:
+        if action.action == "query_xbrl_metrics":
+            return self._agent_query_xbrl_metrics(company, plan, request, accumulator)
+        if action.action in {
+            "retrieve_filing_chunks",
+            "retrieve_mda",
+            "retrieve_risk_factors",
+            "retrieve_segment_discussion",
+            "retrieve_prior_filings",
+        }:
+            return self._agent_retrieve_chunks(
+                action,
+                request,
+                company,
+                plan,
+                state,
+                accumulator,
+                degraded,
+            )
+        raise ValueError(f"Unsupported ReAct action: {action.action}")
+
+    def _agent_query_xbrl_metrics(
+        self,
+        company: Company,
+        plan: RetrievalPlan,
+        request: RetrievalRequest,
+        accumulator: RetrievalAgentAccumulator,
+    ) -> ResearchAgentObservation:
+        if not plan.needs_financial_facts or not plan.metric_keys:
+            return ResearchAgentObservation(
+                observation_summary="No XBRL metric keys were requested for this question.",
+                counts=_agent_counts(accumulator, EvidencePackRead()),
+            )
+
+        fact_limit = (
+            max(self._settings.retrieval_fact_candidates, 80)
+            if should_build_metric_comparisons(plan)
+            else self._settings.retrieval_fact_candidates
+        )
+        facts = self._financial_fact_candidates(
+            company,
+            plan,
+            request,
+            limit=fact_limit,
+            retrieval_scope=None,
+        )
+        accumulator.facts = _dedupe_facts([*accumulator.facts, *facts])
+        accumulator.fact_reads = [
+            build_retrieved_fact(fact, rank=index + 1)
+            for index, fact in enumerate(accumulator.facts)
+        ]
+        accumulator.metric_observations = build_metric_observations(
+            accumulator.fact_reads,
+            plan,
+        )
+        accumulator.metric_comparisons = build_metric_comparisons(
+            accumulator.facts,
+            plan,
+        )
+        accumulator.retrieval_scope = (
+            scope_from_metric_observations(company, accumulator.metric_observations, plan)
+            or self._retrieval_scope(company, plan, request)
+        )
+
+        pack, trace = build_final_evidence_pack(
+            accumulator.evidence_chunk_reads(),
+            accumulator.metric_comparisons,
+            _agent_final_plan(plan, {"query_xbrl_metrics"}),
+            metric_observations=accumulator.metric_observations,
+            chunk_text_by_id=accumulator.chunk_text_by_id,
+        )
+        accumulator.evidence_pack_trace = trace
+        counts = _agent_counts(accumulator, pack)
+        evidence_ids = _agent_evidence_ids(
+            pack,
+            fact_reads=accumulator.fact_reads,
+            metric_comparisons=accumulator.metric_comparisons,
+        )
+        return ResearchAgentObservation(
+            observation_summary=(
+                f"Found {len(accumulator.fact_reads)} XBRL facts, "
+                f"{len(accumulator.metric_observations)} metric observations, and "
+                f"{len(accumulator.metric_comparisons)} metric comparisons."
+            ),
+            evidence_ids=evidence_ids,
+            counts=counts,
+        )
+
+    def _agent_retrieve_chunks(
+        self,
+        action: ResearchAgentAction,
+        request: RetrievalRequest,
+        company: Company,
+        plan: RetrievalPlan,
+        state: ResearchAgentState,
+        accumulator: RetrievalAgentAccumulator,
+        degraded: list[dict[str, str]],
+    ) -> ResearchAgentObservation:
+        action_plan = _agent_action_plan(plan, request.question, action.action)
+        retrieval_scope = self._agent_retrieval_scope(
+            action.action,
+            company,
+            action_plan,
+            request,
+            accumulator,
+        )
+
+        dense_sources = self._dense_candidate_sources(
+            company,
+            action_plan,
+            request,
+            degraded,
+            retrieval_scope=retrieval_scope,
+        )
+        dense_candidates = aggregate_source_candidates(
+            dense_sources,
+            limit=self._settings.retrieval_dense_candidates,
+        )
+        lexical_sources = self._lexical_candidate_sources(
+            company,
+            action_plan,
+            request,
+            degraded,
+            retrieval_scope=retrieval_scope,
+        )
+        lexical_candidates = aggregate_source_candidates(
+            lexical_sources,
+            limit=self._settings.retrieval_lexical_candidates,
+        )
+        fused = weighted_rrf_sources([*dense_sources, *lexical_sources])
+        chunks_by_id = self._load_chunks([candidate.chunk_id for candidate in fused])
+        evidence_limit = evidence_candidate_limit(
+            action_plan,
+            top_k=self._settings.retrieval_top_k,
+        )
+        ranked_for_evidence, rerank_trace = rerank_chunks(
+            fused,
+            chunks_by_id,
+            plan=action_plan,
+            top_k=evidence_limit,
+        )
+        ranked_chunks = ranked_for_evidence[: self._settings.retrieval_top_k]
+
+        chunk_reads = [
+            build_retrieved_chunk(
+                chunk,
+                candidate,
+                rerank_trace.get(candidate.chunk_id, {}),
+                metric_keys=action_plan.metric_keys,
+            )
+            for candidate, chunk in ranked_chunks
+        ]
+        evidence_chunk_reads = [
+            build_retrieved_chunk(
+                chunk,
+                candidate,
+                rerank_trace.get(candidate.chunk_id, {}),
+                metric_keys=action_plan.metric_keys,
+            )
+            for candidate, chunk in ranked_for_evidence
+        ]
+        _merge_chunk_reads(accumulator.chunk_reads_by_id, chunk_reads)
+        _merge_chunk_reads(accumulator.evidence_chunk_reads_by_id, evidence_chunk_reads)
+        accumulator.chunk_text_by_id.update(
+            {chunk.id: chunk.chunk_text for _, chunk in ranked_for_evidence}
+        )
+        accumulator.retrieval_scope = retrieval_scope
+        accumulator.dense_candidate_count += len(dense_candidates)
+        accumulator.lexical_candidate_count += len(lexical_candidates)
+        accumulator.fused_chunk_count += len(fused)
+        accumulator.dense_query_sources.extend(
+            _agent_source_trace(action.action, dense_sources)
+        )
+        accumulator.lexical_query_sources.extend(
+            _agent_source_trace(action.action, lexical_sources)
+        )
+        for candidate in fused:
+            accumulator.fusion[str(candidate.chunk_id)] = {
+                "fusion_score": round(candidate.fusion_score, 6),
+                "source_ranks": candidate.source_ranks,
+                "source_scores": candidate.source_scores,
+            }
+        accumulator.rerank_trace.update(rerank_trace)
+
+        final_plan = _agent_final_plan(plan, {*state.actions_taken, action.action})
+        pack, trace = build_final_evidence_pack(
+            accumulator.evidence_chunk_reads(),
+            accumulator.metric_comparisons,
+            final_plan,
+            metric_observations=accumulator.metric_observations,
+            chunk_text_by_id=accumulator.chunk_text_by_id,
+        )
+        accumulator.evidence_pack_trace = trace
+        counts = _agent_counts(accumulator, pack)
+        evidence_ids = _agent_evidence_ids(
+            pack,
+            fact_reads=accumulator.fact_reads,
+            metric_comparisons=accumulator.metric_comparisons,
+        )
+        return ResearchAgentObservation(
+            observation_summary=(
+                f"Retrieved {len(chunk_reads)} top chunks and "
+                f"{len(evidence_spans_for_pack(pack))} selected evidence spans after "
+                f"{action.action}."
+            ),
+            evidence_ids=evidence_ids,
+            counts=counts,
+        )
+
+    def _agent_retrieval_scope(
+        self,
+        action_name: str,
+        company: Company,
+        plan: RetrievalPlan,
+        request: RetrievalRequest,
+        accumulator: RetrievalAgentAccumulator,
+    ) -> RetrievalScope:
+        if action_name == "retrieve_prior_filings":
+            return RetrievalScope(
+                company_id=company.id,
+                duration_class=effective_duration_class(plan),
+                reason="agent:prior_filings",
+            )
+        if accumulator.retrieval_scope is not None:
+            return accumulator.retrieval_scope
+        accumulator.retrieval_scope = (
+            scope_from_metric_observations(
+                company,
+                accumulator.metric_observations,
+                plan,
+            )
+            or self._retrieval_scope(company, plan, request)
+        )
+        return accumulator.retrieval_scope
+
+    def _build_agent_response(
+        self,
+        request: RetrievalRequest,
+        company: Company,
+        plan: RetrievalPlan,
+        state: ResearchAgentState,
+        accumulator: RetrievalAgentAccumulator,
+        agent: ResearchAgentService,
+        *,
+        started: float,
+        timings: dict[str, float],
+        degraded: list[dict[str, str]],
+    ) -> RetrievalResponse:
+        del request, company
+        final_plan = _agent_final_plan(plan, state.actions_taken)
+        chunk_reads = accumulator.chunk_reads(limit=self._settings.retrieval_top_k)
+        evidence_chunk_reads = accumulator.evidence_chunk_reads()
+        pack_at = perf_counter()
+        final_evidence_pack, evidence_pack_trace = build_final_evidence_pack(
+            evidence_chunk_reads,
+            accumulator.metric_comparisons,
+            final_plan,
+            metric_observations=accumulator.metric_observations,
+            chunk_text_by_id=accumulator.chunk_text_by_id,
+        )
+        accumulator.evidence_pack_trace = evidence_pack_trace
+        if should_warn_empty_evidence_pack(final_plan, final_evidence_pack):
+            degraded.append(
+                {
+                    "stage": "evidence_pack",
+                    "reason": "empty_evidence_pack",
+                }
+            )
+        timings["evidence_pack_ms"] = _elapsed_ms(pack_at)
+        timings["total_ms"] = _elapsed_ms(started)
+
+        retrieval_scope = accumulator.retrieval_scope or RetrievalScope()
+        trace = {
+            "planner": final_plan.to_dict(),
+            "candidate_counts": {
+                "dense": accumulator.dense_candidate_count,
+                "lexical": accumulator.lexical_candidate_count,
+                "facts": len(accumulator.facts),
+                "metric_observations": len(accumulator.metric_observations),
+                "comparison_facts": len(accumulator.facts),
+                "metric_comparisons": len(accumulator.metric_comparisons),
+                "fused_chunks": accumulator.fused_chunk_count,
+                "evidence_chunk_candidates": len(evidence_chunk_reads),
+                "evidence_span_candidates": sum(
+                    len(items)
+                    for items in evidence_pack_trace.get("span_candidates", {}).values()
+                ),
+                "selected_evidence_spans": len(
+                    evidence_spans_for_pack(final_evidence_pack)
+                ),
+            },
+            "metric_comparisons": [
+                comparison.model_dump(mode="json")
+                for comparison in accumulator.metric_comparisons
+            ],
+            "dense_query_sources": accumulator.dense_query_sources,
+            "lexical_query_sources": accumulator.lexical_query_sources,
+            "fusion": accumulator.fusion,
+            "rerank_boosts": {
+                str(chunk_id): boosts
+                for chunk_id, boosts in accumulator.rerank_trace.items()
+            },
+            "chunk_scope": {
+                "latest_filing_date": (
+                    retrieval_scope.latest_filing_date.isoformat()
+                    if retrieval_scope.latest_filing_date is not None
+                    else None
+                ),
+                "filing_ids": list(retrieval_scope.filing_ids),
+                "accession_numbers": list(retrieval_scope.accession_numbers),
+                "form_types": list(retrieval_scope.form_types),
+                "duration_class": retrieval_scope.duration_class,
+                "reason": retrieval_scope.reason,
+            },
+            "evidence_pack": evidence_pack_trace,
+            "agent": agent.trace_payload(state),
+            "timing_ms": timings,
+            "degraded": degraded,
+            "retrieval_config": {
+                "vector_search_mode": self._settings.vector_search_mode,
+                "embedding_provider": self._settings.embedding_provider,
+                "embedding_model": self._settings.embedding_model,
+                "embedding_dimensions": self._settings.embedding_dimensions,
+                "embedding_input_version": self._settings.embedding_input_version,
+                "dense_candidates": self._settings.retrieval_dense_candidates,
+                "lexical_candidates": self._settings.retrieval_lexical_candidates,
+                "fact_candidates": self._settings.retrieval_fact_candidates,
+                "top_k": self._settings.retrieval_top_k,
+            },
+        }
+
+        return RetrievalResponse(
+            retrieval_plan=final_plan.to_dict(),
+            retrieved_chunks=chunk_reads,
+            retrieved_facts=accumulator.fact_reads,
+            metric_comparisons=accumulator.metric_comparisons,
+            final_evidence_pack=final_evidence_pack,
+            source_coverage_summary=build_source_coverage_summary(
+                chunk_reads,
+                accumulator.fact_reads,
+                accumulator.metric_comparisons,
                 final_evidence_pack,
             ),
             retrieval_trace=trace,
@@ -898,6 +1385,382 @@ class RetrievalService:
         if self._embedding_provider is None:
             self._embedding_provider = build_embedding_provider(self._settings)
         return self._embedding_provider
+
+
+def _agent_action_plan(
+    plan: RetrievalPlan,
+    question: str,
+    action_name: str,
+) -> RetrievalPlan:
+    target_sections = list(plan.target_sections)
+    evidence_roles = list(plan.evidence_roles)
+    dense_role = "slot"
+    dense_text = question
+    lexical_role = "supporting_text"
+    lexical_queries = [question]
+    time_scope = plan.time_scope
+    target_period = plan.target_period
+
+    if action_name == "retrieve_filing_chunks":
+        if plan.metric_keys:
+            target_sections = _dedupe(
+                [*_primary_statement_target_sections(plan), *target_sections]
+            )
+            evidence_roles = _dedupe(
+                [*evidence_roles, "primary_financial_statement_chunks"]
+            )
+            dense_role = "financial_statement"
+            dense_text = _agent_query_text(
+                "financial statements reported line items tables",
+                plan,
+            )
+            lexical_role = "primary_financial_statement"
+            lexical_queries = _agent_metric_lexical_queries(
+                plan,
+                [
+                    '"consolidated statements of operations"',
+                    '"condensed consolidated statements"',
+                    '"financial statements"',
+                ],
+            )
+        else:
+            target_sections = target_sections or ["Management's Discussion and Analysis"]
+            evidence_roles = evidence_roles or ["mda_explanation_chunks"]
+            dense_role = "slot"
+            dense_text = _agent_query_text(
+                "filing text management discussion business overview",
+                plan,
+            )
+            lexical_role = "filing_text"
+            lexical_queries = [
+                question,
+                '"management discussion and analysis"',
+                '"business"',
+                '"overview"',
+            ]
+    elif action_name == "retrieve_mda":
+        target_sections = _dedupe(
+            [*target_sections, "Management's Discussion and Analysis"]
+        )
+        evidence_roles = _dedupe([*evidence_roles, "mda_explanation_chunks"])
+        dense_role = "mda"
+        dense_text = _agent_query_text(
+            "management discussion analysis results of operations drivers primarily due to compared to",
+            plan,
+        )
+        lexical_role = "mda_explanation"
+        lexical_queries = _agent_metric_lexical_queries(
+            plan,
+            [
+                '"results of operations"',
+                '"management discussion and analysis"',
+                '"primarily due to"',
+                '"compared to"',
+            ],
+        )
+    elif action_name == "retrieve_risk_factors":
+        target_sections = ["Risk Factors"]
+        evidence_roles = ["risk_factor_chunks"]
+        dense_role = "risk"
+        dense_text = "risk factors item 1a business operational financial regulatory risks"
+        lexical_role = "risk_factor"
+        lexical_queries = ['"risk factors"', '"item 1a"', '"could adversely affect"']
+    elif action_name == "retrieve_segment_discussion":
+        target_sections = _dedupe(
+            [*target_sections, "Management's Discussion and Analysis"]
+        )
+        evidence_roles = _dedupe(
+            [*evidence_roles, "segment_or_product_breakdown_chunks"]
+        )
+        dense_role = "mda"
+        dense_text = _agent_query_text(
+            "products and services performance segment operating performance product mix geography drivers",
+            plan,
+        )
+        lexical_role = "segment_or_product_breakdown"
+        lexical_queries = _agent_metric_lexical_queries(
+            plan,
+            [
+                '"products and services performance"',
+                '"segment operating performance"',
+                '"reportable segment"',
+                '"by category"',
+                '"product mix"',
+            ],
+        )
+    elif action_name == "retrieve_prior_filings":
+        target_sections = _dedupe(
+            [
+                *target_sections,
+                "Financial Statements",
+                "Management's Discussion and Analysis",
+            ]
+        )
+        evidence_roles = _dedupe(
+            [
+                *evidence_roles,
+                "primary_financial_statement_chunks",
+                "mda_explanation_chunks",
+                "annual_context_chunks",
+            ]
+        )
+        dense_role = "slot"
+        dense_text = _agent_query_text(
+            "prior period filing comparison year over year results of operations",
+            plan,
+        )
+        lexical_role = "prior_filing_context"
+        lexical_queries = _agent_metric_lexical_queries(
+            plan,
+            ['"compared to"', '"prior year"', '"year ended"', '"three months ended"'],
+        )
+        time_scope = "comparison_trend"
+        target_period = None
+
+    dense_query_specs = [
+        {
+            "role": dense_role,
+            "text": dense_text,
+            "weight": _agent_role_weight(dense_role),
+        },
+        {
+            "role": "original",
+            "text": question,
+            "weight": 0.45,
+        },
+    ]
+    lexical_query_specs = [
+        {
+            "role": lexical_role,
+            "queries": _dedupe(query for query in lexical_queries if query.strip()),
+            "weight": 1.0,
+        }
+    ]
+
+    return replace(
+        plan,
+        target_sections=target_sections,
+        evidence_roles=evidence_roles,
+        dense_queries=[spec["text"] for spec in dense_query_specs],
+        dense_query_specs=dense_query_specs,
+        lexical_queries=_dedupe(lexical_queries)[:MAX_AGENT_LEXICAL_QUERIES],
+        lexical_query_specs=lexical_query_specs,
+        matched_rules=[*plan.matched_rules, f"agent_action:{action_name}"],
+        needs_text_chunks=True,
+        time_scope=time_scope,
+        target_period=target_period,
+    )
+
+
+def _agent_final_plan(
+    plan: RetrievalPlan,
+    actions_taken: set[str],
+) -> RetrievalPlan:
+    evidence_roles = list(plan.evidence_roles)
+    target_sections = list(plan.target_sections)
+    if "query_xbrl_metrics" in actions_taken and plan.metric_keys:
+        evidence_roles.append("metric_comparisons")
+    if "retrieve_filing_chunks" in actions_taken and plan.metric_keys:
+        evidence_roles.append("primary_financial_statement_chunks")
+        target_sections.extend(_primary_statement_target_sections(plan))
+    if "retrieve_mda" in actions_taken:
+        evidence_roles.append("mda_explanation_chunks")
+        target_sections.append("Management's Discussion and Analysis")
+    if "retrieve_segment_discussion" in actions_taken:
+        evidence_roles.append("segment_or_product_breakdown_chunks")
+        target_sections.append("Management's Discussion and Analysis")
+    if "retrieve_risk_factors" in actions_taken:
+        evidence_roles.append("risk_factor_chunks")
+        target_sections.append("Risk Factors")
+    if "retrieve_prior_filings" in actions_taken:
+        evidence_roles.extend(
+            [
+                "primary_financial_statement_chunks",
+                "mda_explanation_chunks",
+                "annual_context_chunks",
+            ]
+        )
+        target_sections.extend(
+            ["Financial Statements", "Management's Discussion and Analysis"]
+        )
+    return replace(
+        plan,
+        target_sections=_dedupe(target_sections),
+        evidence_roles=_dedupe(evidence_roles),
+        matched_rules=_dedupe([*plan.matched_rules, "agent:react_bounded"]),
+    )
+
+
+def _agent_query_text(prefix: str, plan: RetrievalPlan) -> str:
+    metric_terms = " ".join(metric_key.replace("_", " ") for metric_key in plan.metric_keys)
+    comparison_terms = _agent_comparison_terms(
+        plan.default_comparison_basis or plan.comparison_basis
+    )
+    duration_terms = " ".join(_agent_period_terms(plan.duration_class))
+    return _join_agent_terms(
+        [prefix, metric_terms, comparison_terms, duration_terms],
+        max_words=32,
+    )
+
+
+def _agent_metric_lexical_queries(
+    plan: RetrievalPlan,
+    fallback_queries: list[str],
+) -> list[str]:
+    queries = list(fallback_queries)
+    for metric_key in plan.metric_keys:
+        profile = get_metric_profile(metric_key)
+        if profile is not None:
+            queries.extend(profile.lexical_queries[:4])
+        else:
+            queries.append(f'"{metric_key.replace("_", " ")}"')
+    return _dedupe(queries)[:MAX_AGENT_LEXICAL_QUERIES]
+
+
+def _agent_role_weight(role: str) -> float:
+    return {
+        "slot": 1.0,
+        "financial_statement": 0.95,
+        "cash_flow": 1.0,
+        "liquidity": 0.85,
+        "mda": 0.85,
+        "risk": 1.0,
+    }.get(role, 1.0)
+
+
+def _agent_comparison_terms(comparison_basis: str) -> str:
+    return {
+        "latest_quarter_yoy": "latest quarter three months ended year over year compared to prior year",
+        "previous_quarter_yoy": "previous quarter three months ended year over year",
+        "latest_ytd_yoy": "latest year to date compared to prior year",
+        "previous_ytd_yoy": "previous year to date compared to prior year",
+        "latest_fy_yoy": "latest fiscal year year ended compared to prior fiscal year",
+        "previous_fy_yoy": "previous fiscal year year ended compared to prior fiscal year",
+        "ambiguous": "quarterly year to date annual year over year trend",
+    }.get(comparison_basis, "")
+
+
+def _agent_period_terms(duration_class: str | None) -> list[str]:
+    if duration_class == "quarter":
+        return ["latest quarter", "three months ended", "quarterly"]
+    if duration_class == "ytd":
+        return ["year to date", "six months ended", "nine months ended"]
+    if duration_class == "fy":
+        return ["fiscal year", "year ended", "annual"]
+    if duration_class == "instant":
+        return ["period end", "as of", "balance sheet"]
+    return []
+
+
+def _join_agent_terms(terms: list[str], *, max_words: int) -> str:
+    words: list[str] = []
+    for term in _dedupe([" ".join(term.split()) for term in terms if term.strip()]):
+        for word in term.split():
+            if len(words) >= max_words:
+                break
+            words.append(word)
+    return " ".join(words)
+
+
+def _primary_statement_target_sections(plan: RetrievalPlan) -> list[str]:
+    sections = [
+        section
+        for section in plan.target_sections
+        if section in {"Financial Statements", "Cash Flows", "Liquidity"}
+    ]
+    return sections or ["Financial Statements"]
+
+
+def _dedupe_facts(facts: list[FinancialFact]) -> list[FinancialFact]:
+    deduped: dict[tuple[Any, ...], FinancialFact] = {}
+    for fact in facts:
+        key = (
+            fact.id,
+            fact.canonical_metric_key,
+            fact.period_start,
+            fact.period_end,
+            fact.source_accession_number,
+            fact.source_fact_id,
+        )
+        deduped.setdefault(key, fact)
+    return list(deduped.values())
+
+
+def _merge_chunk_reads(
+    target: dict[int, RetrievedChunkRead],
+    chunks: list[RetrievedChunkRead],
+) -> None:
+    for chunk in chunks:
+        current = target.get(chunk.chunk_id)
+        if current is None or chunk.score > current.score:
+            target[chunk.chunk_id] = chunk
+
+
+def _agent_source_trace(
+    action_name: str,
+    sources: list[tuple[str, list[tuple[int, float]], float]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "action": action_name,
+            "source": source_name,
+            "candidate_count": len(source_candidates),
+            "weight": weight,
+        }
+        for source_name, source_candidates, weight in sources
+    ]
+
+
+def _agent_counts(
+    accumulator: RetrievalAgentAccumulator,
+    pack: EvidencePackRead,
+) -> dict[str, int]:
+    return {
+        "facts": len(accumulator.fact_reads),
+        "metric_observations": len(pack.metric_observations),
+        "metric_comparisons": len(pack.metric_comparisons),
+        "chunks": len(accumulator.chunk_reads_by_id),
+        "evidence_spans": len(evidence_spans_for_pack(pack)),
+        "primary_financial_statement_chunks": len(
+            pack.primary_financial_statement_chunks
+        ),
+        "mda_explanation_chunks": len(pack.mda_explanation_chunks),
+        "segment_or_product_breakdown_chunks": len(
+            pack.segment_or_product_breakdown_chunks
+        ),
+        "risk_factor_chunks": len(pack.risk_factor_chunks),
+        "annual_context_chunks": len(pack.annual_context_chunks),
+        "primary_financial_statement_spans": len(
+            pack.primary_financial_statement_spans
+        ),
+        "mda_explanation_spans": len(pack.mda_explanation_spans),
+        "segment_or_product_breakdown_spans": len(
+            pack.segment_or_product_breakdown_spans
+        ),
+        "risk_factor_spans": len(pack.risk_factor_spans),
+        "annual_context_spans": len(pack.annual_context_spans),
+    }
+
+
+def _agent_evidence_ids(
+    pack: EvidencePackRead,
+    *,
+    fact_reads: list[RetrievedFinancialFactRead],
+    metric_comparisons: list[MetricComparisonRead],
+) -> list[str]:
+    ids = [
+        *(observation.evidence_id for observation in pack.metric_observations),
+        *(comparison.evidence_id for comparison in pack.metric_comparisons),
+        *(chunk.evidence_id for chunk in pack.primary_financial_statement_chunks),
+        *(chunk.evidence_id for chunk in pack.mda_explanation_chunks),
+        *(chunk.evidence_id for chunk in pack.segment_or_product_breakdown_chunks),
+        *(chunk.evidence_id for chunk in pack.risk_factor_chunks),
+        *(chunk.evidence_id for chunk in pack.annual_context_chunks),
+        *(span.evidence_id for span in evidence_spans_for_pack(pack)),
+        *(fact.evidence_id for fact in fact_reads[:5]),
+        *(comparison.evidence_id for comparison in metric_comparisons[:5]),
+    ]
+    return list(dict.fromkeys(ids))
 
 
 def effective_dense_query_specs(plan: RetrievalPlan) -> list[DenseQuerySpec]:

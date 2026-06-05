@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     retrieval_lexical_candidates: int = Field(default=40, ge=1, le=500)
     retrieval_fact_candidates: int = Field(default=20, ge=1, le=500)
     retrieval_top_k: int = Field(default=10, ge=1, le=50)
+    research_agent_max_steps: int = Field(default=5, ge=1, le=10)
     query_planner_mode: Literal["llm", "rule_only", "rule_with_llm_fallback"] = "llm"
     query_planner_llm_model: str = "gpt-4o-mini"
     query_planner_llm_timeout_seconds: float = Field(default=20.0, gt=0, le=60)

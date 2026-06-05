@@ -412,6 +412,7 @@ Return one JSON object with:
 - limitations: array of short limitations or caveats.
 
 Only include limitations for specific evidence gaps, conflicts, stale data, or unanswered parts of the question.
+Do not add generic caveats.
 If evidence is not enough, say so plainly in answer and keep citations empty.
 """.strip()
 
