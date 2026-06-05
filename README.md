@@ -30,6 +30,7 @@ Implemented:
 - Final evidence pack selection with role-based chunk groups, selected evidence spans, metric comparisons, and stable evidence ids.
 - Developer/debug retrieval API and frontend Evidence Retrieval view.
 - Answer evidence context contract (`answer_evidence_context.v1`) for future answer service and validator integration.
+- Auditable research-run API and minimal frontend trace viewer for planner, agent steps, evidence, validation, and diagnostics.
 - Retrieval dump and gold-eval utilities.
 - Company, filing, parsing, metrics, embedding, retrieval, and job read APIs.
 
@@ -310,6 +311,8 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve?view=ana
   -ContentType "application/json" `
   -Body '{"ticker":"AAPL","question":"What drove Apple revenue growth?"}'
 ```
+
+`POST /research/runs` returns the final cited answer plus an auditable `research_run.v1` contract containing planner output, agent/tool steps, normalized evidence, validation status, limitations, and retrieval diagnostics.
 
 The full response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, `final_evidence_pack`, and `retrieval_trace`. The compact `view=analysis` response keeps the same diagnostic shape but trims long payloads for terminal inspection.
 
