@@ -28,7 +28,7 @@ Implemented:
 - Embedding provider interface and batch chunk embedding generation with versioned embedding inputs.
 - Dense retrieval, lexical retrieval, XBRL fact retrieval, rule-based query planning, optional LLM planner fallback, RRF fusion, metadata reranking, and retrieval trace output.
 - Final evidence pack selection with role-based chunk groups, selected evidence spans, metric comparisons, and stable evidence ids.
-- Developer/debug retrieval API and frontend Evidence Retrieval view.
+- Developer/debug retrieval API and frontend Research view.
 - Answer evidence context contract (`answer_evidence_context.v1`) used by answer generation, citation validation, and research-run responses.
 - Auditable research-run API and minimal frontend trace viewer for planner, agent steps, evidence, validation, and diagnostics.
 - Retrieval dump and gold-eval utilities.
@@ -320,11 +320,13 @@ curl -X POST "http://127.0.0.1:8000/research/runs" \
   -d '{"ticker":"AAPL","question":"What drove revenue growth last quarter?"}'
 ```
 
-The full response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, `final_evidence_pack`, and `retrieval_trace`. The compact `view=analysis` response keeps the same diagnostic shape but trims long payloads for terminal inspection.
+The research-run response includes `answer`, `validation`, `limitations`, `plan`, `steps`, normalized `evidence`, and `diagnostics`. Each step carries evidence ids that point into the normalized evidence list, and `diagnostics` preserves planner summary, retrieval configuration, source coverage, and score-breakdown details when available.
+
+`POST /research/retrieve?view=analysis` remains the lower-level developer/debug retrieval endpoint. Its response includes `retrieval_plan`, `retrieved_chunks`, `retrieved_facts`, `metric_comparisons`, `source_coverage_summary`, `final_evidence_pack`, and `retrieval_trace`. The compact `view=analysis` response keeps the same diagnostic shape but trims long payloads for terminal inspection.
 
 `final_evidence_pack` groups selected evidence into primary financial statement chunks, MD&A explanation chunks, segment or product breakdown chunks, annual context chunks, metric comparisons, and selected evidence spans. Spans are short excerpts selected from retrieved chunks because they are the most directly useful text for answering the question; they retain their source chunk evidence id, page metadata, SEC URL, and selection reasons.
 
-Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible. The frontend includes an Evidence Retrieval view for inspecting the same evidence pack, spans, facts, comparisons, and retrieval trace.
+Dense retrieval degrades gracefully when embeddings are missing or unavailable; lexical retrieval and XBRL fact retrieval still run when possible. The frontend Research view calls `/research/runs` and shows the cited answer, validation result, agent step timeline, selected-step evidence, and retrieval diagnostics. Raw retrieval details remain available through `/research/retrieve` and the retrieval dump utilities.
 
 ## Evaluation Utilities
 
