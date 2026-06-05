@@ -221,6 +221,31 @@ def test_research_answer_service_accepts_repaired_numbered_citation() -> None:
     assert generator.call_count == 1
 
 
+def test_research_answer_service_answers_from_existing_retrieval_response() -> None:
+    generator = SequenceAnswerGenerator(
+        [
+            GeneratedAnswer(
+                answer=(
+                    "Total net sales were supported by the selected filing span. "
+                    "[span:101:primary_financial_statement_chunks:0:80]"
+                ),
+                cited_evidence_ids=["span:101:primary_financial_statement_chunks:0:80"],
+            ),
+        ]
+    )
+    service = ResearchAnswerService(
+        None,
+        retriever=FakeRetriever(),
+        answer_generator=generator,
+    )
+
+    response = service.answer_from_retrieval_response(make_request(), make_response())
+
+    assert response.validation_status == "passed"
+    assert response.retrieval_plan.question_type == "metric"
+    assert generator.call_count == 1
+
+
 def test_research_answer_service_uses_extractive_fallback_after_failed_retry() -> None:
     generator = SequenceAnswerGenerator(
         [

@@ -264,6 +264,13 @@ class ResearchAnswerService:
 
     def answer(self, request: RetrievalRequest) -> ResearchAnswerResponseRead:
         retrieval_response = RetrievalResponse.model_validate(self._retriever.retrieve(request))
+        return self.answer_from_retrieval_response(request, retrieval_response)
+
+    def answer_from_retrieval_response(
+        self,
+        request: RetrievalRequest,
+        retrieval_response: RetrievalResponse,
+    ) -> ResearchAnswerResponseRead:
         context = build_answer_evidence_context(request, retrieval_response)
         evidence_records = build_prompt_evidence_records(context)
         prompt_evidence_ids = [record.evidence_id for record in evidence_records]
