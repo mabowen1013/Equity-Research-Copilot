@@ -2,7 +2,7 @@
 
 [中文版本](./README.zh-CN.md)
 
-Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings, normalized XBRL financial metrics from SEC company facts, chunk embeddings, semantic retrieval, metric-aware retrieval, and evidence packaging for downstream answer generation.
+Equity Research Copilot is a full-stack research assistant for US public equities. The backend currently supports SEC company and filing metadata ingestion, SEC filing HTML download, `sec2md` parsing, section extraction, citation-ready chunk storage for recent `10-K`, `10-Q`, and `8-K` filings, normalized XBRL financial metrics from SEC company facts, chunk embeddings, semantic retrieval, metric-aware retrieval, cited answer generation, and auditable research-run packaging.
 
 This project is for research assistance only. It is not investment advice.
 
@@ -36,8 +36,8 @@ Implemented:
 
 Not implemented yet:
 
-- Citation-grounded answer generation and citation validation.
-- Frontend Q&A workflow that turns retrieved evidence into final answers.
+- Broader claim-level support validation beyond citation ID checks.
+- Production hardening for the research-run workflow and trace viewer.
 - Production retrieval optimizations such as HNSW auto mode, MMR diversity, neighbor expansion, learned reranking, and broader eval coverage.
 
 ## Prerequisites
@@ -260,7 +260,7 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/
 
 ## Retrieval and Evidence
 
-Milestone 5 retrieval is implemented. The system can embed parsed filing chunks, retrieve relevant filing evidence for a user question, include metric-aware XBRL facts and comparisons, and return stable evidence ids for later answer generation and validation.
+Milestone 5 retrieval is implemented. The system can embed parsed filing chunks, retrieve relevant filing evidence for a user question, include metric-aware XBRL facts and comparisons, and return stable evidence ids for cited answer generation and citation ID validation.
 
 Generate embeddings after filings are parsed:
 
@@ -447,6 +447,6 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 - `sec2md` only supports HTML input. PDF or non-HTML primary documents are marked as parse failures.
 - Chunk highlighted-source pages are generated dynamically from stored annotated HTML and chunk element ids.
 - XBRL metrics use a conservative US-GAAP tag mapping. Missing metrics are shown as unavailable rather than guessed.
-- Milestone 5 returns evidence, facts, spans, comparisons, and trace data. It does not generate final natural-language answers yet.
+- The research workflow can generate final cited natural-language answers and validate citation IDs against the allowed evidence set.
 - Query planning is LLM-first. If the LLM is unavailable, the backend falls back to broad text retrieval instead of using brittle keyword slot rules.
-- HNSW auto mode, learned reranking, larger eval coverage, answer generation, and citation validation are deferred to later milestones.
+- HNSW auto mode, learned reranking, larger eval coverage, deeper claim-level support validation, and production hardening remain future work.
