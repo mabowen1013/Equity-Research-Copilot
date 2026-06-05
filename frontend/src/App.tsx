@@ -910,8 +910,6 @@ function ResearchPage({
   const keepLimitationsOpen = run?.validation_status !== "passed";
   const selectedStep = getSelectedStep(run?.steps ?? [], selectedStepId);
   const selectedEvidence = getStepEvidence(run?.evidence ?? [], selectedStep);
-  const visibleEvidence =
-    selectedEvidence.length > 0 ? selectedEvidence : (run?.evidence ?? []).slice(0, 6);
 
   return (
     <section className="research-page" aria-labelledby="research-heading">
@@ -1018,11 +1016,11 @@ function ResearchPage({
             <section className="evidence-panel" aria-labelledby="run-evidence-heading">
               <div className="panel-header panel-header--compact">
                 <h3 id="run-evidence-heading">
-                  {selectedEvidence.length > 0 ? "Step Evidence" : "Run Evidence"}
+                  Step Evidence
                 </h3>
-                <span>{visibleEvidence.length}</span>
+                <span>{selectedEvidence.length}</span>
               </div>
-              <EvidenceCards evidence={visibleEvidence} />
+              <EvidenceCards evidence={selectedEvidence} />
             </section>
           </div>
 
@@ -1070,17 +1068,7 @@ function ResearchPage({
           <details className="diagnostics-panel">
             <summary>Diagnostics</summary>
             <pre>
-              {JSON.stringify(
-                {
-                  candidate_counts: run.diagnostics.candidate_counts,
-                  timing_ms: run.diagnostics.timing_ms,
-                  degraded: run.diagnostics.degraded,
-                  retrieval_config: run.diagnostics.retrieval_config,
-                  source_coverage_summary: run.diagnostics.source_coverage_summary,
-                },
-                null,
-                2,
-              )}
+              {JSON.stringify(run.diagnostics, null, 2)}
             </pre>
           </details>
         </div>
