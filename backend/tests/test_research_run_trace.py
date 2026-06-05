@@ -198,6 +198,7 @@ def make_retrieval_response() -> RetrievalResponse:
             "timing_ms": {"planner_ms": 1.0, "total_ms": 12.0},
             "degraded": [{"stage": "dense", "reason": "embedding_unavailable"}],
             "retrieval_config": {"top_k": 10},
+            "top_score_breakdown": [{"evidence_id": "chunk:10", "score": 0.95}],
             "agent": {
                 "mode": "react_bounded",
                 "stop_reason": "evidence_sufficient",
@@ -292,3 +293,6 @@ def test_trace_builder_copies_diagnostics() -> None:
     assert diagnostics.candidate_counts["dense"] == 3
     assert diagnostics.timing_ms["total_ms"] == 12.0
     assert diagnostics.degraded[0]["stage"] == "dense"
+    assert diagnostics.retrieval_config["top_k"] == 10
+    assert diagnostics.source_coverage_summary["mda_explanation_spans"] == 1
+    assert diagnostics.top_score_breakdown == [{"evidence_id": "chunk:10", "score": 0.95}]

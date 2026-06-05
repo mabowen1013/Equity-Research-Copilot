@@ -162,7 +162,7 @@ def build_research_run_diagnostics(
         ],
         retrieval_config=dict(trace.get("retrieval_config", {})),
         source_coverage_summary=retrieval_response.source_coverage_summary,
-        top_score_breakdown=_top_score_breakdown(retrieval_response),
+        top_score_breakdown=_trace_top_score_breakdown(trace, retrieval_response),
     )
 
 
@@ -336,6 +336,16 @@ def _top_score_breakdown(response: RetrievalResponse) -> list[dict[str, Any]]:
         }
         for chunk in response.retrieved_chunks
     ]
+
+
+def _trace_top_score_breakdown(
+    trace: dict[str, Any],
+    response: RetrievalResponse,
+) -> list[dict[str, Any]]:
+    value = trace.get("top_score_breakdown")
+    if isinstance(value, list):
+        return [dict(item) for item in value if isinstance(item, dict)]
+    return _top_score_breakdown(response)
 
 
 def _period_text(start: Any, end: Any) -> str:
