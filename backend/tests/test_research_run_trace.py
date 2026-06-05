@@ -7,6 +7,7 @@ from app.schemas import (
     EvidencePackRead,
     EvidenceSpanRead,
     MetricComparisonRead,
+    MetricObservationComponentRead,
     MetricObservationRead,
     ResearchAnswerResponseRead,
     ResearchRunDiagnosticsRead,
@@ -117,6 +118,24 @@ def make_plan() -> RetrievalPlanRead:
 
 
 def make_retrieval_response() -> RetrievalResponse:
+    component = MetricObservationComponentRead(
+        evidence_id="metric_observation_component:revenue:service:100",
+        fact_id=101,
+        canonical_metric_key="service_revenue",
+        value=Decimal("600000000"),
+        unit="USD",
+        display_value="$600M",
+        period_start=date(2026, 1, 1),
+        period_end=date(2026, 3, 31),
+        duration_class="quarter",
+        fiscal_period="Q1",
+        form_type="10-Q",
+        filed_date=date(2026, 5, 1),
+        source_filing_id=10,
+        source_accession_number="0000000000-26-000001",
+        source_filing_url="https://www.sec.gov/filing",
+        source_fact_id="fact-101",
+    )
     observation = MetricObservationRead(
         evidence_id="metric_observation:revenue:100",
         canonical_metric_key="revenue",
@@ -134,6 +153,7 @@ def make_retrieval_response() -> RetrievalResponse:
         source_filing_url="https://www.sec.gov/filing",
         source_fact_id="fact-100",
         source_fact_evidence_id="financial_fact:100",
+        component_observations=[component],
         confidence=1.0,
     )
     comparison = MetricComparisonRead(
@@ -283,6 +303,7 @@ def test_trace_builder_flattens_evidence_from_pack() -> None:
     evidence_by_id = {item.evidence_id: item for item in evidence}
 
     assert evidence_by_id["metric_observation:revenue:100"].metric_key == "revenue"
+    assert evidence_by_id["metric_observation_component:revenue:service:100"].role == "metric_observation_component"
     assert evidence_by_id["metric_comparison:revenue:latest_quarter_yoy:100:90"].role == "metric_comparison"
     assert evidence_by_id["span:10:mda_explanation_chunks:0:50"].section == "Management's Discussion and Analysis"
 

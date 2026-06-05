@@ -12,6 +12,7 @@ from app.schemas.retrieval import (
     EvidencePackRead,
     EvidenceSpanRead,
     MetricComparisonRead,
+    MetricObservationComponentRead,
     MetricObservationRead,
     RetrievedChunkRead,
     RetrievedFinancialFactRead,
@@ -134,6 +135,8 @@ def build_research_run_evidence(
 
     for observation in pack.metric_observations:
         evidence.append(_metric_observation_evidence(observation))
+        for component in observation.component_observations:
+            evidence.append(_metric_observation_component_evidence(component))
     for comparison in pack.metric_comparisons:
         evidence.append(_metric_comparison_evidence(comparison))
     for fact in retrieval_response.retrieved_facts:
@@ -211,6 +214,31 @@ def _metric_observation_evidence(observation: MetricObservationRead) -> Research
             "source_accession_number": observation.source_accession_number,
             "source_fact_id": observation.source_fact_id,
             "source_fact_evidence_id": observation.source_fact_evidence_id,
+        },
+    )
+
+
+def _metric_observation_component_evidence(
+    component: MetricObservationComponentRead,
+) -> ResearchRunEvidenceRead:
+    return ResearchRunEvidenceRead(
+        evidence_id=component.evidence_id,
+        evidence_type="metric_observation_component",
+        role="metric_observation_component",
+        title=component.canonical_metric_key.replace("_", " ").title(),
+        text=f"{component.display_value} component for {_period_text(component.period_start, component.period_end)}",
+        metric_key=component.canonical_metric_key,
+        value=str(component.value),
+        period=_period_text(component.period_start, component.period_end),
+        form_type=component.form_type,
+        filing_date=_date_str(component.filed_date),
+        section=None,
+        sec_url=component.source_filing_url,
+        source_ids={
+            "fact_id": component.fact_id,
+            "source_filing_id": component.source_filing_id,
+            "source_accession_number": component.source_accession_number,
+            "source_fact_id": component.source_fact_id,
         },
     )
 
