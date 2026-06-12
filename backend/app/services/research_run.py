@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from time import perf_counter
+from typing import Any, Callable
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -14,10 +15,13 @@ from app.schemas import RetrievalRequest, RetrievalResponse
 from app.schemas.research_run import ResearchRunRead
 from app.services.answer_generation import AnswerGenerator, ResearchAnswerService
 from app.services.research_trace import (
+    agent_step_to_run_step,
     build_research_run_diagnostics,
     build_research_run_evidence,
     build_research_run_steps,
 )
+
+RunEventCallback = Callable[[dict[str, Any]], None]
 from app.services.retrieval import RetrievalService
 
 logger = logging.getLogger(__name__)
@@ -44,17 +48,38 @@ class ResearchRunService:
             validator=validator,
         )
 
-    def run(self, request: RetrievalRequest) -> ResearchRunRead:
+    def run(
+        self,
+        request: RetrievalRequest,
+        *,
+        on_event: RunEventCallback | None = None,
+    ) -> ResearchRunRead:
         run_started = perf_counter()
         started_at = datetime.now(UTC)
         run_id = f"run_{uuid4().hex}"
 
-        retrieval_response = RetrievalResponse.model_validate(
-            self._retriever.retrieve(request)
-        )
+        if on_event is None:
+            retrieval_response = RetrievalResponse.model_validate(
+                self._retriever.retrieve(request)
+            )
+        else:
+            on_event(
+                {
+                    "type": "status",
+                    "stage": "planning",
+                    "message": "Planning retrieval for the question.",
+                }
+            )
+            retrieval_response = RetrievalResponse.model_validate(
+                self._retriever.retrieve(
+                    request,
+                    on_agent_step=_build_agent_step_emitter(on_event),
+                )
+            )
         answer_response = self._answer_service.answer_from_retrieval_response(
             request,
             retrieval_response,
+            on_event=on_event,
         )
         finished_at = datetime.now(UTC)
         duration_ms = (perf_counter() - run_started) * 1000
@@ -126,6 +151,18 @@ class ResearchRunService:
             # the run is still returned to the caller, only retrieval-by-id is lost.
             logger.exception("Failed to persist research run %s", run.run_id)
             self._db.rollback()
+
+
+def _build_agent_step_emitter(on_event: RunEventCallback) -> Callable[[dict[str, Any]], None]:
+    step_index = 0
+
+    def emit_agent_step(raw_step: dict[str, Any]) -> None:
+        nonlocal step_index
+        step = agent_step_to_run_step(raw_step, step_index=step_index)
+        step_index += 1
+        on_event({"type": "step", "step": step.model_dump(mode="json")})
+
+    return emit_agent_step
 
 
 def _run_status(validation_status: str) -> str:

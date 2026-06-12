@@ -24,7 +24,7 @@ import {
   ingestCompany,
   loadCompanyMetrics,
   parseFiling,
-  runResearch,
+  streamResearch,
 } from "./api/sec";
 import "./styles.css";
 
@@ -265,6 +265,9 @@ export function App() {
     null,
   );
   const [selectedRunStepId, setSelectedRunStepId] = useState<string | null>(null);
+  const [liveStage, setLiveStage] = useState<string | null>(null);
+  const [liveSteps, setLiveSteps] = useState<ResearchRunStep[]>([]);
+  const [liveAnswer, setLiveAnswer] = useState("");
   const [isLoadingCompany, setIsLoadingCompany] = useState(false);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isLoadingParsedData, setIsLoadingParsedData] = useState(false);
@@ -521,20 +524,42 @@ export function App() {
     setIsAsking(true);
     setError(null);
     setMessage(null);
+    setResearchRun(null);
+    setSelectedRunStepId(null);
+    setLiveStage("planning");
+    setLiveSteps([]);
+    setLiveAnswer("");
 
     try {
-      const nextRun = await runResearch({
-        ticker: company.ticker,
-        question,
+      await streamResearch({ ticker: company.ticker, question }, (event) => {
+        if (event.type === "status") {
+          setLiveStage(event.stage);
+        } else if (event.type === "step") {
+          setLiveStage("retrieval");
+          setLiveSteps((current) =>
+            current.some((step) => step.step_id === event.step.step_id)
+              ? current
+              : [...current, event.step],
+          );
+        } else if (event.type === "answer_started") {
+          setLiveStage("answer_generation");
+          setLiveAnswer("");
+        } else if (event.type === "answer_delta") {
+          setLiveAnswer((current) => current + event.text);
+        } else if (event.type === "validation") {
+          setLiveStage("validation");
+        } else if (event.type === "run") {
+          setResearchRun(event.run);
+          setSelectedRunStepId(event.run.steps[0]?.step_id ?? null);
+        } else if (event.type === "error") {
+          setError(event.message);
+        }
       });
-      setResearchRun(nextRun);
-      setSelectedRunStepId(nextRun.steps[0]?.step_id ?? null);
     } catch (retrievalError) {
-      setResearchRun(null);
-      setSelectedRunStepId(null);
       setError(getErrorMessage(retrievalError));
     } finally {
       setIsAsking(false);
+      setLiveStage(null);
     }
   }
 
@@ -870,6 +895,9 @@ export function App() {
             run={researchRun}
             selectedStepId={selectedRunStepId}
             isAsking={isAsking}
+            liveStage={liveStage}
+            liveSteps={liveSteps}
+            liveAnswer={liveAnswer}
             onQuestionChange={setResearchQuestion}
             onSelectStep={setSelectedRunStepId}
             onSubmit={handleRetrieveEvidence}
@@ -887,6 +915,9 @@ function ResearchPage({
   run,
   selectedStepId,
   isAsking,
+  liveStage,
+  liveSteps,
+  liveAnswer,
   onQuestionChange,
   onSelectStep,
   onSubmit,
@@ -897,6 +928,9 @@ function ResearchPage({
   run: ResearchRunResponse | null;
   selectedStepId: string | null;
   isAsking: boolean;
+  liveStage: string | null;
+  liveSteps: ResearchRunStep[];
+  liveAnswer: string;
   onQuestionChange: (question: string) => void;
   onSelectStep: (stepId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
@@ -941,7 +975,9 @@ function ResearchPage({
         </button>
       </form>
 
-      {run === null ? (
+      {run === null && isAsking ? (
+        <LiveRunProgress stage={liveStage} steps={liveSteps} answerDraft={liveAnswer} />
+      ) : run === null ? (
         <p className="empty-state">
           {hasCompany
             ? "Ask a question to generate a cited, validator-checked answer."
@@ -1075,6 +1111,111 @@ function ResearchPage({
       )}
     </section>
   );
+}
+
+const LIVE_STAGE_LABELS: Record<string, string> = {
+  planning: "Planning retrieval",
+  retrieval: "Gathering evidence",
+  answer_generation: "Writing cited answer",
+  validation: "Validating citations",
+};
+
+function LiveRunProgress({
+  stage,
+  steps,
+  answerDraft,
+}: {
+  stage: string | null;
+  steps: ResearchRunStep[];
+  answerDraft: string;
+}) {
+  const stageLabel = LIVE_STAGE_LABELS[stage ?? ""] ?? "Working";
+  const markerNumbers = new Map<string, number>();
+  const visibleDraft = answerDraft.replace(/\[[^\]]*$/, "");
+  const paragraphs = visibleDraft
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return (
+    <div className="research-results">
+      <div className="live-run-grid">
+        <section className="answer-panel" aria-labelledby="live-answer-heading">
+          <div className="panel-header panel-header--compact">
+            <h3 id="live-answer-heading">Answer</h3>
+            <span className="live-stage-pill">{stageLabel}…</span>
+          </div>
+          {paragraphs.length > 0 ? (
+            <div className="answer-text" aria-live="polite">
+              {paragraphs.map((paragraph, index) => (
+                <p key={`${paragraph.slice(0, 32)}:${index}`}>
+                  {renderDraftParagraph(paragraph, markerNumbers)}
+                  {index === paragraphs.length - 1 && (
+                    <span className="streaming-cursor" aria-hidden="true" />
+                  )}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">{stageLabel}…</p>
+          )}
+        </section>
+
+        <section className="trace-panel" aria-labelledby="live-trace-heading">
+          <div className="panel-header panel-header--compact">
+            <h3 id="live-trace-heading">Agent Trace</h3>
+            <span>{steps.length} steps</span>
+          </div>
+          <div className="trace-list">
+            {steps.map((step) => (
+              <div className="trace-step" key={step.step_id}>
+                <span>
+                  {step.phase} | {step.status}
+                </span>
+                <strong>{step.name}</strong>
+                <small>{step.summary}</small>
+              </div>
+            ))}
+            <div className="trace-step trace-step--running">
+              <span>in progress</span>
+              <strong>{stageLabel}…</strong>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function renderDraftParagraph(
+  text: string,
+  markerNumbers: Map<string, number>,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(EVIDENCE_MARKER_PATTERN)) {
+    const marker = match[0];
+    const evidenceId = match[1];
+    const start = match.index ?? 0;
+    if (start > cursor) {
+      nodes.push(text.slice(cursor, start));
+    }
+    if (!markerNumbers.has(evidenceId)) {
+      markerNumbers.set(evidenceId, markerNumbers.size + 1);
+    }
+    nodes.push(
+      <span className="citation-ref" key={`${evidenceId}:${start}`} title={evidenceId}>
+        [{markerNumbers.get(evidenceId)}]
+      </span>,
+    );
+    cursor = start + marker.length;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+  return nodes;
 }
 
 function CitedAnswer({

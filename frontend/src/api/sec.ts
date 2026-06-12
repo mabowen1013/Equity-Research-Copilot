@@ -539,3 +539,55 @@ export function runResearch(request: {
     method: "POST",
   });
 }
+
+export type ResearchStreamEvent =
+  | { type: "status"; stage: string; message?: string }
+  | { type: "step"; step: ResearchRunStep }
+  | { type: "answer_started"; attempt: number }
+  | { type: "answer_delta"; text: string }
+  | { type: "validation"; status: string }
+  | { type: "run"; run: ResearchRunResponse }
+  | { type: "error"; message: string };
+
+export async function streamResearch(
+  request: {
+    ticker: string;
+    question: string;
+    form_type?: string;
+    section?: string;
+  },
+  onEvent: (event: ResearchStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch("/research/runs/stream", {
+    body: JSON.stringify(request),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+
+  if (!response.ok || response.body === null) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Request failed with status ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex !== -1) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        onEvent(JSON.parse(line) as ResearchStreamEvent);
+      }
+      newlineIndex = buffer.indexOf("\n");
+    }
+  }
+}

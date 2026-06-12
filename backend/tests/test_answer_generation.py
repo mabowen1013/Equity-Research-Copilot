@@ -7,9 +7,11 @@ from app.schemas import (
     RetrievalRequest,
 )
 from app.services.answer_generation import (
+    AnswerStreamEmitter,
     answer_system_prompt,
     metric_comparison_record,
     normalize_generated_answer_citations,
+    split_streamed_answer,
 )
 from app.services import (
     CitationValidator,
@@ -337,6 +339,96 @@ def test_research_answer_service_uses_extractive_fallback_after_failed_retry() -
         "question for AAPL without risking an unsupported claim."
     )
     assert generator.call_count == 2
+
+
+def test_split_streamed_answer_extracts_limitations_block() -> None:
+    content = (
+        "Revenue grew 8%. [financial_fact:501]\n"
+        "LIMITATIONS:\n"
+        "- Only one quarter of data was available.\n"
+        "- No segment detail.\n"
+    )
+
+    answer, limitations = split_streamed_answer(content)
+
+    assert answer == "Revenue grew 8%. [financial_fact:501]"
+    assert limitations == [
+        "Only one quarter of data was available.",
+        "No segment detail.",
+    ]
+
+
+def test_split_streamed_answer_without_limitations_block() -> None:
+    answer, limitations = split_streamed_answer("Revenue grew. [chunk:1]\n")
+
+    assert answer == "Revenue grew. [chunk:1]"
+    assert limitations == []
+
+
+def test_answer_stream_emitter_withholds_limitations_block() -> None:
+    deltas: list[str] = []
+    emitter = AnswerStreamEmitter(deltas.append)
+
+    for piece in [
+        "Revenue grew 8%. ",
+        "[financial_fact:501]",
+        "\nLIMIT",
+        "ATIONS:\n- Only one quarter.",
+    ]:
+        emitter.feed(piece)
+    full_text = emitter.finish()
+
+    streamed = "".join(deltas)
+    assert streamed.strip() == "Revenue grew 8%. [financial_fact:501]"
+    assert "LIMITATIONS" not in streamed
+    assert "LIMITATIONS:" in full_text
+
+
+def test_answer_stream_emitter_flushes_tail_without_sentinel() -> None:
+    deltas: list[str] = []
+    emitter = AnswerStreamEmitter(deltas.append)
+
+    emitter.feed("Revenue grew 8%. [financial_fact:501]")
+    full_text = emitter.finish()
+
+    assert "".join(deltas) == full_text == "Revenue grew 8%. [financial_fact:501]"
+
+
+def test_research_answer_service_emits_stream_events_when_on_event_provided() -> None:
+    answer = (
+        "Total net sales were supported by the selected filing span. "
+        "[span:101:primary_financial_statement_chunks:0:80]"
+    )
+    generator = SequenceAnswerGenerator(
+        [
+            GeneratedAnswer(
+                answer=answer,
+                cited_evidence_ids=["span:101:primary_financial_statement_chunks:0:80"],
+            ),
+        ]
+    )
+    service = ResearchAnswerService(
+        None,
+        retriever=FakeRetriever(),
+        answer_generator=generator,
+    )
+    events: list[dict] = []
+
+    response = service.answer_from_retrieval_response(
+        make_request(),
+        make_response(),
+        on_event=events.append,
+    )
+
+    assert response.validation_status == "passed"
+    assert [event["type"] for event in events] == [
+        "answer_started",
+        "answer_delta",
+        "validation",
+    ]
+    assert events[0]["attempt"] == 1
+    assert events[1]["text"] == answer
+    assert events[2]["status"] == "passed"
 
 
 def test_research_answer_service_returns_insufficient_evidence_when_prompt_empty() -> None:

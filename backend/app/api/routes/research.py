@@ -1,6 +1,10 @@
-from typing import Literal
+import asyncio
+import json
+import logging
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db_session
@@ -24,6 +28,8 @@ from app.services import (
 )
 
 router = APIRouter(prefix="/research", tags=["research"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.post("/plan", response_model=RetrievalPlanRead)
@@ -81,6 +87,40 @@ def run_research(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RetrievalError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/runs/stream")
+async def stream_research_run(
+    request: RetrievalRequest,
+    db: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    """Stream research run progress as NDJSON events, ending with the full run."""
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def emit(event: dict[str, Any]) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+
+    def execute() -> None:
+        try:
+            run = ResearchRunService(db).run(request, on_event=emit)
+            emit({"type": "run", "run": run.model_dump(mode="json")})
+        except (RetrievalCompanyNotFoundError, RetrievalError) as exc:
+            emit({"type": "error", "message": str(exc)})
+        except Exception:
+            logger.exception("Streaming research run failed")
+            emit({"type": "error", "message": "Research run failed unexpectedly."})
+
+    async def event_stream():
+        worker = loop.run_in_executor(None, execute)
+        while True:
+            event = await queue.get()
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+            if event.get("type") in {"run", "error"}:
+                break
+        await worker
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @router.get("/runs", response_model=list[ResearchRunSummaryRead])

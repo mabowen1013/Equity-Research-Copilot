@@ -108,6 +108,47 @@ def make_passing_generator() -> SequenceAnswerGenerator:
     )
 
 
+def test_research_run_service_emits_stream_events() -> None:
+    class StreamingFakeRetriever:
+        def retrieve(self, request, *, on_agent_step=None):
+            if on_agent_step is not None:
+                on_agent_step(
+                    {
+                        "step": 0,
+                        "thought_summary": "Analyze the question.",
+                        "action": "analyze_question",
+                        "action_input": {},
+                        "observation_summary": "Planned retrieval.",
+                        "evidence_ids": [],
+                        "stop_reason": None,
+                    }
+                )
+            return make_response()
+
+    service = ResearchRunService(
+        None,
+        retriever=StreamingFakeRetriever(),
+        answer_generator=make_passing_generator(),
+    )
+    events: list[dict] = []
+
+    run = service.run(
+        RetrievalRequest(ticker="AAPL", question="What was revenue?"),
+        on_event=events.append,
+    )
+
+    assert run.status == "completed"
+    assert [event["type"] for event in events] == [
+        "status",
+        "step",
+        "answer_started",
+        "answer_delta",
+        "validation",
+    ]
+    assert events[1]["step"]["phase"] == "planning"
+    assert events[1]["step"]["name"] == "Analyze question"
+
+
 def test_research_run_service_persists_run_record() -> None:
     session = FakePersistenceSession()
     service = ResearchRunService(

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 import re
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session
@@ -186,7 +186,12 @@ class RetrievalService:
         self._planner = planner or QueryPlanner()
         self._embedding_provider = embedding_provider
 
-    def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
+    def retrieve(
+        self,
+        request: RetrievalRequest,
+        *,
+        on_agent_step: Callable[[dict[str, Any]], None] | None = None,
+    ) -> RetrievalResponse:
         started = perf_counter()
         timings: dict[str, float] = {}
         degraded: list[dict[str, str]] = []
@@ -209,6 +214,7 @@ class RetrievalService:
                 started=started,
                 timings=timings,
                 degraded=degraded,
+                on_agent_step=on_agent_step,
             )
         except Exception as exc:
             degraded.append(
@@ -461,15 +467,20 @@ class RetrievalService:
         started: float,
         timings: dict[str, float],
         degraded: list[dict[str, str]],
+        on_agent_step: Callable[[dict[str, Any]], None] | None = None,
     ) -> RetrievalResponse:
         agent = ResearchAgentService(settings=self._settings)
         state = agent.start(question=request.question, plan=plan)
         accumulator = RetrievalAgentAccumulator()
+        if on_agent_step is not None:
+            on_agent_step(state.steps[-1])
 
         while True:
             action = agent.next_action(state)
             if action.action == "finalize_answer":
                 agent.finish(state, action)
+                if on_agent_step is not None:
+                    on_agent_step(state.steps[-1])
                 break
 
             action_at = perf_counter()
@@ -486,6 +497,8 @@ class RetrievalService:
                 action_at
             )
             agent.observe(state, action, observation)
+            if on_agent_step is not None:
+                on_agent_step(state.steps[-1])
 
         return self._build_agent_response(
             request,

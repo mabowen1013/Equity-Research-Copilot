@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 import json
 import re
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from app.core import Settings, get_settings
 from app.schemas.answer import (
@@ -46,6 +46,11 @@ PREFIXED_EVIDENCE_MARKER_RE = re.compile(
 NUMBERED_CITATION_VALUE_RE = re.compile(r"(?:source|citation)?\s*#?\s*(\d{1,3})", re.IGNORECASE)
 SENTENCE_BOUNDARY_RE = re.compile(r"(?<!\d)[.!?](?!\d)")
 RATIO_METRIC_KEYS = {"gross_margin", "operating_margin", "net_margin"}
+STREAM_LIMITATIONS_RE = re.compile(r"^[ \t]*LIMITATIONS:", re.MULTILINE)
+STREAM_DELTA_HOLDBACK_CHARS = 24
+
+AnswerDeltaCallback = Callable[[str], None]
+AnswerEventCallback = Callable[[dict[str, Any]], None]
 
 
 class AnswerGenerationError(RuntimeError):
@@ -123,6 +128,22 @@ class ExtractiveAnswerGenerator:
             limitations=["Generated from retrieved SEC evidence only."],
         )
 
+    def generate_stream(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        on_delta: AnswerDeltaCallback,
+        validation_errors: list[CitationValidationIssueRead] | None = None,
+    ) -> GeneratedAnswer:
+        generated = self.generate(
+            context,
+            evidence_records,
+            validation_errors=validation_errors,
+        )
+        on_delta(generated.answer)
+        return generated
+
 
 class OpenAIAnswerGenerator:
     def __init__(self, settings: Settings | None = None) -> None:
@@ -135,27 +156,12 @@ class OpenAIAnswerGenerator:
         *,
         validation_errors: list[CitationValidationIssueRead] | None = None,
     ) -> GeneratedAnswer:
-        api_key = self._settings.openai_api_key
-        if api_key is None or not api_key.get_secret_value().strip():
-            raise AnswerGenerationError("OPENAI_API_KEY must be configured for answer generation.")
-
-        try:
-            client = get_openai_client(
-                api_key.get_secret_value(),
-                timeout=self._settings.answer_llm_timeout_seconds,
-                max_retries=self._settings.answer_llm_max_retries,
-            )
-        except ImportError as exc:
-            raise AnswerGenerationError(
-                "The openai package must be installed for answer generation."
-            ) from exc
-
         payload = build_answer_prompt_payload(
             context,
             evidence_records,
             validation_errors=validation_errors,
         )
-        response = client.chat.completions.create(
+        response = self._client().chat.completions.create(
             model=self._settings.answer_llm_model,
             temperature=0,
             max_tokens=self._settings.answer_llm_max_output_tokens,
@@ -167,6 +173,87 @@ class OpenAIAnswerGenerator:
         )
         content = response.choices[0].message.content or "{}"
         return parse_generated_answer(content)
+
+    def generate_stream(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        on_delta: AnswerDeltaCallback,
+        validation_errors: list[CitationValidationIssueRead] | None = None,
+    ) -> GeneratedAnswer:
+        payload = build_answer_prompt_payload(
+            context,
+            evidence_records,
+            validation_errors=validation_errors,
+        )
+        stream = self._client().chat.completions.create(
+            model=self._settings.answer_llm_model,
+            temperature=0,
+            max_tokens=self._settings.answer_llm_max_output_tokens,
+            stream=True,
+            messages=[
+                {"role": "system", "content": answer_stream_system_prompt()},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        emitter = AnswerStreamEmitter(on_delta)
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                emitter.feed(chunk.choices[0].delta.content)
+        return parse_streamed_answer(emitter.finish())
+
+    def _client(self):
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            raise AnswerGenerationError("OPENAI_API_KEY must be configured for answer generation.")
+
+        try:
+            return get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.answer_llm_timeout_seconds,
+                max_retries=self._settings.answer_llm_max_retries,
+            )
+        except ImportError as exc:
+            raise AnswerGenerationError(
+                "The openai package must be installed for answer generation."
+            ) from exc
+
+
+class AnswerStreamEmitter:
+    """Forwards streamed answer text while holding back a trailing LIMITATIONS block.
+
+    A small tail is withheld from emission so a sentinel split across stream
+    deltas is never shown to the caller; finish() flushes the tail when no
+    sentinel arrived.
+    """
+
+    def __init__(self, on_delta: AnswerDeltaCallback) -> None:
+        self._on_delta = on_delta
+        self._buffer = ""
+        self._emitted = 0
+        self._sentinel_found = False
+
+    def feed(self, delta: str) -> None:
+        self._buffer += delta
+        if self._sentinel_found:
+            return
+        match = STREAM_LIMITATIONS_RE.search(self._buffer)
+        if match is not None:
+            self._sentinel_found = True
+            self._emit_to(match.start())
+            return
+        self._emit_to(len(self._buffer) - STREAM_DELTA_HOLDBACK_CHARS)
+
+    def finish(self) -> str:
+        if not self._sentinel_found:
+            self._emit_to(len(self._buffer))
+        return self._buffer
+
+    def _emit_to(self, end: int) -> None:
+        if end > self._emitted:
+            self._on_delta(self._buffer[self._emitted : end])
+            self._emitted = end
 
 
 class FallbackAnswerGenerator:
@@ -195,6 +282,39 @@ class FallbackAnswerGenerator:
             fallback_answer = self._fallback.generate(
                 context,
                 evidence_records,
+                validation_errors=validation_errors,
+            )
+            return GeneratedAnswer(
+                answer=fallback_answer.answer,
+                cited_evidence_ids=fallback_answer.cited_evidence_ids,
+                limitations=[
+                    *fallback_answer.limitations,
+                    f"LLM answer generation unavailable; used extractive fallback ({exc}).",
+                ],
+            )
+
+    def generate_stream(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        on_delta: AnswerDeltaCallback,
+        validation_errors: list[CitationValidationIssueRead] | None = None,
+    ) -> GeneratedAnswer:
+        try:
+            return generate_with_optional_stream(
+                self._primary,
+                context,
+                evidence_records,
+                on_delta=on_delta,
+                validation_errors=validation_errors,
+            )
+        except AnswerGenerationError as exc:
+            fallback_answer = generate_with_optional_stream(
+                self._fallback,
+                context,
+                evidence_records,
+                on_delta=on_delta,
                 validation_errors=validation_errors,
             )
             return GeneratedAnswer(
@@ -283,6 +403,8 @@ class ResearchAnswerService:
         self,
         request: RetrievalRequest,
         retrieval_response: RetrievalResponse,
+        *,
+        on_event: AnswerEventCallback | None = None,
     ) -> ResearchAnswerResponseRead:
         context = build_answer_evidence_context(request, retrieval_response)
         evidence_records = build_prompt_evidence_records(context)
@@ -305,12 +427,14 @@ class ResearchAnswerService:
 
         validation: CitationValidationRead | None = None
         generated: GeneratedAnswer | None = None
-        for _ in range(2):
+        for attempt in range(1, 3):
             try:
-                generated = self._answer_generator.generate(
+                generated = self._generate(
                     context,
                     evidence_records,
                     validation_errors=validation.errors if validation else None,
+                    attempt=attempt,
+                    on_event=on_event,
                 )
             except AnswerGenerationError as exc:
                 return build_insufficient_evidence_response(
@@ -332,6 +456,8 @@ class ResearchAnswerService:
                 allowed_evidence_ids=context.allowed_evidence_ids,
                 prompt_evidence_ids=prompt_evidence_ids,
             )
+            if on_event is not None:
+                on_event({"type": "validation", "status": validation.status})
             if validation.status == "passed":
                 return build_validated_answer_response(
                     generated,
@@ -341,15 +467,21 @@ class ResearchAnswerService:
                     prompt_evidence_ids=prompt_evidence_ids,
                 )
 
+        if on_event is not None:
+            on_event({"type": "answer_started", "attempt": 3})
         fallback_generated = normalize_generated_answer_citations(
             ExtractiveAnswerGenerator().generate(context, evidence_records),
             evidence_records,
         )
+        if on_event is not None:
+            on_event({"type": "answer_delta", "text": fallback_generated.answer})
         fallback_validation = self._validator.validate(
             fallback_generated,
             allowed_evidence_ids=context.allowed_evidence_ids,
             prompt_evidence_ids=prompt_evidence_ids,
         )
+        if on_event is not None:
+            on_event({"type": "validation", "status": fallback_validation.status})
         if fallback_validation.status == "passed":
             return build_validated_answer_response(
                 fallback_generated,
@@ -366,6 +498,30 @@ class ResearchAnswerService:
             prompt_evidence_ids=prompt_evidence_ids,
             errors=validation.errors if validation else [],
             limitations=["Citation validation failed for the generated answer."],
+        )
+
+    def _generate(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        validation_errors: list[CitationValidationIssueRead] | None,
+        attempt: int,
+        on_event: AnswerEventCallback | None,
+    ) -> GeneratedAnswer:
+        if on_event is None:
+            return self._answer_generator.generate(
+                context,
+                evidence_records,
+                validation_errors=validation_errors,
+            )
+        on_event({"type": "answer_started", "attempt": attempt})
+        return generate_with_optional_stream(
+            self._answer_generator,
+            context,
+            evidence_records,
+            on_delta=lambda text: on_event({"type": "answer_delta", "text": text}),
+            validation_errors=validation_errors,
         )
 
 
@@ -404,8 +560,7 @@ def build_answer_prompt_payload(
     }
 
 
-def answer_system_prompt() -> str:
-    return """
+ANSWER_PROMPT_CORE = """
 You are Equity Research Copilot, a citation-first research assistant for SEC filings.
 Answer only from the evidence objects in the user payload. Do not use outside facts.
 Do not invent citation ids. Use citation markers in the exact form [evidence_id].
@@ -425,6 +580,11 @@ Answer style:
 - Then explain drivers or context using MD&A/text evidence when available.
 - Use readable financial formatting: revenue in $B/$M, margins as percentages, and margin changes in percentage points.
 - Do not provide investment advice, price targets, ratings, or recommendations.
+""".strip()
+
+
+def answer_system_prompt() -> str:
+    return f"""{ANSWER_PROMPT_CORE}
 
 Return one JSON object with:
 - answer: complete analyst-style answer string with citation markers.
@@ -433,8 +593,65 @@ Return one JSON object with:
 
 Only include limitations for specific evidence gaps, conflicts, stale data, or unanswered parts of the question.
 Do not add generic caveats.
-If evidence is not enough, say so plainly in answer and keep citations empty.
-""".strip()
+If evidence is not enough, say so plainly in answer and keep citations empty."""
+
+
+def answer_stream_system_prompt() -> str:
+    return f"""{ANSWER_PROMPT_CORE}
+
+Output format (plain text, not JSON, no markdown headings):
+- Write the complete analyst-style answer with [evidence_id] citation markers.
+- If there are limitations for specific evidence gaps, conflicts, stale data, or unanswered parts of the question, end with a line containing exactly LIMITATIONS: followed by one short limitation per line, each starting with "- ".
+- If there are no limitations, do not write a LIMITATIONS section.
+- Do not add generic caveats.
+If evidence is not enough, say so plainly in the answer and use no citation markers."""
+
+
+def generate_with_optional_stream(
+    generator: AnswerGenerator,
+    context: AnswerEvidenceContextRead,
+    evidence_records: list[PromptEvidenceRecord],
+    *,
+    on_delta: AnswerDeltaCallback,
+    validation_errors: list[CitationValidationIssueRead] | None = None,
+) -> GeneratedAnswer:
+    """Stream when the generator supports it; otherwise emit the answer once."""
+    stream_method = getattr(generator, "generate_stream", None)
+    if stream_method is not None:
+        return stream_method(
+            context,
+            evidence_records,
+            on_delta=on_delta,
+            validation_errors=validation_errors,
+        )
+    generated = generator.generate(
+        context,
+        evidence_records,
+        validation_errors=validation_errors,
+    )
+    on_delta(generated.answer)
+    return generated
+
+
+def parse_streamed_answer(content: str) -> GeneratedAnswer:
+    answer, limitations = split_streamed_answer(content)
+    return GeneratedAnswer(
+        answer=answer,
+        cited_evidence_ids=extract_citation_markers(answer),
+        limitations=limitations,
+    )
+
+
+def split_streamed_answer(content: str) -> tuple[str, list[str]]:
+    match = STREAM_LIMITATIONS_RE.search(content)
+    if match is None:
+        return content.strip(), []
+    answer = content[: match.start()].strip()
+    limitations = [
+        line.strip().lstrip("-*").strip()
+        for line in content[match.end() :].splitlines()
+    ]
+    return answer, [limitation for limitation in limitations if limitation]
 
 
 def parse_generated_answer(content: str) -> GeneratedAnswer:
