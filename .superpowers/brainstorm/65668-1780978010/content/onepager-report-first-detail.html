@@ -1,0 +1,67 @@
+<h2>Report-first 详细布局</h2>
+<p class="subtitle">这是 v1 页面骨架：用户输入 ticker 后，优先看到一份可读报告；证据和运行细节保持可追溯但不抢主视觉。</p>
+
+<div class="mockup">
+  <div class="mockup-header">One-Pager Generator - Report-first Layout</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center">
+      <input class="mock-input" value="AAPL" aria-label="Ticker input">
+      <button class="mock-button">Generate</button>
+      <div class="placeholder" style="height:32px;width:160px">Completed · 42s</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px">
+      <div class="placeholder" style="height:38px">Latest 10-Q: FY2025 Q3</div>
+      <div class="placeholder" style="height:38px">Latest 10-K: FY2024</div>
+      <div class="placeholder" style="height:38px">8-K: 3 in last 90d</div>
+    </div>
+
+    <div style="margin-top:16px;border-top:1px solid #ddd;padding-top:14px">
+      <div class="label">ONE-PAGER</div>
+      <div style="display:grid;grid-template-columns:1.15fr .85fr;gap:14px;margin-top:8px">
+        <div>
+          <div class="placeholder" style="height:70px">Executive Summary: 3-5 bullets with evidence chips</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div class="placeholder" style="height:105px">Financial Snapshot: core metrics, QoQ, YoY</div>
+            <div class="placeholder" style="height:105px">Anomaly Highlights: promoted metrics only</div>
+          </div>
+          <div class="placeholder" style="height:92px;margin-top:10px">Qualitative Insights: MD&amp;A delta, Risk change, Footnotes</div>
+          <div class="placeholder" style="height:78px;margin-top:10px">Recent 8-K Events: event, impact, cross-check</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div class="placeholder" style="height:88px">Bull Thesis</div>
+            <div class="placeholder" style="height:88px">Bear Thesis</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="placeholder" style="height:82px">Data Readiness</div>
+          <div class="placeholder" style="height:82px;margin-top:10px">Warnings / Missing Comparables</div>
+          <div class="placeholder" style="height:112px;margin-top:10px">Top Citations</div>
+          <div class="placeholder" style="height:76px;margin-top:10px">Collapsed Diagnostics</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>拟定页面行为</h3>
+  <p>生成成功后默认展示报告正文。用户可以展开右侧或底部区域查看 filing universe、comparison universe、warnings、citations、agent steps 和 retrieval diagnostics。</p>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="accept-detail" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>这个布局方向可以</h3>
+      <p>继续把它写进正式设计，然后进入 API contract 和实现计划。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="revise-detail" onclick="toggleSelect(this)">
+    <div class="letter">↻</div>
+    <div class="content">
+      <h3>需要调整</h3>
+      <p>例如去掉右侧栏、加强 citations、或者把 Data Readiness 放到顶部。</p>
+    </div>
+  </div>
+</div>

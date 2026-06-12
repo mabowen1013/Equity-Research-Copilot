@@ -51,6 +51,9 @@ class CitationValidationRead(BaseModel):
     allowed_evidence_ids: list[str] = Field(default_factory=list)
     prompt_evidence_ids: list[str] = Field(default_factory=list)
     errors: list[CitationValidationIssueRead] = Field(default_factory=list)
+    warnings: list[CitationValidationIssueRead] = Field(default_factory=list)
+    claim_sentence_count: int = 0
+    cited_claim_sentence_count: int = 0
 
 
 class ResearchAnswerResponseRead(BaseModel):

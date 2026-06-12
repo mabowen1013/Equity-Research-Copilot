@@ -81,6 +81,68 @@ def test_citation_validator_allows_uncited_sentences_when_answer_has_valid_sourc
     assert validation.errors == []
 
 
+def test_generated_answer_normalization_repairs_evidence_id_prefixed_markers() -> None:
+    context = make_context()
+    records = build_prompt_evidence_records(context)
+    target_id = records[0].evidence_id
+    generated = GeneratedAnswer(
+        answer=f"Revenue was $111.2B. [evidence_id: {target_id}]",
+        cited_evidence_ids=[f"evidence_id: {target_id}"],
+    )
+
+    normalized = normalize_generated_answer_citations(generated, records)
+
+    assert f"[{target_id}]" in normalized.answer
+    assert "evidence_id:" not in normalized.answer
+    assert normalized.cited_evidence_ids == [target_id]
+
+
+def test_citation_validator_reports_uncited_claim_sentences_as_warnings() -> None:
+    context = make_context()
+    generated = GeneratedAnswer(
+        answer=(
+            "Revenue was $111.2B. [financial_fact:501] "
+            "Margins also improved across all segments."
+        ),
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=context.allowed_evidence_ids,
+        prompt_evidence_ids=prompt_evidence_ids(context),
+    )
+
+    assert validation.status == "passed"
+    assert validation.claim_sentence_count == 2
+    assert validation.cited_claim_sentence_count == 1
+    assert len(validation.warnings) == 1
+    assert validation.warnings[0].code == "uncited_claim_sentence"
+    assert "Margins also improved" in (validation.warnings[0].sentence or "")
+
+
+def test_citation_validator_counts_fully_cited_claims_without_warnings() -> None:
+    context = make_context()
+    generated = GeneratedAnswer(
+        answer=(
+            "Revenue was $111.2B. [financial_fact:501] "
+            "The retrieved span supports the reported amount. "
+            "[span:101:primary_financial_statement_chunks:0:80]"
+        ),
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=context.allowed_evidence_ids,
+        prompt_evidence_ids=prompt_evidence_ids(context),
+    )
+
+    assert validation.status == "passed"
+    assert validation.claim_sentence_count == validation.cited_claim_sentence_count
+    assert validation.warnings == []
+
+
 def test_extract_citation_markers_handles_metric_comparison_ids() -> None:
     answer = (
         "Revenue improved year over year "

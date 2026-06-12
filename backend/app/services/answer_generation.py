@@ -29,6 +29,7 @@ from app.services.answer_context import (
     build_answer_evidence_context,
     collect_answer_evidence_ids,
 )
+from app.services.openai_client import get_openai_client
 from app.services.retrieval import RetrievalService
 
 MAX_PROMPT_EVIDENCE_ITEMS = 24
@@ -38,6 +39,10 @@ EVIDENCE_MARKER_RE = re.compile(
     r"\[((?:chunk|span|financial_fact|metric_observation|metric_comparison):[^\]\s]+)\]"
 )
 NUMBERED_CITATION_MARKER_RE = re.compile(r"\[(?:source\s*)?#?(\d{1,3})\]", re.IGNORECASE)
+PREFIXED_EVIDENCE_MARKER_RE = re.compile(
+    r"\[\s*evidence_id\s*:\s*((?:chunk|span|financial_fact|metric_observation|metric_comparison):[^\]\s]+)\s*\]",
+    re.IGNORECASE,
+)
 NUMBERED_CITATION_VALUE_RE = re.compile(r"(?:source|citation)?\s*#?\s*(\d{1,3})", re.IGNORECASE)
 SENTENCE_BOUNDARY_RE = re.compile(r"(?<!\d)[.!?](?!\d)")
 RATIO_METRIC_KEYS = {"gross_margin", "operating_margin", "net_margin"}
@@ -135,17 +140,16 @@ class OpenAIAnswerGenerator:
             raise AnswerGenerationError("OPENAI_API_KEY must be configured for answer generation.")
 
         try:
-            from openai import OpenAI
+            client = get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.answer_llm_timeout_seconds,
+                max_retries=self._settings.answer_llm_max_retries,
+            )
         except ImportError as exc:
             raise AnswerGenerationError(
                 "The openai package must be installed for answer generation."
             ) from exc
 
-        client = OpenAI(
-            api_key=api_key.get_secret_value(),
-            timeout=self._settings.answer_llm_timeout_seconds,
-            max_retries=self._settings.answer_llm_max_retries,
-        )
         payload = build_answer_prompt_payload(
             context,
             evidence_records,
@@ -154,6 +158,7 @@ class OpenAIAnswerGenerator:
         response = client.chat.completions.create(
             model=self._settings.answer_llm_model,
             temperature=0,
+            max_tokens=self._settings.answer_llm_max_output_tokens,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": answer_system_prompt()},
@@ -238,12 +243,20 @@ class CitationValidator:
                 )
             )
 
+        warnings, claim_count, cited_claim_count = claim_citation_coverage(
+            generated.answer,
+            valid_evidence_ids=allowed_set & prompt_set,
+        )
+
         return CitationValidationRead(
             status="failed" if errors else "passed",
             cited_evidence_ids=list(dict.fromkeys(valid_cited_ids)),
             allowed_evidence_ids=allowed_evidence_ids,
             prompt_evidence_ids=prompt_evidence_ids,
             errors=errors,
+            warnings=warnings,
+            claim_sentence_count=claim_count,
+            cited_claim_sentence_count=cited_claim_count,
         )
 
 
@@ -460,9 +473,13 @@ def normalize_generated_answer_citations(
         evidence_id = alias_map.get(match.group(1).strip().lower())
         return f"[{evidence_id}]" if evidence_id is not None else match.group(0)
 
+    answer = PREFIXED_EVIDENCE_MARKER_RE.sub(
+        lambda match: f"[{match.group(1)}]",
+        generated.answer,
+    )
     answer = NUMBERED_CITATION_MARKER_RE.sub(
         replace_numbered_marker,
-        generated.answer,
+        answer,
     )
     answer = remove_invalid_citation_markers(answer, prompt_evidence_ids)
     marker_ids = extract_citation_markers(answer)
@@ -518,7 +535,9 @@ def resolve_citation_reference(
     value: str,
     alias_map: dict[str, str],
 ) -> str | None:
-    normalized = value.strip().strip("[]").strip().lower()
+    cleaned = value.strip().strip("[]").strip()
+    cleaned = re.sub(r"(?i)^evidence_id\s*:\s*", "", cleaned)
+    normalized = cleaned.lower()
     if not normalized:
         return None
     if normalized in alias_map:
@@ -526,7 +545,7 @@ def resolve_citation_reference(
     match = NUMBERED_CITATION_VALUE_RE.fullmatch(normalized)
     if match is not None:
         return alias_map.get(match.group(1))
-    return value.strip().strip("[]").strip()
+    return cleaned
 
 
 def build_prompt_evidence_records(
@@ -939,6 +958,38 @@ def normalize_cited_evidence_ids(values: list[Any]) -> list[str]:
             continue
         normalized.append(text_value)
     return list(dict.fromkeys(normalized))
+
+
+def claim_citation_coverage(
+    answer: str,
+    *,
+    valid_evidence_ids: set[str],
+) -> tuple[list[CitationValidationIssueRead], int, int]:
+    """Report claim sentences that carry no valid citation marker.
+
+    Coverage gaps are warnings, not errors: a paragraph-level citation can still
+    support adjacent sentences, so an uncited sentence is a quality signal for
+    evals and the trace viewer rather than a reason to reject the answer.
+    """
+    warnings: list[CitationValidationIssueRead] = []
+    claim_count = 0
+    cited_claim_count = 0
+    for sentence in answer_claim_sentences(answer):
+        if not sentence_requires_citation(sentence):
+            continue
+        claim_count += 1
+        sentence_ids = set(extract_citation_markers(sentence))
+        if sentence_ids & valid_evidence_ids:
+            cited_claim_count += 1
+        else:
+            warnings.append(
+                CitationValidationIssueRead(
+                    code="uncited_claim_sentence",
+                    message="Claim sentence has no valid citation marker.",
+                    sentence=sentence,
+                )
+            )
+    return warnings, claim_count, cited_claim_count
 
 
 def answer_claim_sentences(answer: str) -> list[str]:

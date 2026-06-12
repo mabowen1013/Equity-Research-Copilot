@@ -51,6 +51,16 @@ class ResearchRunDiagnosticsRead(BaseModel):
     top_score_breakdown: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ResearchRunSummaryRead(BaseModel):
+    run_id: str
+    ticker: str
+    question: str
+    status: str
+    validation_status: str
+    duration_ms: float | None = None
+    created_at: str | None = None
+
+
 class ResearchRunRead(BaseModel):
     run_id: str
     contract_version: Literal["research_run.v1"] = RESEARCH_RUN_CONTRACT_VERSION

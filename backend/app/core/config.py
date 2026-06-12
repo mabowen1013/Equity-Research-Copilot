@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = Field(default=1536, ge=1)
     embedding_input_version: str = "v1"
-    vector_search_mode: Literal["exact", "hnsw", "auto"] = "exact"
+    vector_search_mode: Literal["exact", "hnsw", "auto"] = "hnsw"
+    hnsw_ef_search: int = Field(default=80, ge=10, le=1000)
     retrieval_dense_candidates: int = Field(default=40, ge=1, le=500)
     retrieval_lexical_candidates: int = Field(default=40, ge=1, le=500)
     retrieval_fact_candidates: int = Field(default=20, ge=1, le=500)
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     answer_llm_model: str = "gpt-4o-mini"
     answer_llm_timeout_seconds: float = Field(default=30.0, gt=0, le=90)
     answer_llm_max_retries: int = Field(default=0, ge=0, le=5)
+    answer_llm_max_output_tokens: int = Field(default=900, ge=64, le=4096)
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

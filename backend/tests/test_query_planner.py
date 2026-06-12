@@ -702,4 +702,99 @@ def test_llm_dense_query_rewriter_prompt_explains_roles_and_examples() -> None:
 def test_llm_query_planner_rejects_unknown_fields_from_raw_response() -> None:
     assert "unexpected" not in LLMQueryPlanner.allowed_fields
     assert "dense_queries" not in LLMQueryPlanner.allowed_fields
-    assert "dense_query_specs" not in LLMQueryPlanner.allowed_fields
+    assert "lexical_queries" not in LLMQueryPlanner.allowed_fields
+    # Single-call planning: dense_query_specs may now arrive with the slots.
+    assert "dense_query_specs" in LLMQueryPlanner.allowed_fields
+
+
+def test_llm_mode_uses_inline_dense_specs_without_rewriter_call() -> None:
+    fake_llm = FakeLLMPlanner(
+        {
+            "question_type": "mixed",
+            "metric_keys": ["revenue", "gross_margin"],
+            "time_scope": "latest",
+            "comparison_basis": "latest_quarter_yoy",
+            "comparison_candidates": ["latest_quarter_yoy"],
+            "target_sections": [
+                "Financial Statements",
+                "Management's Discussion and Analysis",
+            ],
+            "forms": ["10-Q"],
+            "dense_query_specs": [
+                {
+                    "role": "slot",
+                    "text": "latest quarterly financial performance showing year over year revenue and gross margin changes",
+                },
+                {
+                    "role": "financial_statement",
+                    "text": "consolidated statements of operations showing three months ended net sales gross margin and cost of sales",
+                },
+                {
+                    "role": "mda",
+                    "text": "results of operations discussion explaining revenue and gross margin drivers compared to the prior year quarter",
+                },
+            ],
+        }
+    )
+    fake_rewriter = FakeDenseQueryRewriter([])
+    planner = QueryPlanner(
+        settings=Settings(_env_file=None, query_planner_mode="llm"),
+        llm_planner=fake_llm,
+        dense_query_rewriter=fake_rewriter,
+    )
+
+    plan = planner.plan(
+        "How did Apple's revenue and gross margin change last quarter, and why?"
+    )
+
+    assert not fake_rewriter.called
+    assert "dense_query:planner_single_call" in plan.matched_rules
+    roles = [spec["role"] for spec in plan.dense_query_specs]
+    assert "slot" in roles
+    assert "financial_statement" in roles
+    assert "mda" in roles
+    assert "original" in roles
+
+
+def test_llm_mode_falls_back_to_rewriter_when_inline_specs_invalid() -> None:
+    fake_llm = FakeLLMPlanner(
+        {
+            "question_type": "mixed",
+            "metric_keys": ["revenue", "gross_margin"],
+            "time_scope": "latest",
+            "comparison_basis": "latest_quarter_yoy",
+            "comparison_candidates": ["latest_quarter_yoy"],
+            "target_sections": [
+                "Financial Statements",
+                "Management's Discussion and Analysis",
+            ],
+            "forms": ["10-Q"],
+            "dense_query_specs": [
+                {"role": "unknown_role", "text": "too short"},
+            ],
+        }
+    )
+    fake_rewriter = FakeDenseQueryRewriter(
+        [
+            {
+                "role": "slot",
+                "text": "latest quarterly financial performance showing year over year revenue and gross margin changes",
+            },
+            {
+                "role": "mda",
+                "text": "results of operations discussion explaining revenue and gross margin drivers compared to the prior year quarter",
+            },
+        ]
+    )
+    planner = QueryPlanner(
+        settings=Settings(_env_file=None, query_planner_mode="llm"),
+        llm_planner=fake_llm,
+        dense_query_rewriter=fake_rewriter,
+    )
+
+    plan = planner.plan(
+        "How did Apple's revenue and gross margin change last quarter, and why?"
+    )
+
+    assert fake_rewriter.called
+    assert "dense_query:llm_rewriter" in plan.matched_rules

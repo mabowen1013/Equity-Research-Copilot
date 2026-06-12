@@ -45,7 +45,7 @@ const CORE_METRIC_ORDER = Object.keys(CORE_METRIC_LABELS);
 const DEFAULT_METRIC_KEY = CORE_METRIC_ORDER[0];
 const DEFAULT_DETAIL_LIMIT = 12;
 const EVIDENCE_MARKER_PATTERN =
-  /\[((?:chunk|span|financial_fact|metric_observation|metric_comparison):[^\]\s]+)\]/g;
+  /\[(?:evidence_id:\s*)?((?:chunk|span|financial_fact|metric_observation|metric_comparison):[^\]\s]+)\]/g;
 
 type AppView = "filings" | "metrics" | "research";
 

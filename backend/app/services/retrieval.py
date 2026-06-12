@@ -904,51 +904,92 @@ class RetrievalService:
             )
             return []
 
+        self._apply_vector_search_mode(degraded)
         sources: list[tuple[str, list[tuple[int, float]], float]] = []
-        for spec, query_embedding in zip(dense_specs, query_embeddings, strict=True):
-            params: dict[str, Any] = {
-                "company_id": company.id,
-                "provider": self._settings.embedding_provider,
-                "model": self._settings.embedding_model,
-                "dimensions": self._settings.embedding_dimensions,
-                "embedding_input_version": self._settings.embedding_input_version,
-                "query_embedding": vector_literal(query_embedding),
-                "limit": self._settings.retrieval_dense_candidates,
-            }
-            filters = build_chunk_filter_sql(
-                request,
-                params,
-                plan=plan,
-                retrieval_scope=retrieval_scope,
-            )
-            sql = text(
-                f"""
-                SELECT ce.chunk_id, ce.embedding <=> CAST(:query_embedding AS vector) AS distance
-                FROM chunk_embeddings ce
-                JOIN document_chunks dc ON dc.id = ce.chunk_id
-                WHERE ce.company_id = :company_id
-                  AND ce.provider = :provider
-                  AND ce.model = :model
-                  AND ce.dimensions = :dimensions
-                  AND ce.embedding_input_version = :embedding_input_version
-                  {filters}
-                ORDER BY distance ASC
-                LIMIT :limit
-                """
-            )
-            try:
-                rows = self._db.execute(sql, params).mappings().all()
-            except Exception as exc:
-                degraded.append({"stage": "dense", "reason": str(exc)})
-                return []
-            sources.append(
-                (
-                    spec.source_name,
-                    [(int(row["chunk_id"]), float(row["distance"])) for row in rows],
-                    spec.weight,
+        try:
+            for spec, query_embedding in zip(dense_specs, query_embeddings, strict=True):
+                params: dict[str, Any] = {
+                    "company_id": company.id,
+                    "provider": self._settings.embedding_provider,
+                    "model": self._settings.embedding_model,
+                    "dimensions": self._settings.embedding_dimensions,
+                    "embedding_input_version": self._settings.embedding_input_version,
+                    "query_embedding": vector_literal(query_embedding),
+                    "limit": self._settings.retrieval_dense_candidates,
+                }
+                filters = build_chunk_filter_sql(
+                    request,
+                    params,
+                    plan=plan,
+                    retrieval_scope=retrieval_scope,
                 )
-            )
+                sql = text(
+                    f"""
+                    SELECT ce.chunk_id, ce.embedding <=> CAST(:query_embedding AS vector) AS distance
+                    FROM chunk_embeddings ce
+                    JOIN document_chunks dc ON dc.id = ce.chunk_id
+                    WHERE ce.company_id = :company_id
+                      AND ce.provider = :provider
+                      AND ce.model = :model
+                      AND ce.dimensions = :dimensions
+                      AND ce.embedding_input_version = :embedding_input_version
+                      {filters}
+                    ORDER BY distance ASC
+                    LIMIT :limit
+                    """
+                )
+                try:
+                    rows = self._db.execute(sql, params).mappings().all()
+                except Exception as exc:
+                    degraded.append({"stage": "dense", "reason": str(exc)})
+                    return []
+                sources.append(
+                    (
+                        spec.source_name,
+                        [(int(row["chunk_id"]), float(row["distance"])) for row in rows],
+                        spec.weight,
+                    )
+                )
+        finally:
+            self._restore_vector_search_mode()
         return sources
+
+    def _apply_vector_search_mode(self, degraded: list[dict[str, str]]) -> None:
+        """Configure ANN behavior for the dense queries in this transaction.
+
+        - hnsw: set a transaction-local ef_search budget so the HNSW index
+          (migration 0008) trades recall for speed predictably.
+        - exact: disable index scans so results stay exact even when the HNSW
+          index exists; _restore_vector_search_mode re-enables them so the
+          rest of the transaction (lexical, chunk loads) keeps using indexes.
+        - auto: leave the Postgres planner free to pick the index or a scan.
+        """
+        mode = self._settings.vector_search_mode
+        try:
+            if mode == "hnsw":
+                self._db.execute(
+                    text("SELECT set_config('hnsw.ef_search', :ef_search, true)"),
+                    {"ef_search": str(self._settings.hnsw_ef_search)},
+                )
+            elif mode == "exact":
+                self._db.execute(
+                    text("SELECT set_config('enable_indexscan', 'off', true)")
+                )
+        except Exception as exc:
+            degraded.append(
+                {
+                    "stage": "dense",
+                    "reason": f"vector_search_mode_unavailable:{exc.__class__.__name__}",
+                }
+            )
+
+    def _restore_vector_search_mode(self) -> None:
+        if self._settings.vector_search_mode != "exact":
+            return
+        try:
+            self._db.execute(text("SELECT set_config('enable_indexscan', 'on', true)"))
+        except Exception:
+            pass
 
     def _lexical_candidate_sources(
         self,

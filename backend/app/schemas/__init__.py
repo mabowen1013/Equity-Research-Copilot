@@ -23,6 +23,7 @@ from app.schemas.research_run import (
     ResearchRunEvidenceRead,
     ResearchRunRead,
     ResearchRunStepRead,
+    ResearchRunSummaryRead,
 )
 from app.schemas.retrieval import (
     EvidencePackRead,
@@ -63,6 +64,7 @@ __all__ = [
     "ResearchRunDiagnosticsRead",
     "ResearchRunEvidenceRead",
     "ResearchRunRead",
+    "ResearchRunSummaryRead",
     "ResearchRunStepRead",
     "EvidencePackRead",
     "EvidenceSpanRead",

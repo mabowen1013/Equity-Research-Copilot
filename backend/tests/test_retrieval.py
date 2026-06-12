@@ -1444,3 +1444,55 @@ def test_metric_snippet_centers_on_strong_metric_match() -> None:
 
     assert snippet.startswith("...")
     assert "Net sales increased" in snippet
+
+
+class VectorModeFakeSession:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def execute(self, statement, params=None):
+        self.statements.append(str(statement))
+        return None
+
+
+def make_vector_mode_service(mode: str):
+    from app.core import Settings
+    from app.services.retrieval import RetrievalService
+
+    session = VectorModeFakeSession()
+    service = RetrievalService(
+        session,
+        settings=Settings(_env_file=None, vector_search_mode=mode),
+    )
+    return service, session
+
+
+def test_apply_vector_search_mode_sets_hnsw_ef_search() -> None:
+    service, session = make_vector_mode_service("hnsw")
+    degraded: list[dict[str, str]] = []
+
+    service._apply_vector_search_mode(degraded)
+
+    assert any("hnsw.ef_search" in statement for statement in session.statements)
+    assert degraded == []
+
+
+def test_apply_vector_search_mode_disables_index_scan_for_exact() -> None:
+    service, session = make_vector_mode_service("exact")
+    degraded: list[dict[str, str]] = []
+
+    service._apply_vector_search_mode(degraded)
+    service._restore_vector_search_mode()
+
+    assert any("'off'" in statement for statement in session.statements)
+    assert any("'on'" in statement for statement in session.statements)
+
+
+def test_apply_vector_search_mode_auto_leaves_planner_alone() -> None:
+    service, session = make_vector_mode_service("auto")
+    degraded: list[dict[str, str]] = []
+
+    service._apply_vector_search_mode(degraded)
+    service._restore_vector_search_mode()
+
+    assert session.statements == []

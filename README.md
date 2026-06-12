@@ -38,7 +38,7 @@ Not implemented yet:
 
 - Broader claim-level support validation beyond citation ID checks.
 - Production hardening for the research-run workflow and trace viewer.
-- Production retrieval optimizations such as HNSW auto mode, MMR diversity, neighbor expansion, learned reranking, and broader eval coverage.
+- Production retrieval optimizations such as MMR diversity, neighbor expansion, learned reranking, and broader eval coverage. HNSW indexing is implemented; recall tuning across larger corpora remains open.
 
 ## Prerequisites
 
@@ -75,7 +75,8 @@ Required values:
 | `EMBEDDING_MODEL` | No | Embedding model. Defaults to `text-embedding-3-small`. |
 | `EMBEDDING_DIMENSIONS` | No | Embedding vector dimensions. Defaults to `1536`. |
 | `EMBEDDING_INPUT_VERSION` | No | Version for the document embedding input template. Defaults to `v1`. |
-| `VECTOR_SEARCH_MODE` | No | Reserved vector search profile. Defaults to `exact`; HNSW is a later optimization. |
+| `VECTOR_SEARCH_MODE` | No | Vector search profile: `hnsw` (default) uses the pgvector HNSW index from migration 0008, `exact` forces exact scans, `auto` lets the Postgres planner decide. |
+| `HNSW_EF_SEARCH` | No | Transaction-local `hnsw.ef_search` budget used when `VECTOR_SEARCH_MODE=hnsw`. Defaults to `80`. |
 | `RETRIEVAL_DENSE_CANDIDATES` | No | Dense candidate budget. Defaults to `40`. |
 | `RETRIEVAL_LEXICAL_CANDIDATES` | No | Lexical candidate budget. Defaults to `40`. |
 | `RETRIEVAL_FACT_CANDIDATES` | No | XBRL fact candidate budget. Defaults to `20`. |
@@ -84,6 +85,7 @@ Required values:
 | `QUERY_PLANNER_LLM_MODEL` | No | Model used by the LLM planner. Defaults to `gpt-4o-mini`. |
 | `QUERY_PLANNER_LLM_TIMEOUT_SECONDS` | No | Timeout for the LLM planner call. Defaults to `20`. |
 | `QUERY_PLANNER_LLM_MAX_RETRIES` | No | OpenAI SDK retry count for planner calls. Defaults to `0` so local planner tests fail fast instead of waiting through retries. |
+| `ANSWER_LLM_MAX_OUTPUT_TOKENS` | No | Upper bound on answer generation output tokens to cap tail latency. Defaults to `900`. |
 
 Example:
 
@@ -97,7 +99,8 @@ EMBEDDING_PROVIDER="openai"
 EMBEDDING_MODEL="text-embedding-3-small"
 EMBEDDING_DIMENSIONS=1536
 EMBEDDING_INPUT_VERSION="v1"
-VECTOR_SEARCH_MODE="exact"
+VECTOR_SEARCH_MODE="hnsw"
+HNSW_EF_SEARCH=80
 RETRIEVAL_DENSE_CANDIDATES=40
 RETRIEVAL_LEXICAL_CANDIDATES=40
 RETRIEVAL_FACT_CANDIDATES=20
@@ -312,7 +315,7 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve?view=ana
   -Body '{"ticker":"AAPL","question":"What drove Apple revenue growth?"}'
 ```
 
-`POST /research/runs` returns the final cited answer plus an auditable `research_run.v1` contract containing planner output, agent/tool steps, normalized evidence, validation status, limitations, and retrieval diagnostics.
+`POST /research/runs` returns the final cited answer plus an auditable `research_run.v1` contract containing planner output, agent/tool steps, normalized evidence, validation status, limitations, and retrieval diagnostics. Each run is persisted to the `research_runs` table; `GET /research/runs/{run_id}` returns the stored contract and `GET /research/runs?ticker=&limit=` lists recent run summaries.
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/research/runs" \
@@ -377,6 +380,23 @@ backend\.venv\Scripts\python -m app.evals.retrieval_gold_eval
 
 The current gold eval seed set lives at `backend/evals/retrieval_gold_eval.json`. It is intentionally small and should be refreshed when chunking, SEC data, or local fixture filings change.
 
+Run the end-to-end answer quality eval (validation status, citation counts, claim-level citation coverage, content patterns, and latency budgets per case):
+
+macOS/Linux:
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.evals.answer_eval
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "backend"
+backend\.venv\Scripts\python -m app.evals.answer_eval
+```
+
+The answer eval set lives at `backend/evals/answer_gold_eval.json` and runs the full `/research/runs` pipeline, so it requires a seeded database and an OpenAI API key.
+
 ## API Endpoints
 
 - `GET /health`
@@ -397,6 +417,11 @@ The current gold eval seed set lives at `backend/evals/retrieval_gold_eval.json`
 - `GET /filings/{filing_id}/chunks/{chunk_id}/source`
 - `POST /research/retrieve`
 - `POST /research/retrieve?view=analysis`
+- `POST /research/plan`
+- `POST /research/query`
+- `POST /research/runs`
+- `GET /research/runs?ticker=&limit=`
+- `GET /research/runs/{run_id}`
 
 ## Verification
 

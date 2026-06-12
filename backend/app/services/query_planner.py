@@ -1,12 +1,41 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import asdict, dataclass, field, replace
 import json
 import re
+from threading import Lock
 from typing import Any, Protocol
 
 from app.core import Settings, get_settings
 from app.services.metric_profiles import METRIC_RETRIEVAL_PROFILES, get_metric_profile
+from app.services.openai_client import get_openai_client
+
+LLM_RESPONSE_CACHE_MAX_ENTRIES = 256
+
+_llm_response_cache: OrderedDict[tuple[str, str, str], Any] = OrderedDict()
+_llm_response_cache_lock = Lock()
+
+
+def _llm_cache_get(key: tuple[str, str, str]) -> Any | None:
+    with _llm_response_cache_lock:
+        value = _llm_response_cache.get(key)
+        if value is not None:
+            _llm_response_cache.move_to_end(key)
+        return value
+
+
+def _llm_cache_put(key: tuple[str, str, str], value: Any) -> None:
+    with _llm_response_cache_lock:
+        _llm_response_cache[key] = value
+        _llm_response_cache.move_to_end(key)
+        while len(_llm_response_cache) > LLM_RESPONSE_CACHE_MAX_ENTRIES:
+            _llm_response_cache.popitem(last=False)
+
+
+def clear_llm_response_cache() -> None:
+    with _llm_response_cache_lock:
+        _llm_response_cache.clear()
 
 
 VALID_FORMS = {
@@ -94,6 +123,7 @@ VALID_LLM_PLAN_FIELDS = {
     "allowed_forms",  # 当没有明确 form 要求时，retrieval 可搜索的 filing 类型。
     "preferred_forms",  # 不硬约束检索时，用来提高某类 filing 的优先级。
     "reasoning_summary",  # 可选的 LLM 理由摘要；schema 接受，但 RetrievalPlan 不保存。
+    "dense_query_specs",  # 单次调用模式下随槽位一起返回的 dense 检索 query；无效时回退到独立 rewriter 调用。
 }
 PERFORMANCE_OVERVIEW_METRICS = [
     "revenue",  # 收入；经营表现概览中的核心 top-line 指标。
@@ -402,16 +432,20 @@ class LLMQueryPlanner:
         if api_key is None or not api_key.get_secret_value().strip():
             raise RuntimeError("OPENAI_API_KEY must be configured for LLM query planning.")
 
+        cache_key = ("plan_candidate", self._settings.query_planner_llm_model, question)
+        cached = _llm_cache_get(cache_key)
+        if cached is not None:
+            return json.loads(cached)
+
         try:
-            from openai import OpenAI
+            client = get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.query_planner_llm_timeout_seconds,
+                max_retries=self._settings.query_planner_llm_max_retries,
+            )
         except ImportError as exc:
             raise RuntimeError("The openai package must be installed for LLM query planning.") from exc
 
-        client = OpenAI(
-            api_key=api_key.get_secret_value(),
-            timeout=self._settings.query_planner_llm_timeout_seconds,
-            max_retries=self._settings.query_planner_llm_max_retries,
-        )
         response = client.chat.completions.create(
             model=self._settings.query_planner_llm_model,
             temperature=0,
@@ -426,6 +460,7 @@ class LLMQueryPlanner:
         unknown_fields = set(candidate) - self.allowed_fields
         if unknown_fields:
             raise ValueError(f"LLM planner returned unsupported fields: {sorted(unknown_fields)}")
+        _llm_cache_put(cache_key, json.dumps(candidate, ensure_ascii=False))
         return candidate
 
 
@@ -444,35 +479,42 @@ class LLMDenseQueryRewriter:
         if api_key is None or not api_key.get_secret_value().strip():
             raise RuntimeError("OPENAI_API_KEY must be configured for LLM dense query rewriting.")
 
+        payload_text = json.dumps(
+            _llm_dense_query_rewriter_payload(
+                question=question,
+                plan=plan,
+                requested_roles=requested_roles,
+            ),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        cache_key = (
+            "dense_query_rewrite",
+            self._settings.query_planner_llm_model,
+            payload_text,
+        )
+        cached = _llm_cache_get(cache_key)
+        if cached is not None:
+            return json.loads(cached)
+
         try:
-            from openai import OpenAI
+            client = get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.query_planner_llm_timeout_seconds,
+                max_retries=self._settings.query_planner_llm_max_retries,
+            )
         except ImportError as exc:
             raise RuntimeError(
                 "The openai package must be installed for LLM dense query rewriting."
             ) from exc
 
-        client = OpenAI(
-            api_key=api_key.get_secret_value(),
-            timeout=self._settings.query_planner_llm_timeout_seconds,
-            max_retries=self._settings.query_planner_llm_max_retries,
-        )
         response = client.chat.completions.create(
             model=self._settings.query_planner_llm_model,
             temperature=0,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _llm_dense_query_rewriter_system_prompt()},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        _llm_dense_query_rewriter_payload(
-                            question=question,
-                            plan=plan,
-                            requested_roles=requested_roles,
-                        ),
-                        ensure_ascii=False,
-                    ),
-                },
+                {"role": "user", "content": payload_text},
             ],
         )
         content = response.choices[0].message.content or "{}"
@@ -480,6 +522,7 @@ class LLMDenseQueryRewriter:
         specs = parsed.get("dense_query_specs")
         if not isinstance(specs, list):
             raise ValueError("LLM dense query rewriter must return dense_query_specs.")
+        _llm_cache_put(cache_key, json.dumps(specs, ensure_ascii=False))
         return specs
 
 
@@ -858,7 +901,11 @@ class QueryPlanner:
         try:
             candidate = self._get_llm_planner().plan_candidate(query.original)
             plan = self._validator.validate(candidate, query, planner_source="llm_validated")
-            return self._plan_with_llm_dense_queries(query, plan)
+            return self._plan_with_llm_dense_queries(
+                query,
+                plan,
+                inline_specs=candidate.get("dense_query_specs"),
+            )
         except Exception as exc:
             return self._safe_text_plan(query, reason=f"llm_failed:{exc.__class__.__name__}")
 
@@ -917,16 +964,46 @@ class QueryPlanner:
         self,
         query: NormalizedQuery,
         plan: RetrievalPlan,
+        *,
+        inline_specs: Any | None = None,
     ) -> RetrievalPlan:
-        rewriter = self._get_dense_query_rewriter()
-        if rewriter is None:
-            return plan
-
         requested_roles = _requested_dense_roles_for(
             question_type=plan.question_type,
             target_sections=plan.target_sections,
             metric_keys=plan.metric_keys,
         )
+
+        # Single-call fast path: the planner LLM already proposed dense query
+        # specs alongside the validated slots, so a second rewriter round trip
+        # is only needed when those inline specs fail validation.
+        if inline_specs is not None:
+            inline_validated = _validated_llm_dense_query_specs(
+                inline_specs,
+                requested_roles=requested_roles,
+                comparison_basis=plan.comparison_basis,
+                duration_class=plan.duration_class,
+            )
+            if inline_validated:
+                merged = _merge_dense_query_specs(
+                    llm_specs=inline_validated,
+                    fallback_specs=plan.dense_query_specs,
+                    requested_roles=requested_roles,
+                    original_query=query.original,
+                )
+                if merged:
+                    return replace(
+                        plan,
+                        dense_query_specs=merged,
+                        dense_queries=[spec["text"] for spec in merged],
+                        matched_rules=[
+                            *plan.matched_rules,
+                            "dense_query:planner_single_call",
+                        ],
+                    )
+
+        rewriter = self._get_dense_query_rewriter()
+        if rewriter is None:
+            return plan
         try:
             raw_specs = rewriter.rewrite(
                 question=query.original,
@@ -1030,7 +1107,20 @@ Field guidance:
 - For "last/latest quarter" metric questions, set period_kind="quarter", target_period="latest", duration_class="quarter".
 - For balance sheet point-in-time metric questions, set period_kind="instant", target_period="latest", duration_class="instant".
 - comparison_basis is "none" for point-in-time or summary questions, "ambiguous" when the user asks for change/growth without specifying quarterly, YTD, or fiscal-year basis, and a specific basis when implied or stated.
-- Do not output dense_queries, dense_query_specs, lexical_queries, lexical_query_specs, evidence_roles, needs_financial_facts, needs_text_chunks, or needs_metric_comparisons.
+- Do not output dense_queries, lexical_queries, lexical_query_specs, evidence_roles, needs_financial_facts, needs_text_chunks, or needs_metric_comparisons.
+
+Dense query specs:
+Also return dense_query_specs: short English evidence-seeking phrases used for dense embedding retrieval. They are not answers; they describe the filing language likely to contain evidence.
+- Include one spec per applicable role, chosen from: slot, financial_statement, cash_flow, liquidity, mda, risk.
+- Always include role "slot": one broad semantic query covering the overall evidence need across metrics, time scope, and comparison basis.
+- Include "financial_statement" when metric_keys is non-empty or target_sections includes Financial Statements or Cash Flows; focus on statement names and line items.
+- Include "cash_flow" when target_sections includes Cash Flows or metric_keys includes operating_cash_flow, free_cash_flow, or capital_expenditures; focus on statements of cash flows and operating/investing/financing activities.
+- Include "liquidity" when target_sections includes Liquidity or metric_keys includes operating_cash_flow or free_cash_flow; focus on liquidity and capital resources.
+- Include "mda" when target_sections includes Management's Discussion and Analysis or question_type is mixed, performance_overview, or performance_judgment; focus on results of operations, drivers, "primarily due to".
+- Include "risk" when target_sections includes Risk Factors or question_type is risk; focus on risk factors item 1A language.
+- Each text must be 8 to 32 words, English only, neutral SEC filing evidence language.
+- Do not invent numbers, percentages, dates, dollar amounts, causes, or outcomes.
+- If comparison_basis is not "none", include matching period or comparison language such as "three months ended" or "year over year".
 
 Few-shot examples:
 
@@ -1051,7 +1141,12 @@ Output:
   "ambiguities": [],
   "forms": [],
   "allowed_forms": ["10-Q", "10-K"],
-  "preferred_forms": ["10-Q"]
+  "preferred_forms": ["10-Q"],
+  "dense_query_specs": [
+    {{"role": "slot", "text": "latest quarterly financial performance showing year over year revenue margin and income changes"}},
+    {{"role": "financial_statement", "text": "consolidated statements of operations showing three months ended net sales gross margin operating income and net income"}},
+    {{"role": "mda", "text": "results of operations discussion explaining quarterly performance drivers compared to the prior year quarter"}}
+  ]
 }}
 
 Input:
@@ -1091,7 +1186,11 @@ Output:
   "ambiguities": [],
   "forms": ["10-K"],
   "allowed_forms": ["10-K"],
-  "preferred_forms": ["10-K"]
+  "preferred_forms": ["10-K"],
+  "dense_query_specs": [
+    {{"role": "slot", "text": "latest annual report evidence summarizing business operational financial and regulatory risks"}},
+    {{"role": "risk", "text": "risk factors item 1a discussion of business legal regulatory market operational and financial risks"}}
+  ]
 }}
 
 Input:

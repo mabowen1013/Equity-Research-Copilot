@@ -8,6 +8,7 @@ from app.schemas import (
     QueryPlanRequest,
     ResearchAnswerResponseRead,
     ResearchRunRead,
+    ResearchRunSummaryRead,
     RetrievalAnalysisResponse,
     RetrievalPlanRead,
     RetrievalRequest,
@@ -80,6 +81,38 @@ def run_research(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RetrievalError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/runs", response_model=list[ResearchRunSummaryRead])
+def list_research_runs(
+    ticker: str | None = Query(default=None, description="Filter runs by ticker."),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db_session),
+) -> list[ResearchRunSummaryRead]:
+    records = ResearchRunService(db).list_runs(ticker=ticker, limit=limit)
+    return [
+        ResearchRunSummaryRead(
+            run_id=record.run_id,
+            ticker=record.ticker,
+            question=record.question,
+            status=record.status,
+            validation_status=record.validation_status,
+            duration_ms=record.duration_ms,
+            created_at=record.created_at.isoformat() if record.created_at else None,
+        )
+        for record in records
+    ]
+
+
+@router.get("/runs/{run_id}", response_model=ResearchRunRead)
+def get_research_run(
+    run_id: str,
+    db: Session = Depends(get_db_session),
+) -> ResearchRunRead:
+    run = ResearchRunService(db).get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Research run not found: {run_id}")
+    return run
 
 
 def build_analysis_response(response: RetrievalResponse) -> RetrievalAnalysisResponse:

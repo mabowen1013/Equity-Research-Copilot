@@ -1,0 +1,55 @@
+{
+  "suite_name": "answer_gold_eval",
+  "description": "End-to-end answer quality regression set for /research/runs. Cases assert validation status, citation counts, claim-level citation coverage, content patterns, and latency budgets. Run against a database seeded with the local AAPL filings.",
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "aapl_latest_quarter_revenue",
+      "ticker": "AAPL",
+      "question": "What was Apple's revenue in the latest quarter?",
+      "expect_validation_status": "passed",
+      "min_citations": 1,
+      "min_claim_citation_coverage": 0.6,
+      "must_match": ["\\$\\d"],
+      "max_duration_ms": 30000
+    },
+    {
+      "id": "aapl_gross_margin_change_drivers",
+      "ticker": "AAPL",
+      "question": "Why did Apple's gross margin change year over year?",
+      "expect_validation_status": "passed",
+      "min_citations": 2,
+      "min_claim_citation_coverage": 0.5,
+      "must_match": ["(?i)margin"],
+      "max_duration_ms": 45000
+    },
+    {
+      "id": "aapl_main_risk_factors",
+      "ticker": "AAPL",
+      "question": "What are Apple's main risk factors?",
+      "expect_validation_status": "passed",
+      "min_citations": 1,
+      "min_claim_citation_coverage": 0.5,
+      "must_match": ["(?i)risk"],
+      "max_duration_ms": 45000
+    },
+    {
+      "id": "aapl_free_cash_flow_latest",
+      "ticker": "AAPL",
+      "question": "What was Apple's free cash flow in the latest period?",
+      "expect_validation_status": "passed",
+      "min_citations": 1,
+      "min_claim_citation_coverage": 0.6,
+      "must_match": ["(?i)free cash flow"],
+      "max_duration_ms": 30000
+    },
+    {
+      "id": "unanswerable_question_safe_fallback",
+      "ticker": "AAPL",
+      "question": "What is the CEO's favorite color?",
+      "expect_validation_status": "insufficient_evidence",
+      "min_citations": 0,
+      "max_duration_ms": 30000
+    }
+  ]
+}

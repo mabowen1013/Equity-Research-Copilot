@@ -791,15 +791,19 @@ h3 {
 
 .answer-text {
   display: grid;
+  min-width: 0;
   gap: 10px;
   margin: 8px 0;
   color: #263445;
   font-size: 0.92rem;
   line-height: 1.68;
+  overflow-wrap: anywhere;
 }
 
 .answer-text p {
+  min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .citation-ref {

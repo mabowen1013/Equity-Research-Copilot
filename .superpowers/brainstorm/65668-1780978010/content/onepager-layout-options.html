@@ -1,0 +1,86 @@
+<h2>One-Pager 页面布局方向</h2>
+<p class="subtitle">目标：输入 ticker 后快速生成可引用的一页式研究报告，同时保留数据准备状态和 evidence trail。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Report-first</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Ticker input | Generate | Status</div>
+          <div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px">
+            <div class="placeholder" style="height:42px">Executive Summary</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="placeholder" style="height:74px">Financial Snapshot</div>
+              <div class="placeholder" style="height:74px">Anomaly Highlights</div>
+            </div>
+            <div class="placeholder" style="height:56px">MD&amp;A / Risk / 8-K Highlights</div>
+            <div class="placeholder" style="height:48px">Bull / Bear Thesis</div>
+            <div class="placeholder" style="height:28px">Citations + Warnings</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Report-first 一页阅读流</h3>
+      <p>最像真正 One-Pager：报告内容是主角，状态和证据折叠在下方。推荐作为 v1。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Workbench</div>
+        <div class="mockup-body">
+          <div class="mock-nav">One-Pager Generator</div>
+          <div style="display:grid;grid-template-columns:34% 66%;gap:10px;margin-top:12px">
+            <div>
+              <div class="placeholder" style="height:42px">Ticker + Controls</div>
+              <div class="placeholder" style="height:62px;margin-top:8px">Filing Universe</div>
+              <div class="placeholder" style="height:62px;margin-top:8px">Readiness Jobs</div>
+              <div class="placeholder" style="height:62px;margin-top:8px">Diagnostics</div>
+            </div>
+            <div>
+              <div class="placeholder" style="height:48px">Summary</div>
+              <div class="placeholder" style="height:90px;margin-top:8px">Report Sections</div>
+              <div class="placeholder" style="height:64px;margin-top:8px">Evidence</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Research workbench</h3>
+      <p>更适合调试和展示 agent 步骤，但视觉上不像“一页报告”，v1 会显得偏工程工具。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Tabbed Report</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Input | Report | Evidence | Diagnostics</div>
+          <div style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px">
+            <div class="placeholder" style="height:42px">Active Tab: Report</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+              <div class="placeholder" style="height:78px">Financials</div>
+              <div class="placeholder" style="height:78px">Qualitative</div>
+              <div class="placeholder" style="height:78px">8-K Events</div>
+            </div>
+            <div class="placeholder" style="height:72px">Thesis + Citations</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Tabs with report preview</h3>
+      <p>平衡展示和调试，但“one-page”感觉会被 tabs 打散，适合 v2 扩展。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的建议</h3>
+  <p>选 A：报告优先，一屏内展示生成入口、核心摘要、财务异常、定性洞察和多空逻辑；filing universe、job 状态、trace 和 citations 做成可展开区域。</p>
+</div>

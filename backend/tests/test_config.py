@@ -44,7 +44,8 @@ def test_settings_default_sec_rate_limit_and_cache_ttl(monkeypatch) -> None:
     assert settings.embedding_model == "text-embedding-3-small"
     assert settings.embedding_dimensions == 1536
     assert settings.embedding_input_version == "v1"
-    assert settings.vector_search_mode == "exact"
+    assert settings.vector_search_mode == "hnsw"
+    assert settings.hnsw_ef_search == 80
     assert settings.retrieval_dense_candidates == 40
     assert settings.retrieval_lexical_candidates == 40
     assert settings.retrieval_fact_candidates == 20
