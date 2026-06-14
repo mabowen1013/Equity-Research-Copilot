@@ -552,8 +552,11 @@ def build_answer_prompt_payload(
         "ticker": context.ticker,
         "question": context.question,
         "retrieval_plan": context.retrieval_plan.model_dump(mode="json"),
-        "evidence": [record.to_prompt_dict() for record in evidence_records],
-        "citation_format": "Append citations as [evidence_id] markers.",
+        "evidence": [
+            {"index": index, **record.to_prompt_dict()}
+            for index, record in enumerate(evidence_records, start=1)
+        ],
+        "citation_format": "Cite evidence by its index field as [index] markers, for example [1] or [2].",
         "validation_errors_to_fix": [
             issue.model_dump(mode="json") for issue in (validation_errors or [])
         ],
@@ -563,7 +566,7 @@ def build_answer_prompt_payload(
 ANSWER_PROMPT_CORE = """
 You are Equity Research Copilot, a citation-first research assistant for SEC filings.
 Answer only from the evidence objects in the user payload. Do not use outside facts.
-Do not invent citation ids. Use citation markers in the exact form [evidence_id].
+Do not invent citations. Cite evidence by its index field using markers in the exact form [index], for example [1] or [2].
 
 Citation rules:
 - Put citation markers after the sentence or bullet they support.
@@ -588,7 +591,7 @@ def answer_system_prompt() -> str:
 
 Return one JSON object with:
 - answer: complete analyst-style answer string with citation markers.
-- citations: array of evidence_id strings used as answer markers.
+- citations: array of the evidence index numbers used as answer markers.
 - limitations: array of short limitations or caveats.
 
 Only include limitations for specific evidence gaps, conflicts, stale data, or unanswered parts of the question.
@@ -600,7 +603,7 @@ def answer_stream_system_prompt() -> str:
     return f"""{ANSWER_PROMPT_CORE}
 
 Output format (plain text, not JSON, no markdown headings):
-- Write the complete analyst-style answer with [evidence_id] citation markers.
+- Write the complete analyst-style answer with [index] citation markers, for example [1] or [2].
 - If there are limitations for specific evidence gaps, conflicts, stale data, or unanswered parts of the question, end with a line containing exactly LIMITATIONS: followed by one short limitation per line, each starting with "- ".
 - If there are no limitations, do not write a LIMITATIONS section.
 - Do not add generic caveats.

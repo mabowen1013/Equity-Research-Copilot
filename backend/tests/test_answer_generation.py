@@ -8,7 +8,10 @@ from app.schemas import (
 )
 from app.services.answer_generation import (
     AnswerStreamEmitter,
+    answer_stream_system_prompt,
     answer_system_prompt,
+    build_answer_prompt_payload,
+    build_citation_alias_map,
     metric_comparison_record,
     normalize_generated_answer_citations,
     split_streamed_answer,
@@ -161,6 +164,27 @@ def test_answer_prompt_discourages_generic_limitations() -> None:
 
     assert "Do not add generic caveats" in prompt
     assert "margin changes in percentage points" in prompt
+
+
+def test_answer_prompts_instruct_index_based_citations() -> None:
+    assert "[index]" in answer_system_prompt()
+    assert "[index]" in answer_stream_system_prompt()
+
+
+def test_answer_prompt_payload_indexes_evidence_for_numbered_citations() -> None:
+    context = make_context()
+    records = build_prompt_evidence_records(context)
+    payload = build_answer_prompt_payload(context, records)
+
+    # Each evidence object carries a 1-based index the model is told to cite.
+    indexes = [item["index"] for item in payload["evidence"]]
+    assert indexes == list(range(1, len(records) + 1))
+
+    # The index the model sees must resolve back to that record's evidence_id,
+    # which is what makes a streamed "[1]" marker validate after normalization.
+    alias_map = build_citation_alias_map(records)
+    for item in payload["evidence"]:
+        assert alias_map[str(item["index"])] == item["evidence_id"]
 
 
 def test_metric_comparison_prompt_record_formats_margin_as_percentages() -> None:
