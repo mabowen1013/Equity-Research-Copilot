@@ -256,6 +256,7 @@ export type AnswerEvidenceSpan = {
   evidence_id: string;
   type: "evidence_span";
   chunk_id: number;
+  filing_id: number;
   source_chunk_evidence_id: string;
   role: string;
   score: number;

@@ -1251,27 +1251,43 @@ function EvidenceCards({ evidence }: { evidence: ResearchRunEvidence[] }) {
 
   return (
     <div className="run-evidence-list">
-      {evidence.map((item) => (
-        <article className="run-evidence-card" key={item.evidence_id}>
-          <div className="chunk-meta">
-            <span>{item.evidence_type}</span>
-            <span>{item.role}</span>
-            {item.form_type && <span>{item.form_type}</span>}
-          </div>
-          <h4>{item.title}</h4>
-          {item.text && <p>{item.text}</p>}
-          <div className="chunk-meta chunk-meta--subtle">
-            {item.period && <span>{item.period}</span>}
-            {item.section && <span>{item.section}</span>}
-            {item.filing_date && <span>{item.filing_date}</span>}
-          </div>
-          {item.sec_url && (
-            <a href={item.sec_url} target="_blank" rel="noreferrer">
-              SEC Source
-            </a>
-          )}
-        </article>
-      ))}
+      {evidence.map((item) => {
+        const filingId = getNumericSourceId(item.source_ids, "filing_id");
+        const chunkId = getNumericSourceId(item.source_ids, "chunk_id");
+
+        return (
+          <article className="run-evidence-card" key={item.evidence_id}>
+            <div className="chunk-meta">
+              <span>{item.evidence_type}</span>
+              <span>{item.role}</span>
+              {item.form_type && <span>{item.form_type}</span>}
+            </div>
+            <h4>{item.title}</h4>
+            {item.text && <p>{item.text}</p>}
+            <div className="chunk-meta chunk-meta--subtle">
+              {item.period && <span>{item.period}</span>}
+              {item.section && <span>{item.section}</span>}
+              {item.filing_date && <span>{item.filing_date}</span>}
+            </div>
+            <div className="chunk-actions">
+              {item.sec_url && (
+                <a href={item.sec_url} target="_blank" rel="noreferrer">
+                  SEC Source
+                </a>
+              )}
+              {filingId !== null && chunkId !== null && (
+                <a
+                  href={getHighlightedSourceUrl(filingId, chunkId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Highlighted Source
+                </a>
+              )}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -1369,8 +1385,8 @@ function PillRow({
 }
 
 function CitationCard({ citation, number }: { citation: AnswerCitation; number: number }) {
-  const chunkId = getNumericSourceId(citation, "chunk_id");
-  const filingId = getNumericSourceId(citation, "filing_id");
+  const chunkId = getNumericSourceId(citation.source_ids, "chunk_id");
+  const filingId = getNumericSourceId(citation.source_ids, "filing_id");
 
   return (
     <article className="citation-card" id={citationDomId(citation.evidence_id)}>
@@ -1407,8 +1423,8 @@ function formatCitationType(type: string): string {
     .join(" ");
 }
 
-function getNumericSourceId(citation: AnswerCitation, key: string): number | null {
-  const value = citation.source_ids[key];
+function getNumericSourceId(sourceIds: Record<string, unknown>, key: string): number | null {
+  const value = sourceIds[key];
   return typeof value === "number" ? value : null;
 }
 

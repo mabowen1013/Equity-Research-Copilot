@@ -330,6 +330,7 @@ def _span_evidence(span: EvidenceSpanRead, role: str) -> ResearchRunEvidenceRead
         sec_url=span.sec_url,
         source_ids={
             "chunk_id": span.chunk_id,
+            "filing_id": span.filing_id,
             "source_chunk_evidence_id": span.source_chunk_evidence_id,
             "accession_number": span.accession_number,
             "start_char": span.start_char,

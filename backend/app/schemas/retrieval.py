@@ -75,6 +75,7 @@ class EvidenceSpanRead(BaseModel):
     evidence_id: str
     type: Literal["evidence_span"] = "evidence_span"
     chunk_id: int
+    filing_id: int
     source_chunk_evidence_id: str
     role: str
     score: float

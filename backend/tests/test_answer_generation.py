@@ -332,6 +332,13 @@ def test_research_answer_service_answers_from_existing_retrieval_response() -> N
     assert response.validation_status == "passed"
     assert response.retrieval_plan.question_type == "metric"
     assert generator.call_count == 1
+    span_citation = next(
+        citation
+        for citation in response.citations
+        if citation.evidence_type == "evidence_span"
+    )
+    assert span_citation.source_ids["filing_id"] == 10
+    assert span_citation.source_ids["chunk_id"] == 101
 
 
 def test_research_answer_service_uses_extractive_fallback_after_failed_retry() -> None:

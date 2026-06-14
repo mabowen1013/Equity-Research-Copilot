@@ -2701,6 +2701,7 @@ def build_evidence_span_read(
     return EvidenceSpanRead(
         evidence_id=f"span:{chunk.chunk_id}:{role}:{unit.start_char}:{unit.end_char}",
         chunk_id=chunk.chunk_id,
+        filing_id=chunk.filing_id,
         source_chunk_evidence_id=chunk.evidence_id,
         role=role,
         score=round(score, 6),
