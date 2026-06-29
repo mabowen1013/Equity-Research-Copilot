@@ -480,6 +480,62 @@ def test_research_answer_service_returns_insufficient_evidence_when_prompt_empty
     assert response.validation.errors[0].code == "insufficient_evidence"
 
 
+class FakeAnswerabilityJudge:
+    def __init__(self, answerable: bool, reason: str = "") -> None:
+        self._answerable = answerable
+        self._reason = reason
+        self.calls = 0
+
+    def is_answerable(self, question, evidence_records):
+        self.calls += 1
+        return self._answerable, self._reason
+
+
+def _passing_generator() -> "SequenceAnswerGenerator":
+    return SequenceAnswerGenerator(
+        [
+            GeneratedAnswer(
+                answer=(
+                    "Total net sales were supported by the selected filing span. "
+                    "[span:101:primary_financial_statement_chunks:0:80]"
+                ),
+                cited_evidence_ids=["span:101:primary_financial_statement_chunks:0:80"],
+            )
+        ]
+    )
+
+
+def test_answerability_gate_declines_unanswerable_question() -> None:
+    judge = FakeAnswerabilityJudge(False, "evidence has no gross margin")
+    service = ResearchAnswerService(
+        None,
+        retriever=FakeRetriever(),
+        answer_generator=_passing_generator(),
+        answerability_judge=judge,
+    )
+
+    response = service.answer(make_request())
+
+    assert judge.calls == 1
+    assert response.validation_status == "insufficient_evidence"
+    assert response.validation.errors[0].code == "question_not_answerable"
+
+
+def test_answerability_gate_allows_answerable_question() -> None:
+    judge = FakeAnswerabilityJudge(True)
+    service = ResearchAnswerService(
+        None,
+        retriever=FakeRetriever(),
+        answer_generator=_passing_generator(),
+        answerability_judge=judge,
+    )
+
+    response = service.answer(make_request())
+
+    assert judge.calls == 1
+    assert response.validation_status == "passed"
+
+
 class SequenceAnswerGenerator:
     def __init__(self, answers: list[GeneratedAnswer]) -> None:
         self.answers = answers

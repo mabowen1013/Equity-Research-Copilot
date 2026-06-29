@@ -403,6 +403,61 @@ class LLMEntailmentJudge:
         return parse_entailment_labels(content, len(claims))
 
 
+class AnswerabilityJudge(Protocol):
+    def is_answerable(
+        self, question: str, evidence_records: list[PromptEvidenceRecord]
+    ) -> tuple[bool, str]:
+        """Return (answerable, reason) for the question given the retrieved evidence."""
+
+
+class LLMAnswerabilityJudge:
+    """LLM gate deciding whether the question can be answered from the evidence.
+
+    Fail-open: any missing key or judge error returns answerable=True so a flaky
+    gate never blocks an otherwise valid answer.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
+
+    def is_answerable(
+        self, question: str, evidence_records: list[PromptEvidenceRecord]
+    ) -> tuple[bool, str]:
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            return True, ""
+        try:
+            client = get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.answer_llm_timeout_seconds,
+                max_retries=self._settings.answer_llm_max_retries,
+            )
+        except ImportError:
+            return True, ""
+
+        payload = {
+            "question": question,
+            "evidence": [
+                {"type": record.evidence_type, "text": record.text[:400]}
+                for record in evidence_records[:MAX_PROMPT_EVIDENCE_ITEMS]
+            ],
+        }
+        try:
+            response = client.chat.completions.create(
+                model=self._settings.answer_relevance_llm_model,
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": answerability_system_prompt()},
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                ],
+            )
+        except Exception:
+            return True, ""
+        content = response.choices[0].message.content or "{}"
+        return parse_answerability(content)
+
+
 class CitationValidator:
     def __init__(
         self,
@@ -491,11 +546,19 @@ class ResearchAnswerService:
         retriever=None,
         answer_generator: AnswerGenerator | None = None,
         validator: CitationValidator | None = None,
+        answerability_judge: "AnswerabilityJudge | None" = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._retriever = retriever or RetrievalService(db, settings=self._settings)
         self._answer_generator = answer_generator or build_answer_generator(self._settings)
-        self._validator = validator or CitationValidator()
+        # Pass settings through so the entailment gate honors the caller's config.
+        self._validator = validator or CitationValidator(settings=self._settings)
+        if answerability_judge is not None:
+            self._answerability_judge: AnswerabilityJudge | None = answerability_judge
+        elif self._settings.answer_relevance_check:
+            self._answerability_judge = LLMAnswerabilityJudge(self._settings)
+        else:
+            self._answerability_judge = None
 
     def answer(self, request: RetrievalRequest) -> ResearchAnswerResponseRead:
         retrieval_response = RetrievalResponse.model_validate(self._retriever.retrieve(request))
@@ -526,6 +589,29 @@ class ResearchAnswerService:
                     )
                 ],
             )
+
+        # Answerability gate: retrieval always returns top-k, so evidence being
+        # non-empty does not mean the question is answerable. Decline off-topic or
+        # unavailable-metric questions instead of fabricating from loosely related
+        # evidence.
+        if self._answerability_judge is not None:
+            answerable, reason = self._answerability_judge.is_answerable(
+                request.question, evidence_records
+            )
+            if not answerable:
+                return build_insufficient_evidence_response(
+                    context,
+                    retrieval_response,
+                    retrieved_evidence_ids=retrieved_evidence_ids,
+                    prompt_evidence_ids=prompt_evidence_ids,
+                    errors=[
+                        CitationValidationIssueRead(
+                            code="question_not_answerable",
+                            message=reason
+                            or "The retrieved evidence does not address the question.",
+                        )
+                    ],
+                )
 
         validation: CitationValidationRead | None = None
         generated: GeneratedAnswer | None = None
@@ -1527,6 +1613,34 @@ def _strip_json_fences(content: str) -> str:
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
         stripped = re.sub(r"\s*```$", "", stripped)
     return stripped
+
+
+def parse_answerability(content: str) -> tuple[bool, str]:
+    try:
+        parsed = json.loads(_strip_json_fences(content))
+    except (ValueError, TypeError):
+        return True, ""
+    if not isinstance(parsed, dict):
+        return True, ""
+    answerable = parsed.get("answerable")
+    reason = parsed.get("reason")
+    if isinstance(answerable, bool):
+        return answerable, reason if isinstance(reason, str) else ""
+    # Default permissive: only decline on an explicit false.
+    return True, ""
+
+
+def answerability_system_prompt() -> str:
+    return """You decide whether a user's question about a US public company can be answered from the provided SEC-filing evidence.
+
+Return answerable=false ONLY when the evidence does not contain what the question specifically asks, for example:
+- the question asks for a metric the company does not report (e.g. a bank's gross margin or gross profit), or
+- the question is not about the company's SEC-reported financials or disclosures at all (e.g. personal trivia about an executive).
+
+Return answerable=true when the evidence contains the requested figure, period, driver, or disclosure, even partially.
+Judge only against the provided evidence; do not use outside knowledge. When unsure, return true.
+
+Return one JSON object: {"answerable": true|false, "reason": "<short explanation>"}."""
 
 
 def entailment_system_prompt() -> str:

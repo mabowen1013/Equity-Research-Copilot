@@ -125,6 +125,7 @@ def run_eval_file(
     db: Session | None = None,
     runner: ResearchRunner | None = None,
     enable_entailment: bool = True,
+    enable_relevance: bool = True,
 ) -> AnswerGoldEvalResult:
     path = Path(eval_file)
     data = json.loads(path.read_text())
@@ -133,9 +134,14 @@ def run_eval_file(
     if runner is not None:
         active_runner: ResearchRunner = runner
     else:
-        # Turn the claim-level entailment judge on for eval so the faithfulness
-        # gate is exercised; production keeps it opt-in via env.
-        settings = Settings(answer_entailment_check=True) if enable_entailment else None
+        # Turn the safety gates on for eval so they are exercised; production keeps
+        # them opt-in via env (extra LLM calls on the answer path).
+        overrides: dict[str, bool] = {}
+        if enable_entailment:
+            overrides["answer_entailment_check"] = True
+        if enable_relevance:
+            overrides["answer_relevance_check"] = True
+        settings = Settings(**overrides) if overrides else None
         active_runner = ResearchRunService(session, settings=settings)
 
     try:

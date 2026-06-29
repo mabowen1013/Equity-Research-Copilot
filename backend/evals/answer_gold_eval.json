@@ -91,7 +91,7 @@
       "expect_validation_status": "insufficient_evidence",
       "min_citations": 0,
       "max_duration_ms": 30000,
-      "note": "KNOWN GAP (surfaced by this eval): true-ReAct over-retrieves MD&A and answers off-topic instead of declining. Tracks a relevance/answerability gate as future work."
+      "note": "Off-topic question: the answerability gate should decline instead of answering with loosely-related MD&A."
     },
     {
       "id": "jpm_unreported_gross_margin",
@@ -100,7 +100,7 @@
       "expect_validation_status": "insufficient_evidence",
       "min_citations": 0,
       "max_duration_ms": 45000,
-      "note": "KNOWN GAP (surfaced by this eval): banks report no gross profit, but the system fabricates one and computes a margin. Tracks metric-availability awareness as future work."
+      "note": "Adversarial: banks report no gross profit, so the answerability gate should decline rather than fabricate a margin."
     },
     {
       "id": "nvda_false_premise_revenue_decline",

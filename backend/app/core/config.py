@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # opt-in per environment (set ANSWER_ENTAILMENT_CHECK=true to enable).
     answer_entailment_check: bool = False
     answer_entailment_llm_model: str = "gpt-4o-mini"
+    # Answerability gate: before generating, judge whether the question can be
+    # answered from the retrieved evidence; declines off-topic / unavailable-metric
+    # questions instead of fabricating. Extra pre-generation LLM call, so opt-in
+    # (set ANSWER_RELEVANCE_CHECK=true to enable).
+    answer_relevance_check: bool = False
+    answer_relevance_llm_model: str = "gpt-4o-mini"
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",
