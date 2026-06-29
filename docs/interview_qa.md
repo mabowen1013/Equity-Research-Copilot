@@ -151,20 +151,29 @@ XBRL 的一个领域陷阱：US-GAAP 没有单独的 Q4 facts（只有 FY 和 Q1
 
 ## 六、评估体系
 
-### Q13. 你怎么评估这个系统的质量？RAG 系统的 eval 难在哪？
+### Q13. 你这个项目的 evaluation 是怎么实现的？RAG 系统的 eval 难在哪？
 
-**答：** 分层评估，每层对应一个可独立失败的组件：
+**答：** 四层 eval，每层对应一个可独立失败的组件；每层都是“给定输入 → 跑真实组件 → 对可验证性质做断言”的 case 文件 + runner，runner 支持注入 fake（离线、无网络）也可打真实 DB+LLM（在线）。
 
-1. **Planner eval**（`query_planner_eval.py` + 测试集）：断言问题被解析成正确的槽位——question_type、metric_keys、时间口径。含歧义槽位专项集（`query_planner_ambiguous_slot_eval.json`）。
-2. **Retrieval gold eval**（`retrieval_gold_eval.py`）：每个 case 给定问题和期望 evidence_ids，算 recall@final-pack，case 级 min_recall 阈值。种子集从真实 AAPL 10-Q 检索 dump 标注而来。
-3. **Answer eval**（`answer_eval.py`，本次新增）：端到端跑 `/research/runs`，每 case 断言——validation_status（含 unanswerable 问题必须返回 insufficient_evidence）、最少引用数、**句级引用覆盖率**（min_claim_citation_coverage）、内容正则（must_match，如答案必须含 "$" 数字）、禁止模式（默认禁投资建议用语如 "price target" / "we recommend"）、延迟预算（max_duration_ms）。输出套件级指标：pass_rate、平均引用覆盖率、平均耗时。
-4. **单元/集成测试**：266 个 pytest，所有 LLM 依赖通过 Protocol 注入 fake，CI 不需要 API key。
+1. **Planner eval**（`query_planner_eval.py`，46 例）：断言自然语言问题被解析成正确槽位（question_type、metric_keys、时间口径），含歧义槽位专项集。
+2. **Retrieval gold eval**（`retrieval_gold_eval.py`）：**不再钉易失的 chunk:ID**（那是从系统自身检索 dump 反向种的，重摄即失效），改钉**稳定信号**——该问题应命中的证据**角色**（mda / 财报正文 / 风险因素 / metric…）是否在 evidence pack 里出现 + form/期间对不对。指标：角色 recall（gate）+ 角色 precision（焦点）。
+3. **Answer eval**（`answer_eval.py`，端到端跑 `/research/runs`）——核心是从“验形状”升级到“验对错 + 忠实度”：
+   - **数字对错（外部真值）**：`expect_values` 用 `parse_salient_numbers`+容差，把答案里的数字和**从 SEC XBRL（`financial_facts`）按固定财年钉死的真值**比对。这是真正的外部 ground truth（SEC 强制披露），不是系统自产——大多数 RAG 项目没有结构化真值，这个项目有。
+   - **忠实度（硬 gate）**：eval 里打开 claim 级蕴含校验，`contradicted_claim` → 直接判失败。
+   - **可答性（硬 gate）**：打开 answerability 闸门，不可答/指标不可得的问题必须返回 insufficient_evidence，而不是用松散相关的证据硬答。
+   - **期间正确性**：`expect_latest_filing` 断言最新被引 filing == 最新一期。
+   - **安全 + 延迟**：禁投资建议用语（must_not_match）、`max_duration_ms` 预算。
+   - **接地信号作指标**：数字接地 warning（对派生数字有噪声）作套件级指标上报、逐 case opt-in 才 gate；硬 gate 留给蕴含。
+   - **覆盖面**：跨公司（AAPL/MSFT/NVDA/TSLA + 银行 JPM）+ 对抗用例（不披露指标→应拒答；假前提“营收下滑”→不得附和）。
+4. **Agent 轨迹 eval**（`agent_trajectory_eval.py`，新增）：因为工具选择现在是**非确定性 LLM**，这是个新回归面。标注“问题→期望工具集”，跑真控制器 N 次，gate `expect_tools⊆used`、报**稳定性**。
 
-RAG eval 的难点及我的对策：(a) **标注贵** → gold set 刻意小而精，从真实检索 dump 里筛选标注，文件里写明"数据重新摄取后需刷新 ID"；(b) **答案没有唯一正确文本** → 不评字面相似度，评**可验证的结构性质**：引用有效性、覆盖率、关键内容模式、安全性质；(c) **LLM-as-judge 不稳定** → 现阶段全部用确定性断言，LLM judge（忠实度评分）列为下一步，且会以"判例 + 人工抽检校准"方式引入。
+**实测**（5 家公司真实 DB）：retrieval_gold 5/5、agent_trajectory 4/4（稳定性 100%）、answer_eval 11/11（数字真值全中、忠实度 contradicted=0、可答性闸门拦下 CEO-颜色 与 银行-毛利率 两类问题）。**反证**：把某 gold 值故意改成 $999B → 同一答案立刻 `value_mismatch` 失败，证明现在验的是对错而非形状。另有 309 个 pytest（LLM 依赖全部 Protocol 注入 fake，CI 无需 API key）。
 
-### Q14. 句级引用覆盖率为什么设计成 warning 而不是 error？
+RAG eval 的难点及对策：(a) **标注贵** → 数字真值直接复用 SEC XBRL（零人工）、retrieval gold 钉角色而非逐 chunk 标注；(b) **答案无唯一正确文本** → 不评字面相似度，评可验证性质（数字对账、引用合法、蕴含、可答性、安全）；(c) **LLM-judge 不稳定** → judge 全部 fail-open（不可用时不拦正常答案），且 judge 校准（对人工标注子集测一致率）列为下一步。
 
-**答：** 因为它的假阳性代价不对称。段落级引用惯例下，一个句子没有自己的 marker 不代表无据——前一句的引用经常覆盖整段论述。如果做成 error，系统会把大量合格回答打回重试甚至降级，可用性受损；做成 warning + 计数（claim_sentence_count / cited_claim_sentence_count），它就成为一个**可监控、可设阈值的质量信号**：eval 里按 case 设 min coverage 阈值，生产环境可以看覆盖率分布的漂移。这体现一个评估设计原则：硬校验只放置信度高的规则（引用 ID 白名单），统计性信号走软指标。
+### Q14. 句级引用覆盖率、数字接地 warning 为什么是“软指标”而蕴含/可答性是“硬 gate”？
+
+**答：** 按**假阳性代价**分级。句级覆盖率：段落级引用惯例下一句没 marker 不代表无据（前句引用常覆盖整段），硬拦会误伤合格答案，所以它是**计数指标 + 可选阈值**。数字接地 warning：对**派生数字**（如算出来的增长 65%）必然“不在证据里”，硬拦会误伤正确答案，所以默认只上报、逐 case opt-in 才 gate。反过来，**蕴含校验**（被引证据矛盾）和**可答性**（证据根本不含所问）假阳性低、危害大，所以做成硬 gate。原则：高置信度规则才进硬 gate，统计性信号走软指标。
 
 ---
 

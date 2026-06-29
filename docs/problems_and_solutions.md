@@ -159,20 +159,34 @@ eval 全绿只证明“格式合规、安全、带引用、够快”，**不证�
 - `answer_eval` 9/11 通过：4 个数字真值用例全中 SEC XBRL 值、忠实度 `contradicted=0`、假前提用例不附和；**剩 2 个红是 eval 抓到的真 bug**（见下）。
 - **反证有效**：把某 gold 值故意改成 $999B → 同一答案立刻 `value_mismatch` 失败，证明现在验的是“对错”而非“形状”。
 
-### eval 抓到的两个真 bug（这就是升级 eval 的价值）
-1. **不可答问题被off-topic作答**：“CEO 最喜欢的颜色”→ 真 ReAct 过度检索 MD&A，答成 iPhone/Mac 销量而非 insufficient。根因：检索对任何问题都返回 top-k，无相关性闸门。
-2. **银行 gross margin 被编造**：JPM 无 gross profit，系统却“算出”$8.33B gross profit、~30.2% margin（数字接地 warning 正确标红，但落在未引用句、且 status 仍 passed）。根因：答案生成对“指标不可得”无感知。
+---
 
-> 这两条现在被 gold 标为 KNOWN GAP（期望 insufficient），是下一步要修的系统问题——eval 的职责就是把它们暴露出来，而不是把绿凑出来。
+## 8. Eval 抓到的两个真 bug —— 已修复（answerability 闸门）
+
+升级后的 eval 上线一跑就红了 2 个，且都是**真 bug**（不是 eval 的毛病）：
+
+### 改动前的问题
+1. **不可答问题被 off-topic 作答**：“CEO 最喜欢的颜色”→ 真 ReAct 过度检索 MD&A，答成 iPhone/Mac 销量而非拒答。根因：检索对任何问题都返回 top-k，**证据非空 ≠ 问题可答**。
+2. **银行 gross margin 被编造**：JPM 无 gross profit，系统却“算出” $8.33B gross profit、~30.2% margin（数字接地 warning 正确标红，但落在未引用句、status 仍 passed）。根因：答案生成对“**指标不可得**”无感知。
+
+### 怎么修的
+在生成**之前**加一个可注入的 `AnswerabilityJudge`（默认 `LLMAnswerabilityJudge`）：把 question + 检索到的证据交给一次 LLM，判“这个问题能否由这些证据回答”。判不能 → 直接走 `insufficient_evidence`（error code `question_not_answerable`），**不进生成**。一个闸门同时堵住两类 bug（off-topic、指标不可得）。设计要点：
+- **保守**：只在证据明显不含所问时拒答（prompt 明确“拿不准就放行”），避免误伤正常题；
+- **fail-open**：judge 无 key / 报错 → 放行，绝不因闸门不可用而拦正常答案；
+- **config 开关** `ANSWER_RELEVANCE_CHECK`：额外一次 pre-gen LLM 调用，按环境 opt-in，eval 里默认开。
+
+顺带修了一个隐藏 wiring bug：`ResearchAnswerService` 之前用 `CitationValidator()` 没透传 settings，导致**蕴含 gate 在 eval 里其实从没真正跑过**；改成 `CitationValidator(settings=self._settings)` 后蕴含才真正生效。
+
+### 改动后的表现
+- answer_eval **11/11**：两类问题现在都返回 `insufficient_evidence` + 安全兜底文案（不再编造），其余 9 个正常题不受影响（闸门没误伤）。
+- 蕴含 gate 真正运行（`contradicted=0`，`unsupported_claims` 作指标可见）。
 
 ---
 
-## 8. 已知边界（面试主动说，反而加分）
+## 9. 已知边界（面试主动说，反而加分）
 
 这些是**当前没保证的**，能划清边界比吹全能更可信：
-- **答案-问题相关性无闸门**（上面 #7 的 bug 1）：检索总返回 top-k，不可答问题会被 off-topic 作答而非拒答。
-- **指标可得性无感知**（#7 的 bug 2）：请求一个公司不披露的指标时，系统可能编造而非说“未披露”。
-- **忠实度 judge 未校准**：蕴含 gate 用 LLM-judge，尚未对人工标注子集测一致率（已列为后续）。
+- **忠实度 / 可答性 judge 未校准**：蕴含 + answerability 都是 LLM-judge，尚未对人工标注子集测一致率（已列为后续）；二者都 fail-open，所以最坏是漏判、不是错拦。
 - **evidence pack 每步全量重建**仅为拿 counts（N+1），应改增量。
 - **同步阻塞执行模型**：LLM/embedding/DB 全同步串行，规模化要换异步执行模型 / 任务队列。
 
@@ -185,4 +199,5 @@ eval 全绿只证明“格式合规、安全、带引用、够快”，**不证�
 3. 流式先展示后撤回 → 解耦“流进度 vs 流答案”，校验后才揭晓 → 事件流无 answer_delta，用户只见已校验内容。
 4. 断连不取消 + Session 跨线程 → 协作取消 + 每路新建 session → 取消不落库、线程安全。
 5. 延迟没头绪 → 埋点定位到答案 LLM → 共享 client/缓存/token 上限/合并 planner → 暖态检索 0.3s、总体均值 ~9.4s。
-6. eval 只验形状 → 用 SEC XBRL 当数字真值 + 蕴含 gate + 跨公司/对抗 + 角色化 retrieval gold + agent 轨迹 eval → 抓出 2 个真 bug（off-topic 拒答失效、银行指标编造）。
+6. eval 只验形状 → 用 SEC XBRL 当数字真值 + 蕴含 gate + 跨公司/对抗 + 角色化 retrieval gold + agent 轨迹 eval → 验对错+忠实度。
+7. eval 抓出 2 个真 bug（不可答问题被 off-topic 作答、银行 gross margin 被编造）→ 生成前加 answerability 闸门（保守 + fail-open）→ answer_eval 11/11、两类问题改为安全拒答。
