@@ -1,7 +1,10 @@
+import pytest
+
 from app.models import ResearchRunRecord
 from app.schemas import RetrievalRequest
 from app.services.answer_generation import GeneratedAnswer
 from app.services.research_run import ResearchRunService
+from app.services.retrieval import RunCancelled
 
 from .test_answer_context import make_response
 from .test_answer_generation import SequenceAnswerGenerator
@@ -30,7 +33,7 @@ class FakeRunRetriever:
     def __init__(self):
         self.call_count = 0
 
-    def retrieve(self, request):
+    def retrieve(self, request, *, on_agent_step=None, should_cancel=None):
         self.call_count += 1
         return make_response()
 
@@ -138,15 +141,35 @@ def test_research_run_service_emits_stream_events() -> None:
     )
 
     assert run.status == "completed"
+    # The answer draft is never streamed pre-validation: only progress (status/step)
+    # events flow, and the validated answer arrives via the terminal run event.
     assert [event["type"] for event in events] == [
         "status",
         "step",
-        "answer_started",
-        "answer_delta",
+        "status",
         "validation",
     ]
+    assert "answer_delta" not in [event["type"] for event in events]
     assert events[1]["step"]["phase"] == "planning"
     assert events[1]["step"]["name"] == "Analyze question"
+
+
+def test_research_run_service_cancels_before_answer_without_persisting() -> None:
+    session = FakePersistenceSession()
+    service = ResearchRunService(
+        session,
+        retriever=FakeRunRetriever(),
+        answer_generator=make_passing_generator(),
+    )
+
+    with pytest.raises(RunCancelled):
+        service.run(
+            RetrievalRequest(ticker="AAPL", question="What was revenue?"),
+            should_cancel=lambda: True,
+        )
+
+    assert session.added == []
+    assert session.committed is False
 
 
 def test_research_run_service_persists_run_record() -> None:

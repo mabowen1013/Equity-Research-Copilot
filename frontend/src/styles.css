@@ -585,13 +585,6 @@ h3 {
   background: #eef4fb;
 }
 
-.live-run-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
-  gap: 16px;
-  margin-top: 18px;
-}
-
 .live-stage-pill {
   border-radius: 999px;
   padding: 4px 9px;
@@ -605,22 +598,6 @@ h3 {
   border-style: dashed;
   border-color: #2459b3;
   animation: live-step-pulse 1.4s ease-in-out infinite;
-}
-
-.streaming-cursor {
-  display: inline-block;
-  width: 8px;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  background: #2459b3;
-  animation: streaming-cursor-blink 1s steps(2, start) infinite;
-}
-
-@keyframes streaming-cursor-blink {
-  to {
-    visibility: hidden;
-  }
 }
 
 @keyframes live-step-pulse {

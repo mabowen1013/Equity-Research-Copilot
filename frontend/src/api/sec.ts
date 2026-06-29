@@ -547,8 +547,6 @@ export function runResearch(request: {
 export type ResearchStreamEvent =
   | { type: "status"; stage: string; message?: string }
   | { type: "step"; step: ResearchRunStep }
-  | { type: "answer_started"; attempt: number }
-  | { type: "answer_delta"; text: string }
   | { type: "validation"; status: string }
   | { type: "run"; run: ResearchRunResponse }
   | { type: "error"; message: string };

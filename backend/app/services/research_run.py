@@ -22,7 +22,7 @@ from app.services.research_trace import (
 )
 
 RunEventCallback = Callable[[dict[str, Any]], None]
-from app.services.retrieval import RetrievalService
+from app.services.retrieval import RetrievalService, RunCancelled
 
 logger = logging.getLogger(__name__)
 
@@ -53,16 +53,14 @@ class ResearchRunService:
         request: RetrievalRequest,
         *,
         on_event: RunEventCallback | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> ResearchRunRead:
         run_started = perf_counter()
         started_at = datetime.now(UTC)
         run_id = f"run_{uuid4().hex}"
 
-        if on_event is None:
-            retrieval_response = RetrievalResponse.model_validate(
-                self._retriever.retrieve(request)
-            )
-        else:
+        retrieve_kwargs: dict[str, Any] = {}
+        if on_event is not None:
             on_event(
                 {
                     "type": "status",
@@ -70,12 +68,15 @@ class ResearchRunService:
                     "message": "Planning retrieval for the question.",
                 }
             )
-            retrieval_response = RetrievalResponse.model_validate(
-                self._retriever.retrieve(
-                    request,
-                    on_agent_step=_build_agent_step_emitter(on_event),
-                )
-            )
+            retrieve_kwargs["on_agent_step"] = _build_agent_step_emitter(on_event)
+        if should_cancel is not None:
+            retrieve_kwargs["should_cancel"] = should_cancel
+
+        retrieval_response = RetrievalResponse.model_validate(
+            self._retriever.retrieve(request, **retrieve_kwargs)
+        )
+        if should_cancel is not None and should_cancel():
+            raise RunCancelled("Research run cancelled before answer generation.")
         answer_response = self._answer_service.answer_from_retrieval_response(
             request,
             retrieval_response,

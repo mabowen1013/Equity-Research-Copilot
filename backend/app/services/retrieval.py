@@ -83,6 +83,10 @@ class RetrievalCompanyNotFoundError(RetrievalError):
     """Raised when retrieval is requested for an unknown company."""
 
 
+class RunCancelled(Exception):
+    """Raised when a research run is cancelled cooperatively (e.g. client disconnect)."""
+
+
 @dataclass
 class Candidate:
     chunk_id: int
@@ -191,6 +195,7 @@ class RetrievalService:
         request: RetrievalRequest,
         *,
         on_agent_step: Callable[[dict[str, Any]], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> RetrievalResponse:
         started = perf_counter()
         timings: dict[str, float] = {}
@@ -215,7 +220,10 @@ class RetrievalService:
                 timings=timings,
                 degraded=degraded,
                 on_agent_step=on_agent_step,
+                should_cancel=should_cancel,
             )
+        except RunCancelled:
+            raise
         except Exception as exc:
             degraded.append(
                 {
@@ -468,6 +476,7 @@ class RetrievalService:
         timings: dict[str, float],
         degraded: list[dict[str, str]],
         on_agent_step: Callable[[dict[str, Any]], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> RetrievalResponse:
         agent = ResearchAgentService(settings=self._settings)
         state = agent.start(question=request.question, plan=plan)
@@ -476,6 +485,8 @@ class RetrievalService:
             on_agent_step(state.steps[-1])
 
         while True:
+            if should_cancel is not None and should_cancel():
+                raise RunCancelled("Research run cancelled during retrieval.")
             action = agent.next_action(state)
             if action.action == "finalize_answer":
                 agent.finish(state, action)

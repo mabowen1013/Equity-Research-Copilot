@@ -501,13 +501,11 @@ class ResearchAnswerService:
                 )
 
         if on_event is not None:
-            on_event({"type": "answer_started", "attempt": 3})
+            on_event({"type": "status", "stage": "answering"})
         fallback_generated = normalize_generated_answer_citations(
             ExtractiveAnswerGenerator().generate(context, evidence_records),
             evidence_records,
         )
-        if on_event is not None:
-            on_event({"type": "answer_delta", "text": fallback_generated.answer})
         fallback_validation = self._validator.validate(
             fallback_generated,
             allowed_evidence_ids=context.allowed_evidence_ids,
@@ -549,12 +547,16 @@ class ResearchAnswerService:
                 evidence_records,
                 validation_errors=validation_errors,
             )
-        on_event({"type": "answer_started", "attempt": attempt})
+        on_event({"type": "status", "stage": "answering"})
         return generate_with_optional_stream(
             self._answer_generator,
             context,
             evidence_records,
-            on_delta=lambda text: on_event({"type": "answer_delta", "text": text}),
+            # Stream internally, but never forward unvalidated tokens to the client:
+            # the user must only ever see an answer that passed citation validation,
+            # which is revealed by the terminal run event. Decoupling "show activity"
+            # (status/step events) from "show answer" avoids show-then-retract.
+            on_delta=lambda _text: None,
             validation_errors=validation_errors,
         )
 

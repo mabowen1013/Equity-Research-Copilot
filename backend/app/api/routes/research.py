@@ -1,13 +1,15 @@
 import asyncio
 import json
 import logging
+import threading
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db_session
+from app.db.session import get_sessionmaker
 from app.schemas import (
     QueryPlanRequest,
     ResearchAnswerResponseRead,
@@ -25,6 +27,7 @@ from app.services import (
     RetrievalCompanyNotFoundError,
     RetrievalError,
     RetrievalService,
+    RunCancelled,
 )
 
 router = APIRouter(prefix="/research", tags=["research"])
@@ -92,19 +95,27 @@ def run_research(
 @router.post("/runs/stream")
 async def stream_research_run(
     request: RetrievalRequest,
-    db: Session = Depends(get_db_session),
+    http_request: Request,
 ) -> StreamingResponse:
     """Stream research run progress as NDJSON events, ending with the full run."""
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
+    cancel = threading.Event()
 
     def emit(event: dict[str, Any]) -> None:
         loop.call_soon_threadsafe(queue.put_nowait, event)
 
     def execute() -> None:
+        # Open a session bound to this worker thread: the request-scoped session is
+        # owned by the event-loop thread and SQLAlchemy sessions are not thread-safe.
         try:
-            run = ResearchRunService(db).run(request, on_event=emit)
-            emit({"type": "run", "run": run.model_dump(mode="json")})
+            with get_sessionmaker()() as db:
+                run = ResearchRunService(db).run(
+                    request, on_event=emit, should_cancel=cancel.is_set
+                )
+                emit({"type": "run", "run": run.model_dump(mode="json")})
+        except RunCancelled:
+            logger.info("Streaming research run cancelled by client disconnect")
         except (RetrievalCompanyNotFoundError, RetrievalError) as exc:
             emit({"type": "error", "message": str(exc)})
         except Exception:
@@ -113,12 +124,28 @@ async def stream_research_run(
 
     async def event_stream():
         worker = loop.run_in_executor(None, execute)
-        while True:
-            event = await queue.get()
-            yield json.dumps(event, ensure_ascii=False) + "\n"
-            if event.get("type") in {"run", "error"}:
-                break
-        await worker
+        get_task: asyncio.Task[dict[str, Any]] | None = None
+        try:
+            while True:
+                if get_task is None:
+                    get_task = asyncio.ensure_future(queue.get())
+                done, _ = await asyncio.wait({get_task}, timeout=0.5)
+                if get_task in done:
+                    event = get_task.result()
+                    get_task = None
+                    yield json.dumps(event, ensure_ascii=False) + "\n"
+                    if event.get("type") in {"run", "error"}:
+                        break
+                elif await http_request.is_disconnected():
+                    cancel.set()
+                    break
+        finally:
+            # Stop the worker (it checks cancel between steps and before the answer
+            # LLM) and reap it; bounded to at most one in-flight LLM call.
+            cancel.set()
+            if get_task is not None:
+                get_task.cancel()
+            await worker
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 

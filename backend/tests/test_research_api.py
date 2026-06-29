@@ -310,10 +310,10 @@ def test_research_runs_stream_endpoint_emits_events_and_final_run(monkeypatch) -
         def __init__(self, db):
             self.db = db
 
-        def run(self, request, *, on_event=None):
+        def run(self, request, *, on_event=None, should_cancel=None):
             assert on_event is not None
             on_event({"type": "status", "stage": "planning", "message": "Planning."})
-            on_event({"type": "answer_delta", "text": "AAPL answer."})
+            on_event({"type": "status", "stage": "answering"})
             return ResearchRunRead(
                 run_id="run-stream",
                 status="completed",
@@ -344,7 +344,7 @@ def test_research_runs_stream_endpoint_emits_events_and_final_run(monkeypatch) -
         events = [json.loads(line) for line in response.iter_lines() if line]
 
     app.dependency_overrides.clear()
-    assert [event["type"] for event in events] == ["status", "answer_delta", "run"]
+    assert [event["type"] for event in events] == ["status", "status", "run"]
     assert events[-1]["run"]["run_id"] == "run-stream"
     assert events[-1]["run"]["contract_version"] == "research_run.v1"
 
@@ -356,7 +356,7 @@ def test_research_runs_stream_endpoint_reports_company_not_found(monkeypatch) ->
         def __init__(self, db):
             self.db = db
 
-        def run(self, request, *, on_event=None):
+        def run(self, request, *, on_event=None, should_cancel=None):
             raise research_routes.RetrievalCompanyNotFoundError(
                 "Company not found: ZZZZ"
             )

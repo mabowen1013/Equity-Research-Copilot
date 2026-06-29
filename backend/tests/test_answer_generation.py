@@ -455,14 +455,13 @@ def test_research_answer_service_emits_stream_events_when_on_event_provided() ->
     )
 
     assert response.validation_status == "passed"
-    assert [event["type"] for event in events] == [
-        "answer_started",
-        "answer_delta",
-        "validation",
-    ]
-    assert events[0]["attempt"] == 1
-    assert events[1]["text"] == answer
-    assert events[2]["status"] == "passed"
+    # Unvalidated answer text is never forwarded; only a status event signals
+    # activity, and the validated answer reaches the caller via the response.
+    assert [event["type"] for event in events] == ["status", "validation"]
+    assert "answer_delta" not in [event["type"] for event in events]
+    assert events[0]["stage"] == "answering"
+    assert events[-1]["status"] == "passed"
+    assert response.answer == answer
 
 
 def test_research_answer_service_returns_insufficient_evidence_when_prompt_empty() -> None:

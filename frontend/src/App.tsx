@@ -267,7 +267,6 @@ export function App() {
   const [selectedRunStepId, setSelectedRunStepId] = useState<string | null>(null);
   const [liveStage, setLiveStage] = useState<string | null>(null);
   const [liveSteps, setLiveSteps] = useState<ResearchRunStep[]>([]);
-  const [liveAnswer, setLiveAnswer] = useState("");
   const [isLoadingCompany, setIsLoadingCompany] = useState(false);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isLoadingParsedData, setIsLoadingParsedData] = useState(false);
@@ -528,7 +527,6 @@ export function App() {
     setSelectedRunStepId(null);
     setLiveStage("planning");
     setLiveSteps([]);
-    setLiveAnswer("");
 
     try {
       await streamResearch({ ticker: company.ticker, question }, (event) => {
@@ -541,11 +539,6 @@ export function App() {
               ? current
               : [...current, event.step],
           );
-        } else if (event.type === "answer_started") {
-          setLiveStage("answer_generation");
-          setLiveAnswer("");
-        } else if (event.type === "answer_delta") {
-          setLiveAnswer((current) => current + event.text);
         } else if (event.type === "validation") {
           setLiveStage("validation");
         } else if (event.type === "run") {
@@ -897,7 +890,6 @@ export function App() {
             isAsking={isAsking}
             liveStage={liveStage}
             liveSteps={liveSteps}
-            liveAnswer={liveAnswer}
             onQuestionChange={setResearchQuestion}
             onSelectStep={setSelectedRunStepId}
             onSubmit={handleRetrieveEvidence}
@@ -917,7 +909,6 @@ function ResearchPage({
   isAsking,
   liveStage,
   liveSteps,
-  liveAnswer,
   onQuestionChange,
   onSelectStep,
   onSubmit,
@@ -930,7 +921,6 @@ function ResearchPage({
   isAsking: boolean;
   liveStage: string | null;
   liveSteps: ResearchRunStep[];
-  liveAnswer: string;
   onQuestionChange: (question: string) => void;
   onSelectStep: (stepId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
@@ -976,7 +966,7 @@ function ResearchPage({
       </form>
 
       {run === null && isAsking ? (
-        <LiveRunProgress stage={liveStage} steps={liveSteps} answerDraft={liveAnswer} />
+        <LiveRunProgress stage={liveStage} steps={liveSteps} />
       ) : run === null ? (
         <p className="empty-state">
           {hasCompany
@@ -1135,106 +1125,49 @@ function ResearchPage({
 const LIVE_STAGE_LABELS: Record<string, string> = {
   planning: "Planning retrieval",
   retrieval: "Gathering evidence",
-  answer_generation: "Writing cited answer",
+  answering: "Writing cited answer",
   validation: "Validating citations",
 };
 
 function LiveRunProgress({
   stage,
   steps,
-  answerDraft,
 }: {
   stage: string | null;
   steps: ResearchRunStep[];
-  answerDraft: string;
 }) {
   const stageLabel = LIVE_STAGE_LABELS[stage ?? ""] ?? "Working";
-  const markerNumbers = new Map<string, number>();
-  const visibleDraft = answerDraft.replace(/\[[^\]]*$/, "");
-  const paragraphs = visibleDraft
-    .split(/\n+/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
 
+  // The answer draft is never streamed before validation: we only show live agent
+  // progress, and the validated answer is revealed once the run completes.
   return (
     <div className="research-results">
-      <div className="live-run-grid">
-        <section className="answer-panel" aria-labelledby="live-answer-heading">
-          <div className="panel-header panel-header--compact">
-            <h3 id="live-answer-heading">Answer</h3>
-            <span className="live-stage-pill">{stageLabel}…</span>
-          </div>
-          {paragraphs.length > 0 ? (
-            <div className="answer-text" aria-live="polite">
-              {paragraphs.map((paragraph, index) => (
-                <p key={`${paragraph.slice(0, 32)}:${index}`}>
-                  {renderDraftParagraph(paragraph, markerNumbers)}
-                  {index === paragraphs.length - 1 && (
-                    <span className="streaming-cursor" aria-hidden="true" />
-                  )}
-                </p>
-              ))}
+      <section className="trace-panel" aria-labelledby="live-trace-heading">
+        <div className="panel-header panel-header--compact">
+          <h3 id="live-trace-heading">Agent Trace</h3>
+          <span className="live-stage-pill">{stageLabel}…</span>
+        </div>
+        <div className="trace-list">
+          {steps.map((step) => (
+            <div className="trace-step" key={step.step_id}>
+              <span>
+                {step.phase} | {step.status}
+              </span>
+              <strong>{step.name}</strong>
+              <small>{step.summary}</small>
             </div>
-          ) : (
-            <p className="empty-state">{stageLabel}…</p>
-          )}
-        </section>
-
-        <section className="trace-panel" aria-labelledby="live-trace-heading">
-          <div className="panel-header panel-header--compact">
-            <h3 id="live-trace-heading">Agent Trace</h3>
-            <span>{steps.length} steps</span>
+          ))}
+          <div className="trace-step trace-step--running">
+            <span>in progress</span>
+            <strong>{stageLabel}…</strong>
           </div>
-          <div className="trace-list">
-            {steps.map((step) => (
-              <div className="trace-step" key={step.step_id}>
-                <span>
-                  {step.phase} | {step.status}
-                </span>
-                <strong>{step.name}</strong>
-                <small>{step.summary}</small>
-              </div>
-            ))}
-            <div className="trace-step trace-step--running">
-              <span>in progress</span>
-              <strong>{stageLabel}…</strong>
-            </div>
-          </div>
-        </section>
-      </div>
+        </div>
+        <p className="empty-state" aria-live="polite">
+          The validated answer appears here once citation checks pass.
+        </p>
+      </section>
     </div>
   );
-}
-
-function renderDraftParagraph(
-  text: string,
-  markerNumbers: Map<string, number>,
-): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-
-  for (const match of text.matchAll(EVIDENCE_MARKER_PATTERN)) {
-    const marker = match[0];
-    const evidenceId = match[1];
-    const start = match.index ?? 0;
-    if (start > cursor) {
-      nodes.push(text.slice(cursor, start));
-    }
-    if (!markerNumbers.has(evidenceId)) {
-      markerNumbers.set(evidenceId, markerNumbers.size + 1);
-    }
-    nodes.push(
-      <span className="citation-ref" key={`${evidenceId}:${start}`} title={evidenceId}>
-        [{markerNumbers.get(evidenceId)}]
-      </span>,
-    );
-    cursor = start + marker.length;
-  }
-
-  if (cursor < text.length) {
-    nodes.push(text.slice(cursor));
-  }
-  return nodes;
 }
 
 function CitedAnswer({
