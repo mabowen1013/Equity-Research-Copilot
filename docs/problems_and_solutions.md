@@ -140,10 +140,39 @@ LLM 实际会输出 `[1]`、`[source #2]`、`[evidence_id: chunk:123]` 等**引�
 
 ---
 
-## 7. 已知边界（面试主动说，反而加分）
+## 7. Evaluation：从“验形状”升级到“验对错 + 忠实度”
+
+### 改动前的问题
+eval 全绿只证明“格式合规、安全、带引用、够快”，**不证明答案正确**：`answer_eval` 的 `must_match` 是格式正则（`\$\d` 对编造的 $999B 一样放行）；`check_case` 从不读 `validation.warnings`（系统自己算的接地信号对 gate 隐形）；gold 全是 AAPL；`retrieval_gold` 钉的是 `chunk:1252` 这种**从系统自身检索 dump 反向种**的易失 ID（只抓回归、重摄即 stale）。
+
+### 怎么改的
+- **数字真值（XBRL ground truth）**：`answer_eval` 新增 `expect_values`，用 `parse_salient_numbers`+容差比对答案里的数字与**从 SEC XBRL（`financial_facts`）按固定财年钉死**的真值。数字来自 SEC 强制披露，是真正的外部真值，不是系统自产。
+- **接地信号进 gate**：忠实度硬 gate = 蕴含校验 `contradicted=0`（eval 里打开 `answer_entailment_check`）；数字接地 warning 因对**派生数字**（增长率%）有误报，改为**逐 case opt-in**（`max_warning_codes`）+ 套件级指标（`grounding_warnings`/`contradicted_claims`），不做全局硬 gate。
+- **期间正确性**：`expect_latest_filing` 断言最新被引 filing == 最新一期。
+- **跨公司/跨行业**：gold 扩到 AAPL/MSFT/NVDA/TSLA + 一家银行 **JPM**（无 gross_profit，测 metric 边界）；加**对抗用例**（不披露的指标→应 insufficient；假前提“营收下滑”→不得附和，靠蕴含 gate 兜）。
+- **retrieval_gold 去自种化**：改钉**稳定信号**——证据**角色**（mda/primary/risk…）是否命中 + form/期间，而非易失 chunk ID；加角色精确率。
+- **agent 轨迹 eval（新）**：标注 question→期望工具集，跑真 LLM 控制器 N 次，gate `expect_tools⊆used` 并报**稳定性**（非确定性控制器的新回归面）。
+
+### 改动后的表现（对 5 家公司真实 DB 实测）
+- `retrieval_gold` 5/5 通过，角色精确率 70%。
+- `agent_trajectory` 4/4 通过，稳定性 100%（含“risk 问题不调 xbrl”的负向校验）。
+- `answer_eval` 9/11 通过：4 个数字真值用例全中 SEC XBRL 值、忠实度 `contradicted=0`、假前提用例不附和；**剩 2 个红是 eval 抓到的真 bug**（见下）。
+- **反证有效**：把某 gold 值故意改成 $999B → 同一答案立刻 `value_mismatch` 失败，证明现在验的是“对错”而非“形状”。
+
+### eval 抓到的两个真 bug（这就是升级 eval 的价值）
+1. **不可答问题被off-topic作答**：“CEO 最喜欢的颜色”→ 真 ReAct 过度检索 MD&A，答成 iPhone/Mac 销量而非 insufficient。根因：检索对任何问题都返回 top-k，无相关性闸门。
+2. **银行 gross margin 被编造**：JPM 无 gross profit，系统却“算出”$8.33B gross profit、~30.2% margin（数字接地 warning 正确标红，但落在未引用句、且 status 仍 passed）。根因：答案生成对“指标不可得”无感知。
+
+> 这两条现在被 gold 标为 KNOWN GAP（期望 insufficient），是下一步要修的系统问题——eval 的职责就是把它们暴露出来，而不是把绿凑出来。
+
+---
+
+## 8. 已知边界（面试主动说，反而加分）
 
 这些是**当前没保证的**，能划清边界比吹全能更可信：
-- **answer eval 验“形状”不验“对错”**：`must_match` 只验格式（有 `$` 数字、带引用、够快、无投资建议），不验数值真伪；gold 集偏 AAPL、且从自身检索 dump 反向种（只抓回归）。便宜的补法：warning 进 gate、断言真值、跨 ticker gold。
+- **答案-问题相关性无闸门**（上面 #7 的 bug 1）：检索总返回 top-k，不可答问题会被 off-topic 作答而非拒答。
+- **指标可得性无感知**（#7 的 bug 2）：请求一个公司不披露的指标时，系统可能编造而非说“未披露”。
+- **忠实度 judge 未校准**：蕴含 gate 用 LLM-judge，尚未对人工标注子集测一致率（已列为后续）。
 - **evidence pack 每步全量重建**仅为拿 counts（N+1），应改增量。
 - **同步阻塞执行模型**：LLM/embedding/DB 全同步串行，规模化要换异步执行模型 / 任务队列。
 
@@ -156,3 +185,4 @@ LLM 实际会输出 `[1]`、`[source #2]`、`[evidence_id: chunk:123]` 等**引�
 3. 流式先展示后撤回 → 解耦“流进度 vs 流答案”，校验后才揭晓 → 事件流无 answer_delta，用户只见已校验内容。
 4. 断连不取消 + Session 跨线程 → 协作取消 + 每路新建 session → 取消不落库、线程安全。
 5. 延迟没头绪 → 埋点定位到答案 LLM → 共享 client/缓存/token 上限/合并 planner → 暖态检索 0.3s、总体均值 ~9.4s。
+6. eval 只验形状 → 用 SEC XBRL 当数字真值 + 蕴含 gate + 跨公司/对抗 + 角色化 retrieval gold + agent 轨迹 eval → 抓出 2 个真 bug（off-topic 拒答失效、银行指标编造）。
