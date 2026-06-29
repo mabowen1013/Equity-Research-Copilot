@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 import re
 from typing import Any, Callable, Protocol
@@ -48,6 +48,32 @@ SENTENCE_BOUNDARY_RE = re.compile(r"(?<!\d)[.!?](?!\d)")
 RATIO_METRIC_KEYS = {"gross_margin", "operating_margin", "net_margin"}
 STREAM_LIMITATIONS_RE = re.compile(r"^[ \t]*LIMITATIONS:", re.MULTILINE)
 STREAM_DELTA_HOLDBACK_CHARS = 24
+
+# Numeric grounding: only treat numbers carrying financial meaning (a currency
+# sign, a scale word/letter, or a percent/point marker) as claims to reconcile.
+# Bare integers such as years, counts, or page numbers are ignored to keep the
+# false-positive rate low, since this check feeds answer-quality warnings.
+SALIENT_NUMBER_RE = re.compile(
+    r"(?P<dollar>\$)?\s*"
+    r"(?P<num>\d[\d,]*(?:\.\d+)?)\s*"
+    r"(?P<suffix>%|percentage\s+points?|percent|pp|billion|million|trillion|thousand|bn|[bmkt])?",
+    re.IGNORECASE,
+)
+NUMBER_SCALE_FACTORS = {
+    "trillion": Decimal("1e12"),
+    "t": Decimal("1e12"),
+    "billion": Decimal("1e9"),
+    "bn": Decimal("1e9"),
+    "b": Decimal("1e9"),
+    "million": Decimal("1e6"),
+    "m": Decimal("1e6"),
+    "thousand": Decimal("1e3"),
+    "k": Decimal("1e3"),
+}
+AMOUNT_MATCH_REL_TOL = Decimal("0.01")
+PERCENT_MATCH_ABS_TOL = Decimal("0.3")
+PERCENT_MATCH_REL_TOL = Decimal("0.03")
+MAX_NUMBER_WARNINGS = 10
 
 AnswerDeltaCallback = Callable[[str], None]
 AnswerEventCallback = Callable[[dict[str, Any]], None]
@@ -334,6 +360,7 @@ class CitationValidator:
         *,
         allowed_evidence_ids: list[str],
         prompt_evidence_ids: list[str],
+        evidence_records: list[PromptEvidenceRecord] | None = None,
     ) -> CitationValidationRead:
         allowed_set = set(allowed_evidence_ids)
         prompt_set = set(prompt_evidence_ids)
@@ -367,6 +394,11 @@ class CitationValidator:
             generated.answer,
             valid_evidence_ids=allowed_set & prompt_set,
         )
+        if evidence_records:
+            warnings = [
+                *warnings,
+                *number_support_warnings(generated.answer, evidence_records),
+            ]
 
         return CitationValidationRead(
             status="failed" if errors else "passed",
@@ -455,6 +487,7 @@ class ResearchAnswerService:
                 generated,
                 allowed_evidence_ids=context.allowed_evidence_ids,
                 prompt_evidence_ids=prompt_evidence_ids,
+                evidence_records=evidence_records,
             )
             if on_event is not None:
                 on_event({"type": "validation", "status": validation.status})
@@ -479,6 +512,7 @@ class ResearchAnswerService:
             fallback_generated,
             allowed_evidence_ids=context.allowed_evidence_ids,
             prompt_evidence_ids=prompt_evidence_ids,
+            evidence_records=evidence_records,
         )
         if on_event is not None:
             on_event({"type": "validation", "status": fallback_validation.status})
@@ -1211,6 +1245,118 @@ def claim_citation_coverage(
                 )
             )
     return warnings, claim_count, cited_claim_count
+
+
+def number_support_warnings(
+    answer: str,
+    evidence_records: list[PromptEvidenceRecord],
+) -> list[CitationValidationIssueRead]:
+    """Flag answer numbers that no evidence supports, or that the cited evidence does not contain.
+
+    Two failure modes are distinguished so the trace viewer can tell them apart:
+    - unsupported_number: the value matches no retrieved evidence at all (hallucination).
+    - citation_number_mismatch: the value exists in some evidence, but not in the
+      evidence the sentence actually cites (wrong attribution).
+
+    These are warnings, not errors: financial rounding and derived figures make
+    strict numeric equality too noisy to reject answers on.
+    """
+    record_numbers = {
+        record.evidence_id: parse_salient_numbers(record.text)
+        for record in evidence_records
+    }
+    global_numbers = [number for numbers in record_numbers.values() for number in numbers]
+    warnings: list[CitationValidationIssueRead] = []
+    seen: set[tuple[str, str, str]] = set()
+    for sentence in answer_claim_sentences(answer):
+        sentence_numbers = parse_salient_numbers(re.sub(r"\[[^\]]*\]", " ", sentence))
+        if not sentence_numbers:
+            continue
+        cited_ids = [
+            evidence_id
+            for evidence_id in extract_citation_markers(sentence)
+            if evidence_id in record_numbers
+        ]
+        cited_numbers = [
+            number for evidence_id in cited_ids for number in record_numbers[evidence_id]
+        ]
+        for kind, value, raw in sentence_numbers:
+            if not _number_supported(kind, value, global_numbers):
+                code = "unsupported_number"
+                message = f"Answer states {raw}, which is not supported by any retrieved evidence."
+            elif cited_ids and not _number_supported(kind, value, cited_numbers):
+                code = "citation_number_mismatch"
+                message = (
+                    f"Answer states {raw}, but the evidence cited in this sentence "
+                    "does not contain that value."
+                )
+            else:
+                continue
+            key = (code, raw, sentence)
+            if key in seen:
+                continue
+            seen.add(key)
+            warnings.append(
+                CitationValidationIssueRead(code=code, message=message, sentence=sentence)
+            )
+            if len(warnings) >= MAX_NUMBER_WARNINGS:
+                return warnings
+    return warnings
+
+
+def parse_salient_numbers(text: str) -> list[tuple[str, Decimal, str]]:
+    """Return (kind, value, raw) for financially salient numbers in text.
+
+    kind is "amount" (currency/scaled) or "percent". Bare numbers without a
+    currency sign, scale word, or percent marker are skipped on purpose.
+    """
+    results: list[tuple[str, Decimal, str]] = []
+    cleaned = re.sub(r"\[[^\]]*\]", " ", text or "")
+    for match in SALIENT_NUMBER_RE.finditer(cleaned):
+        suffix = (match.group("suffix") or "").lower().strip()
+        has_dollar = bool(match.group("dollar"))
+        try:
+            base = Decimal(match.group("num").replace(",", ""))
+        except InvalidOperation:
+            continue
+        raw = match.group(0).strip()
+        if suffix in {"%", "pp"} or suffix.startswith("percent"):
+            results.append(("percent", base, raw))
+            continue
+        scale = NUMBER_SCALE_FACTORS.get(suffix)
+        if has_dollar or scale is not None:
+            results.append(("amount", base * (scale or Decimal(1)), raw))
+    return results
+
+
+def _number_supported(
+    kind: str,
+    value: Decimal,
+    candidates: list[tuple[str, Decimal, str]],
+) -> bool:
+    return any(
+        _numbers_match(kind, value, candidate_kind, candidate_value)
+        for candidate_kind, candidate_value, _ in candidates
+    )
+
+
+def _numbers_match(
+    kind_a: str,
+    value_a: Decimal,
+    kind_b: str,
+    value_b: Decimal,
+) -> bool:
+    if kind_a != kind_b:
+        return False
+    diff = abs(value_a - value_b)
+    largest = max(abs(value_a), abs(value_b))
+    if kind_a == "percent":
+        if diff <= PERCENT_MATCH_ABS_TOL:
+            return True
+        return largest > 0 and diff <= PERCENT_MATCH_REL_TOL * largest
+    if largest == 0:
+        return diff == 0
+    return diff <= AMOUNT_MATCH_REL_TOL * largest
 
 
 def answer_claim_sentences(answer: str) -> list[str]:

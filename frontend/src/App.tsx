@@ -1020,6 +1020,25 @@ function ResearchPage({
                   </div>
                 </details>
               )}
+              {run.validation.claim_sentence_count > 0 && (
+                <p className="claim-coverage">
+                  Claim citation coverage: {run.validation.cited_claim_sentence_count}/
+                  {run.validation.claim_sentence_count} claim sentences cited
+                </p>
+              )}
+              {run.validation.warnings.length > 0 && (
+                <details className="validation-debug">
+                  <summary>Coverage warnings ({run.validation.warnings.length})</summary>
+                  <div className="coverage-warning-list">
+                    {run.validation.warnings.map((issue, index) => (
+                      <span key={`${issue.code}:${issue.sentence ?? issue.evidence_id ?? index}`}>
+                        {issue.code}: {issue.message}
+                        {issue.sentence ? ` — “${issue.sentence}”` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </details>
+              )}
             </section>
 
             <section className="trace-panel" aria-labelledby="trace-heading">

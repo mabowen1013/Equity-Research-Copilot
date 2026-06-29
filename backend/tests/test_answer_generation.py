@@ -6,14 +6,17 @@ from app.schemas import (
     MetricComparisonRead,
     RetrievalRequest,
 )
+from app.schemas.answer import AnswerCitationRead
 from app.services.answer_generation import (
     AnswerStreamEmitter,
+    PromptEvidenceRecord,
     answer_stream_system_prompt,
     answer_system_prompt,
     build_answer_prompt_payload,
     build_citation_alias_map,
     metric_comparison_record,
     normalize_generated_answer_citations,
+    parse_salient_numbers,
     split_streamed_answer,
 )
 from app.services import (
@@ -522,3 +525,121 @@ def make_empty_response():
         }
     )
     return response
+
+
+def make_number_record(evidence_id: str, text: str) -> PromptEvidenceRecord:
+    return PromptEvidenceRecord(
+        evidence_id=evidence_id,
+        evidence_type="financial_fact",
+        source_label="fact",
+        text=text,
+        citation=AnswerCitationRead(
+            evidence_id=evidence_id,
+            evidence_type="financial_fact",
+        ),
+    )
+
+
+def test_parse_salient_numbers_extracts_amounts_and_percents() -> None:
+    parsed = parse_salient_numbers(
+        "Revenue was $111.18B, up 8.1%, and 2.3 percentage points in FY2024."
+    )
+
+    pairs = {(kind, value) for kind, value, _ in parsed}
+    assert ("amount", Decimal("111.18e9")) in pairs
+    assert ("percent", Decimal("8.1")) in pairs
+    assert ("percent", Decimal("2.3")) in pairs
+    # The bare year must not be treated as a financial claim.
+    assert all(value != Decimal("2024") for _, value, _ in parsed)
+
+
+def test_citation_validator_flags_unsupported_number() -> None:
+    records = [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for Q2 2026 quarter."
+        )
+    ]
+    generated = GeneratedAnswer(
+        answer="Revenue was $950B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=records,
+    )
+
+    assert validation.status == "passed"
+    codes = {warning.code for warning in validation.warnings}
+    assert "unsupported_number" in codes
+    assert "citation_number_mismatch" not in codes
+
+
+def test_citation_validator_flags_citation_number_mismatch() -> None:
+    records = [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for Q2 2026 quarter."
+        ),
+        make_number_record(
+            "financial_fact:777", "Net Income was $24.16B for Q2 2026 quarter."
+        ),
+    ]
+    generated = GeneratedAnswer(
+        answer="Net income was $24.2B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501", "financial_fact:777"],
+        prompt_evidence_ids=["financial_fact:501", "financial_fact:777"],
+        evidence_records=records,
+    )
+
+    assert validation.status == "passed"
+    codes = {warning.code for warning in validation.warnings}
+    assert "citation_number_mismatch" in codes
+    assert "unsupported_number" not in codes
+
+
+def test_citation_validator_accepts_rounded_supported_number() -> None:
+    records = [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for Q2 2026 quarter."
+        )
+    ]
+    generated = GeneratedAnswer(
+        answer="Revenue was $111.2B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=records,
+    )
+
+    assert validation.status == "passed"
+    codes = {warning.code for warning in validation.warnings}
+    assert "unsupported_number" not in codes
+    assert "citation_number_mismatch" not in codes
+
+
+def test_citation_validator_skips_number_checks_without_evidence_records() -> None:
+    generated = GeneratedAnswer(
+        answer="Revenue was $950B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+    )
+
+    codes = {warning.code for warning in validation.warnings}
+    assert "unsupported_number" not in codes
+    assert "citation_number_mismatch" not in codes

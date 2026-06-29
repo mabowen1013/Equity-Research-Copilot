@@ -342,6 +342,9 @@ export type CitationValidation = {
   allowed_evidence_ids: string[];
   prompt_evidence_ids: string[];
   errors: CitationValidationIssue[];
+  warnings: CitationValidationIssue[];
+  claim_sentence_count: number;
+  cited_claim_sentence_count: number;
 };
 
 export type ResearchAnswerResponse = {
