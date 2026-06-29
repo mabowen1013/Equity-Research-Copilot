@@ -1,65 +1,44 @@
 {
   "suite_name": "retrieval_gold_eval",
-  "description": "Small Milestone 5 regression set. Evidence ids were seeded from the local AAPL 2026-05-01 10-Q retrieval dump; refresh ids after reingesting filings or changing chunking.",
-  "version": "1.0",
+  "description": "Retrieval regression set keyed on stable evidence ROLES (and form/period) rather than volatile chunk ids, so it survives re-ingestion. role recall = fraction of expected roles populated in the final evidence pack; role precision = share of surfaced roles that were expected. Run against a DB seeded with AAPL/MSFT/NVDA/TSLA/JPM.",
+  "version": "2.0",
   "cases": [
     {
-      "id": "aapl_latest_10q_summary_core_pack",
+      "id": "aapl_latest_10q_overview",
       "ticker": "AAPL",
       "question": "Tell me what matters in Apple's latest 10-Q.",
-      "min_recall": 0.6,
-      "expected_evidence_ids": [
-        "chunk:1252",
-        "chunk:1279",
-        "span:1252:primary_financial_statement_chunks:0:679",
-        "span:1279:mda_explanation_chunks:966:1052",
-        "span:1280:segment_or_product_breakdown_chunks:437:1323"
-      ]
+      "expect_roles": ["primary_financial_statement", "mda_explanation"],
+      "min_role_recall": 0.5,
+      "expect_form_types": ["10-Q"]
     },
     {
-      "id": "aapl_latest_revenue_drivers",
+      "id": "aapl_risk_factors",
       "ticker": "AAPL",
-      "question": "Why did Apple's revenue increase in the latest quarter?",
-      "min_recall": 0.6,
-      "expected_evidence_ids": [
-        "chunk:1279",
-        "span:1279:mda_explanation_chunks:833:965",
-        "span:1279:mda_explanation_chunks:966:1052"
-      ]
+      "question": "What are Apple's main risk factors?",
+      "expect_roles": ["risk_factor"],
+      "min_role_recall": 1.0
     },
     {
-      "id": "aapl_latest_segment_sales",
-      "ticker": "AAPL",
-      "question": "Which geographies drove Apple's latest net sales?",
-      "min_recall": 0.5,
-      "expected_evidence_ids": [
-        "chunk:1277",
-        "span:1277:mda_explanation_chunks:904:1005",
-        "span:1277:mda_explanation_chunks:1603:1709"
-      ]
+      "id": "msft_revenue_growth_drivers",
+      "ticker": "MSFT",
+      "question": "Why did Microsoft's revenue grow year over year?",
+      "expect_roles": ["metric", "mda_explanation"],
+      "min_role_recall": 0.5
     },
     {
-      "id": "aapl_latest_product_sales",
-      "ticker": "AAPL",
-      "question": "Which product categories drove Apple's latest net sales?",
-      "min_recall": 0.5,
-      "expected_evidence_ids": [
-        "chunk:1279",
-        "span:1279:mda_explanation_chunks:833:965",
-        "span:1279:mda_explanation_chunks:966:1052"
-      ]
+      "id": "nvda_latest_revenue",
+      "ticker": "NVDA",
+      "question": "What was NVIDIA's revenue in the latest quarter?",
+      "expect_roles": ["metric", "primary_financial_statement"],
+      "min_role_recall": 0.5,
+      "expect_form_types": ["10-Q"]
     },
     {
-      "id": "aapl_latest_financial_statement_evidence",
-      "ticker": "AAPL",
-      "question": "Show Apple's latest income statement evidence for revenue and profitability.",
-      "min_recall": 0.5,
-      "expected_evidence_ids": [
-        "chunk:1252",
-        "chunk:1258",
-        "span:1252:primary_financial_statement_chunks:0:679",
-        "span:1252:primary_financial_statement_chunks:680:1333"
-      ]
+      "id": "tsla_risk_factors",
+      "ticker": "TSLA",
+      "question": "What are Tesla's key risk factors?",
+      "expect_roles": ["risk_factor"],
+      "min_role_recall": 1.0
     }
   ]
 }

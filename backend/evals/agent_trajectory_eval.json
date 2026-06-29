@@ -1,0 +1,36 @@
+{
+  "suite_name": "agent_trajectory_eval",
+  "description": "Tool-selection regression for the LLM ReAct controller. Each case runs the agent multiple times (the controller is non-deterministic) and requires every run to select the expected tools (expect_tools subset of used) and avoid forbidden ones. mean_stability reports the share of runs that passed. Run against a DB seeded with AAPL/MSFT/NVDA/TSLA/JPM.",
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "aapl_metric_uses_xbrl",
+      "ticker": "AAPL",
+      "question": "What was Apple's revenue in the latest quarter?",
+      "expect_tools": ["query_xbrl_metrics"],
+      "runs": 2
+    },
+    {
+      "id": "aapl_why_uses_xbrl_and_mda",
+      "ticker": "AAPL",
+      "question": "Why did Apple's gross margin change year over year?",
+      "expect_tools": ["query_xbrl_metrics", "retrieve_mda"],
+      "runs": 2
+    },
+    {
+      "id": "msft_risk_uses_risk_factors_not_xbrl",
+      "ticker": "MSFT",
+      "question": "What are Microsoft's main risk factors?",
+      "expect_tools": ["retrieve_risk_factors"],
+      "forbid_tools": ["query_xbrl_metrics"],
+      "runs": 2
+    },
+    {
+      "id": "nvda_why_uses_xbrl_and_mda",
+      "ticker": "NVDA",
+      "question": "What drove NVIDIA's revenue growth in its most recent fiscal year?",
+      "expect_tools": ["query_xbrl_metrics", "retrieve_mda"],
+      "runs": 2
+    }
+  ]
+}
