@@ -23,7 +23,7 @@
 **答：** FastAPI 后端 + React 前端 + PostgreSQL（pgvector）。一次研究请求的流水线是：
 
 1. **Query Planning**（`query_planner.py`）：LLM-first planner（gpt-4o-mini）把自然语言问题解析成受约束的语义槽位（question_type、metric_keys、target_sections、time_scope、comparison_basis 等），输出经过 `PlanValidator` 严格校验——LLM 只能在白名单值里选择，返回非法字段直接拒绝并降级到 safe text plan。然后第二个 LLM 调用（dense query rewriter）基于已验证的槽位生成按角色分组的稠密检索查询。
-2. **Bounded ReAct Agent**（`research_agent.py`）：一个有界的 ReAct 控制器，根据 plan 决定证据需求，循环执行工具动作（`query_xbrl_metrics`、`retrieve_mda`、`retrieve_risk_factors`、`retrieve_segment_discussion`、`retrieve_prior_filings`、`retrieve_filing_chunks`），每步观察证据计数并更新状态，满足证据角色要求或达到 max_steps（默认 5）即停止。
+2. **Bounded ReAct Agent**（`research_agent.py`）：有界的 LLM-in-the-loop ReAct 控制器。每一步把 plan + 已收集证据 + 历史 observation 交给 LLM，由它在 6 个工具（`query_xbrl_metrics`、`retrieve_mda`、`retrieve_risk_factors`、`retrieve_segment_discussion`、`retrieve_prior_filings`、`retrieve_filing_chunks`）或 `finalize_answer` 里选下一步；证据计数累积更新状态，模型判定证据足够或达到 max_steps（默认 5）即停止；决策失败有静态检索兜底。
 3. **Hybrid Retrieval**（`retrieval.py`）：每个工具动作内部是三路混合检索——pgvector 稠密检索 + Postgres 词法检索 + XBRL 事实查询，用加权 RRF 融合，再做元数据 rerank（章节匹配、表单类型、时间）。
 4. **Evidence Pack 构建**：把 top 证据按角色分组（primary financial statements / MD&A / segment / risk factors / annual context），并抽取句级 evidence spans，生成 metric comparisons（YoY 等）。
 5. **Answer Generation**（`answer_generation.py`）：LLM 在只包含证据对象的 prompt 上生成 JSON 格式回答，要求 `[evidence_id]` 引用标记。
@@ -34,17 +34,19 @@
 
 ## 二、Agent 设计
 
-### Q3. 你的 "Agent" 是规则驱动的状态机，不是让 LLM 自由决策。为什么？这还算 Agent 吗？
+### Q3. 你的 Agent 怎么决定下一步用哪个工具？这是真正的 ReAct 吗？
 
-**答：** 这是有意的设计取舍。`ResearchAgentService` 实现了 ReAct 的核心循环（thought → action → observation → 更新状态 → 决定下一步），但 next_action 的决策逻辑是确定性的，基于 plan 的语义槽位和当前证据状态标志（has_metric_evidence、has_mda_explanation 等）。
+**答：** 是真正的 LLM-in-the-loop ReAct。`ResearchAgentService` 的循环是 thought → action → observation → 重判 → 决定下一步；每一步由 `LLMAgentReasoner` 调一次 LLM：把 question、plan、已收集的证据、历史 observations 喂进去，模型返回 `{thought, action}`（`json_object` 模式），从 6 个检索工具或 `finalize_answer` 里选一个。trace 里存的 `thought_summary` 是模型的真实推理，不是模板。
 
-选择确定性控制器的理由：
+> 演进过程（面试可以主动讲，体现判断力）：v1 其实是**规则驱动**的 `if/elif` 状态机——循环内零 LLM、thought 是写死的模板。它确定性好、可单测、零额外延迟，但有两个真问题：(a) 对外叫 "ReAct" 有夸大风险；(b) 规则不会优雅降级，只会**静默误路由**，加新问题类型时组合爆炸。所以我把决策层换成了真 LLM，把不确定性收窄到“值得用反馈的地方”。
 
-1. **决策空间小且可枚举**：工具只有 6 个，证据角色需求由问题类型完全决定（risk 问题需要 Risk Factors，why 问题需要 metrics + MD&A）。让 LLM 每步做一次决策会增加 5 次串行 LLM 调用的延迟和成本，但决策质量不会更好——LLM 的判断力已经在 planner 阶段用过了，它输出的槽位就是 agent 的决策依赖。
-2. **可测试、可回归**：确定性控制器可以用纯单元测试覆盖所有分支（`test_research_agent.py`），LLM 决策的 agent 行为不可复现。
-3. **失败模式可控**：`evidence_enough()` 显式定义了"什么情况下证据足够"，stop_reason 只有三种（evidence_sufficient / max_steps_reached / insufficient_evidence），每种都有明确的下游处理。
+控制这个改动的风险用了三招：
 
-我认为 "agentic" 的本质是**根据中间观察动态调整行为**，而不是"每步都问 LLM"。本系统满足：MD&A 检索没拿到 driver 证据时会追加 segment discussion 检索；XBRL 查到指标但没有可比前期时会触发 retrieve_prior_filings。如果未来问题类型扩展到决策无法枚举（如跨公司多跳推理），我会把 next_action 换成 LLM function-calling，但保留同样的状态、预算和 trace 结构——这个架构是为可替换设计的。
+1. **可注入 + 可测试**：`next_action` 委托给可注入的 `AgentReasoner`（默认 LLM），测试注入脚本化 reasoner 覆盖循环机制、`max_steps` 硬停、非法动作拒绝；`LLMAgentReasoner` 用 mock client 测 JSON 解析与校验。LLM 决策不可复现的问题靠注入解决，而不是放弃测试。
+2. **失败有静态兜底**：LLM 决策失败时，整个 agent 路径降级到非 agent 的 `_retrieve_planned` 静态检索，请求不死。
+3. **预算与停止不变**：`max_steps`（默认 5）仍是硬上限，`evidence_enough`/limitations 仍计算（降级为给 LLM 的提示 + trace 标注 + 兜底文案的依据）。
+
+代价是诚实的：每步多一次 controller LLM 调用，**冷态延迟上升**（实测见 Q11）；暖态因决策缓存几乎归零。这是用延迟换“真实自适应工具选择”的有意取舍。
 
 ### Q4. Agent 失控怎么办？比如无限循环或不停调用工具？
 
@@ -58,7 +60,7 @@
 
 **答：** 每一步存结构化的 step 记录：`thought_summary`（一句话的决策理由）、`action`、`action_input`、`observation_summary`、`evidence_ids`、`stop_reason`，由 `trace_payload()` 输出 `react_agent_trace.v1`，经 `research_trace.py` 转换成前端可渲染的 step 时间线。
 
-不存完整 CoT 的原因：(1) 这里的"思考"是确定性逻辑，一句摘要就完整表达了决策依据；(2) trace 是要给用户看和长期存储的，摘要式 trace 信息密度高、体积小；(3) 即使将来换 LLM 决策，存决策摘要 + 输入输出也比存原始 CoT 更稳定——CoT 格式随模型版本漂移，结构化 trace 不会。
+不存完整 CoT 的原因：(1) 每步只让 LLM 输出**一句**简洁 thought（system prompt 约束），它已经足够表达决策依据，不需要存原始长链 CoT；(2) trace 是要给用户看和长期存储的，摘要式 trace 信息密度高、体积小；(3) 存“决策摘要 + 输入输出”比存原始 CoT 更稳定——CoT 格式随模型版本漂移，结构化 trace 不会。
 
 ---
 
@@ -103,7 +105,13 @@ XBRL 的一个领域陷阱：US-GAAP 没有单独的 Q4 facts（只有 FY 和 Q1
 4. **失败重试 → 降级链**：校验失败把错误结构化回传给 LLM 重试一次；再失败降级到 `ExtractiveAnswerGenerator`（确定性地把最强证据按优先级拼成带引用的句子，不可能幻觉）；extractive 也失败则返回 insufficient_evidence 兜底文案。
 5. **数字来源隔离**：财务数字以 XBRL fact / metric comparison 证据对象的形式进 prompt（已格式化为 "$94.0B"），LLM 的任务是组织语言而不是计算数字，从源头降低数字幻觉面。
 
-另外我最近把句级检查也接上了：`claim_citation_coverage` 用 `answer_claim_sentences` + `sentence_requires_citation` 检测每个论断句是否带有效引用，未引用的句子作为结构化 warning 进入 validation 结果和 eval 指标（不阻断回答，因为段落级引用可以支撑相邻句子，硬阻断会伤害可用性）。
+另外有三层语义/数字检查，逐步从“验指针”走向“验语义”：
+
+6. **句级引用覆盖率**：`claim_citation_coverage` 检测每个论断句是否带有效引用，未引用的句子作为 warning（不阻断，因为段落级引用可支撑相邻句子）。
+7. **数字接地**（`number_support_warnings`）：抽取答案里有金融含义的数字，和检索证据按容差对账；`unsupported_number`（无任何证据支持=幻觉）/`citation_number_mismatch`（数字存在但不在本句所引证据里）作为 warning。
+8. **claim 级语义蕴含**（`EntailmentJudge`，可注入、`ANSWER_ENTAILMENT_CHECK` 开关）：把（句子 + 它所引证据）批量交给一次 LLM 判 `entailed/neutral/contradicted`，`contradicted → error`（进 fail/重试/兜底链）、`neutral → warning`。这层堵的正是“带合法引用的编造非数字结论”——之前只验引用完整性时它会干净通过。
+
+要划清边界（面试加分）：1–5 是**确定性硬保证**（引用指向真实证据、数字对过账）；蕴含校验是 LLM judge，默认按环境开启，judge 不可用时降级为不报问题，不拖垮正常回答。
 
 ### Q10. 为什么校验失败时返回 "insufficient evidence" 而不是尽力给个答案？
 
@@ -115,13 +123,12 @@ XBRL 的一个领域陷阱：US-GAAP 没有单独的 Q4 facts（只有 FY 和 Q1
 
 ### Q11. 这个系统一次回答要多久？瓶颈在哪？你做了什么优化？
 
-**答：** 优化前端到端通常 10-25 秒；优化后实测冷启动约 19 秒、重复问题约 6.6 秒（其中检索全程仅 ~92ms，剩余基本是 answer LLM 生成本身）。原始串行链路分解（diagnostics 里 timing_ms 记录的）：
+**答：** 在 4 家公司（AAPL/MSFT/NVDA/TSLA）× metric/why/risk 上实测（真 ReAct，各冷/暖一次共 12 次，全部 completed/passed）：**冷启动平均 ~12.7s、暖缓存 ~6.0s、总体均值 ~9.4s**。其中暖态检索仅 ~0.3s，**剩余几乎全是 answer LLM 的逐 token 解码**。串行链路分解（diagnostics 里 timing_ms 记录的）：
 
 | 阶段 | 耗时来源 |
 | --- | --- |
-| Planner LLM | gpt-4o-mini 调用 #1 |
-| Dense query rewriter LLM | gpt-4o-mini 调用 #2（依赖 #1 输出，无法并行） |
-| Agent 工具步 ×N | 每步一次 embedding API 调用 + DB 全表向量扫描（最多 5 步） |
+| Planner LLM | gpt-4o-mini 调用（与 dense rewriter 已合并为单次，有 LRU 缓存） |
+| Agent 工具步 ×N | **每步一次 controller LLM 决策**（真 ReAct）+ embedding + pgvector 检索（最多 5 步，决策可缓存） |
 | Answer LLM | 最大的单段，输出长则更久；校验失败会再来一次 |
 
 我做的优化（按实施顺序）：
@@ -134,7 +141,7 @@ XBRL 的一个领域陷阱：US-GAAP 没有单独的 Q4 facts（只有 FY 和 Q1
 6. **pgvector HNSW 索引**（migration 0008）：dense 检索从全表顺序扫描换成 HNSW 索引扫描（cosine ops 与 `<=>` 算子匹配），`ef_search` 按事务用 `set_config` 设置；`VECTOR_SEARCH_MODE=exact` 时显式禁用 index scan 保证精确语义，用完即恢复不影响同事务的词法查询。
 7. **延迟进入 eval**：answer eval 的每个 case 可设 `max_duration_ms` 预算，延迟回归会让 eval 失败，性能不再只靠手感。
 
-剩余瓶颈是 answer LLM 生成本身（约 6 秒，不可缓存），下一步是流式输出（感知延迟降一个数量级，但要解决"边流边展示未校验内容"的产品问题——方案是流式展示 + 末尾追加校验状态事件）和 async 执行模型（提吞吐）。
+流式输出已经做了（`POST /research/runs/stream`，NDJSON）：但**只流进度（status/step），不流未校验的答案草稿**——答案校验通过后由终态 `run` 事件揭晓，避免“先展示后撤回”。剩余瓶颈仍是 answer LLM 解码本身（暖态约 5–6 秒，不可缓存），下一步是分层模型 / provider prompt caching / async 执行模型（提吞吐）。真 ReAct 的 per-step controller 调用抬高了冷态延迟，是用延迟换自适应工具选择的有意取舍。
 
 ### Q12. 合并 planner 两次调用会改变输出分布，你怎么控制风险？
 
@@ -213,9 +220,9 @@ RAG eval 的难点及我的对策：(a) **标注贵** → gold set 刻意小而�
 
 **答：** 我会从三点回应：
 
-1. **Agent 的判断标准是行为而不是实现**：系统具备目标分解（planner 槽位化）、工具选择与编排（6 个检索工具按证据状态动态调度）、中间结果反馈（observation 更新状态、MD&A 不足时自动追加 segment 检索）、预算与终止控制（max_steps、stop_reason）、自我修正（校验失败回传错误重试）——这是 agent 系统的完整闭环。决策器目前是确定性的，是因为在这个问题域它**更优**（可测、可复现、零额外延迟），不是因为做不了 LLM 决策。
-2. **工程难点恰恰在 LLM 之外**：可验证引用体系、XBRL 期间语义（Q4 推算、口径对齐）、多级降级链、分层 eval——这些是把 demo 变成可信系统的部分，也是大多数 "调用一下 LangChain" 的项目缺失的部分。
-3. **架构为演进而设计**：planner/agent/generator 全部是 Protocol 注入，把确定性 next_action 换成 LLM function-calling 不需要动检索、校验、trace 任何一层。我能清楚说出什么时候该换（决策空间无法枚举时）以及为什么现在不换——知道在哪里**不用** LLM，和知道在哪里用，是同一种工程判断力。
+1. **Agent 的判断标准是行为而不是实现**：系统具备目标分解（planner 槽位化）、工具选择与编排（每步由 LLM 在 6 个检索工具间按 observation 动态选择）、中间结果反馈（MD&A 不足时追加 segment 检索）、预算与终止控制（max_steps、stop_reason）、自我修正（校验失败回传错误重试）——这是 agent 系统的完整闭环。工具选择是真 LLM-in-the-loop 决策（`LLMAgentReasoner`），不是 if-else。
+2. **工程难点恰恰在 LLM 之外**：可验证引用体系（含数字接地 + claim 级蕴含校验）、XBRL 期间语义（Q4 推算、口径对齐）、多级降级链、分层 eval——这些是把 demo 变成可信系统的部分，也是大多数 "调用一下 LangChain" 的项目缺失的部分。
+3. **架构为演进而设计、且边界清楚**：planner/agent/generator/judge 全部是 Protocol 注入；agent 决策层就是从规则换成 LLM 而检索/校验/trace 一层没动——证明这个抽象是真的。同时我能讲清楚每个 LLM 注入点为什么在那里、以及哪些地方**刻意不用** LLM（如引用白名单校验用确定性规则），这是同一种工程判断力。
 
 ---
 
