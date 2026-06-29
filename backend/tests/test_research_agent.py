@@ -1,144 +1,223 @@
-from app.services.query_planner import RetrievalPlan
+import pytest
+
+from app.core import Settings
+from app.services import research_agent
+from app.services.query_planner import RetrievalPlan, clear_llm_response_cache
 from app.services.research_agent import (
+    LLMAgentReasoner,
+    ResearchAgentAction,
     ResearchAgentObservation,
     ResearchAgentService,
 )
 
 
-def test_margin_why_question_runs_xbrl_mda_then_segment_followup() -> None:
-    agent = ResearchAgentService(max_steps=5)
-    state = agent.start(
-        question="Why did Apple's margin improve last quarter?",
-        plan=make_margin_plan(),
-    )
+class ScriptedReasoner:
+    """Deterministic stand-in for the LLM controller used in loop-mechanics tests."""
 
-    first = agent.next_action(state)
-    assert first.action == "query_xbrl_metrics"
-    agent.observe(
-        state,
-        first,
-        observation(
-            facts=4,
-            metric_observations=1,
-            metric_comparisons=1,
-        ),
-    )
+    def __init__(self, actions: list[ResearchAgentAction]) -> None:
+        self._actions = list(actions)
+        self.calls = 0
 
-    second = agent.next_action(state)
-    assert second.action == "retrieve_mda"
-    agent.observe(state, second, observation())
-
-    third = agent.next_action(state)
-    assert third.action == "retrieve_segment_discussion"
-    agent.observe(
-        state,
-        third,
-        observation(
-            segment_or_product_breakdown_chunks=1,
-            segment_or_product_breakdown_spans=1,
-        ),
-    )
-
-    final = agent.next_action(state)
-    assert final.action == "finalize_answer"
-    assert final.action_input["stop_reason"] == "evidence_sufficient"
+    def decide(self, state) -> ResearchAgentAction:
+        self.calls += 1
+        if self._actions:
+            return self._actions.pop(0)
+        return ResearchAgentAction(
+            action="finalize_answer", thought_summary="No further evidence is needed."
+        )
 
 
-def test_risk_question_retrieves_risk_factors_without_xbrl() -> None:
-    agent = ResearchAgentService(max_steps=5)
-    state = agent.start(
-        question="Summarize Apple's latest 10-K risk factors.",
-        plan=make_risk_plan(),
-    )
-
-    first = agent.next_action(state)
-    assert first.action == "retrieve_risk_factors"
-    agent.observe(
-        state,
-        first,
-        observation(risk_factor_chunks=1, risk_factor_spans=1),
-    )
-
-    final = agent.next_action(state)
-    assert final.action == "finalize_answer"
-    assert final.action_input["stop_reason"] == "evidence_sufficient"
-    assert "query_xbrl_metrics" not in state.actions_taken
-
-
-def test_pure_metric_question_anchors_xbrl_then_statement_evidence() -> None:
-    agent = ResearchAgentService(max_steps=5)
-    state = agent.start(
-        question="What was Apple's latest quarterly revenue?",
-        plan=make_metric_plan(),
-    )
-
-    first = agent.next_action(state)
-    assert first.action == "query_xbrl_metrics"
-    agent.observe(
-        state,
-        first,
-        observation(facts=1, metric_observations=1),
-    )
-
-    second = agent.next_action(state)
-    assert second.action == "retrieve_filing_chunks"
-    agent.observe(
-        state,
-        second,
-        observation(
-            primary_financial_statement_chunks=1,
-            primary_financial_statement_spans=1,
-        ),
-    )
-
-    final = agent.next_action(state)
-    assert final.action == "finalize_answer"
-    assert final.action_input["stop_reason"] == "evidence_sufficient"
-
-
-def test_text_first_question_retrieves_broad_filing_chunks() -> None:
-    agent = ResearchAgentService(max_steps=5)
-    state = agent.start(
-        question="What does Apple say about its business?",
-        plan=make_prose_plan(),
-    )
-
-    first = agent.next_action(state)
-    assert first.action == "retrieve_filing_chunks"
-    agent.observe(state, first, observation(chunks=1))
-
-    final = agent.next_action(state)
-    assert final.action == "finalize_answer"
-    assert final.action_input["stop_reason"] == "evidence_sufficient"
-
-
-def test_agent_reports_insufficient_evidence_when_required_roles_stay_empty() -> None:
-    agent = ResearchAgentService(max_steps=6)
-    state = agent.start(
-        question="Why did Apple's margin improve last quarter?",
-        plan=make_margin_plan(),
-    )
-
+def run_to_completion(agent: ResearchAgentService, state) -> None:
     while True:
         action = agent.next_action(state)
         if action.action == "finalize_answer":
             agent.finish(state, action)
             break
-        agent.observe(state, action, observation())
+        agent.observe(state, action, observation_for(action.action))
+
+
+def test_loop_executes_reasoner_actions_then_finalizes() -> None:
+    reasoner = ScriptedReasoner(
+        [
+            ResearchAgentAction(
+                action="query_xbrl_metrics", thought_summary="Anchor in XBRL facts first."
+            ),
+            ResearchAgentAction(
+                action="retrieve_mda", thought_summary="Explain the drivers with MD&A."
+            ),
+        ]
+    )
+    agent = ResearchAgentService(max_steps=5, reasoner=reasoner)
+    state = agent.start(
+        question="Why did Apple's margin improve last quarter?",
+        plan=make_margin_plan(),
+    )
+
+    run_to_completion(agent, state)
 
     trace = agent.trace_payload(state)
+    assert trace["mode"] == "react_llm"
+    assert state.actions_taken == {"query_xbrl_metrics", "retrieve_mda"}
+    assert trace["stop_reason"] == "evidence_sufficient"
+    # The model's genuine thought is recorded in the step trace, not a template.
+    assert any(
+        step["thought_summary"] == "Explain the drivers with MD&A."
+        for step in trace["steps"]
+    )
 
-    assert trace["mode"] == "react_bounded"
+
+def test_loop_stops_at_max_steps_even_if_reasoner_never_finalizes() -> None:
+    reasoner = ScriptedReasoner(
+        [
+            ResearchAgentAction(action="query_xbrl_metrics", thought_summary="."),
+            ResearchAgentAction(action="retrieve_mda", thought_summary="."),
+            ResearchAgentAction(action="retrieve_segment_discussion", thought_summary="."),
+        ]
+    )
+    agent = ResearchAgentService(max_steps=2, reasoner=reasoner)
+    state = agent.start(
+        question="Why did Apple's margin improve last quarter?",
+        plan=make_margin_plan(),
+    )
+
+    run_to_completion(agent, state)
+
+    trace = agent.trace_payload(state)
+    assert trace["tool_step_count"] == 2
+    assert trace["stop_reason"] == "max_steps_reached"
+
+
+def test_unsupported_action_from_reasoner_raises() -> None:
+    reasoner = ScriptedReasoner(
+        [ResearchAgentAction(action="delete_database", thought_summary="bad")]
+    )
+    agent = ResearchAgentService(max_steps=5, reasoner=reasoner)
+    state = agent.start(question="anything", plan=make_metric_plan())
+
+    with pytest.raises(ValueError):
+        agent.next_action(state)
+
+
+def test_insufficient_evidence_reports_limitations() -> None:
+    # The reasoner finalizes immediately while required roles stay empty.
+    agent = ResearchAgentService(max_steps=5, reasoner=ScriptedReasoner([]))
+    state = agent.start(
+        question="Why did Apple's margin improve last quarter?",
+        plan=make_margin_plan(),
+    )
+
+    run_to_completion(agent, state)
+
+    trace = agent.trace_payload(state)
     assert trace["stop_reason"] == "insufficient_evidence"
     assert trace["evidence_enough"] is False
-    assert trace["steps"][0]["action"] == "analyze_question"
-    assert trace["steps"][-1]["action"] == "finalize_answer"
     assert "No matching XBRL metric evidence was found." in trace["limitations"]
 
 
-def observation(**counts: int) -> ResearchAgentObservation:
+def test_llm_reasoner_parses_action_and_surfaces_thought(monkeypatch) -> None:
+    clear_llm_response_cache()
+    monkeypatch.setattr(
+        research_agent,
+        "get_openai_client",
+        lambda *args, **kwargs: FakeClient(
+            ['{"thought": "MD&A explains the driver.", "action": "retrieve_mda"}']
+        ),
+    )
+    reasoner = LLMAgentReasoner(make_settings())
+    state = ResearchAgentService(reasoner=reasoner).start(
+        question="Why did Apple's margin improve last quarter?",
+        plan=make_margin_plan(),
+    )
+
+    action = reasoner.decide(state)
+
+    assert action.action == "retrieve_mda"
+    assert action.thought_summary == "MD&A explains the driver."
+
+
+def test_llm_reasoner_rejects_out_of_vocabulary_action(monkeypatch) -> None:
+    clear_llm_response_cache()
+    client = FakeClient(['{"thought": "x", "action": "rm -rf"}'])
+    monkeypatch.setattr(research_agent, "get_openai_client", lambda *a, **k: client)
+    reasoner = LLMAgentReasoner(make_settings())
+    state = ResearchAgentService(reasoner=reasoner).start(
+        question="anything", plan=make_metric_plan()
+    )
+
+    with pytest.raises(ValueError):
+        reasoner.decide(state)
+    # Retried once before giving up.
+    assert client.chat.completions.calls == 2
+
+
+def test_llm_reasoner_requires_api_key() -> None:
+    reasoner = LLMAgentReasoner(Settings(_env_file=None, openai_api_key=None))
+    state = ResearchAgentService(reasoner=ScriptedReasoner([])).start(
+        question="anything", plan=make_metric_plan()
+    )
+
+    with pytest.raises(RuntimeError):
+        reasoner.decide(state)
+
+
+# --- fakes / fixtures -------------------------------------------------------
+
+
+class FakeCompletions:
+    def __init__(self, contents: list[str]) -> None:
+        self._contents = list(contents)
+        self.calls = 0
+
+    def create(self, **kwargs):
+        content = self._contents[min(self.calls, len(self._contents) - 1)]
+        self.calls += 1
+        return FakeCompletion(content)
+
+
+class FakeChat:
+    def __init__(self, contents: list[str]) -> None:
+        self.completions = FakeCompletions(contents)
+
+
+class FakeClient:
+    def __init__(self, contents: list[str]) -> None:
+        self.chat = FakeChat(contents)
+
+
+class FakeCompletion:
+    def __init__(self, content: str) -> None:
+        self.choices = [FakeChoice(content)]
+
+
+class FakeChoice:
+    def __init__(self, content: str) -> None:
+        self.message = FakeMessage(content)
+
+
+class FakeMessage:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+def make_settings() -> Settings:
+    return Settings(_env_file=None, openai_api_key="sk-test")
+
+
+def observation_for(action: str) -> ResearchAgentObservation:
+    counts_by_action = {
+        "query_xbrl_metrics": {"facts": 4, "metric_observations": 1, "metric_comparisons": 1},
+        "retrieve_mda": {"mda_explanation_chunks": 1, "mda_explanation_spans": 1},
+        "retrieve_segment_discussion": {
+            "segment_or_product_breakdown_chunks": 1,
+            "segment_or_product_breakdown_spans": 1,
+        },
+        "retrieve_filing_chunks": {"primary_financial_statement_chunks": 1},
+        "retrieve_risk_factors": {"risk_factor_chunks": 1, "risk_factor_spans": 1},
+        "retrieve_prior_filings": {"metric_comparisons": 1},
+    }
+    counts = counts_by_action.get(action, {})
     return ResearchAgentObservation(
-        observation_summary="test observation",
+        observation_summary=f"observation for {action}",
         evidence_ids=["test:evidence"] if counts else [],
         counts=counts,
     )
@@ -200,56 +279,4 @@ def make_metric_plan() -> RetrievalPlan:
         needs_text_chunks=True,
         needs_metric_comparisons=False,
         evidence_roles=["primary_financial_statement_chunks"],
-    )
-
-
-def make_risk_plan() -> RetrievalPlan:
-    return RetrievalPlan(
-        question_type="risk",
-        target_sections=["Risk Factors"],
-        metric_keys=[],
-        time_scope="latest",
-        period_kind="fy",
-        target_period="latest",
-        duration_class="fy",
-        comparison_basis="none",
-        comparison_candidates=[],
-        default_comparison_basis=None,
-        ambiguities=[],
-        forms=["10-K"],
-        allowed_forms=["10-K"],
-        preferred_forms=["10-K"],
-        dense_queries=["risk factors"],
-        lexical_queries=['"risk factors"'],
-        matched_rules=["planner:test"],
-        needs_financial_facts=False,
-        needs_text_chunks=True,
-        needs_metric_comparisons=False,
-        evidence_roles=["risk_factor_chunks"],
-    )
-
-
-def make_prose_plan() -> RetrievalPlan:
-    return RetrievalPlan(
-        question_type="prose",
-        target_sections=[],
-        metric_keys=[],
-        time_scope="unspecified",
-        period_kind=None,
-        target_period=None,
-        duration_class=None,
-        comparison_basis="none",
-        comparison_candidates=[],
-        default_comparison_basis=None,
-        ambiguities=[],
-        forms=[],
-        allowed_forms=["10-K", "10-Q"],
-        preferred_forms=[],
-        dense_queries=["business overview"],
-        lexical_queries=["business overview"],
-        matched_rules=["planner:test"],
-        needs_financial_facts=False,
-        needs_text_chunks=True,
-        needs_metric_comparisons=False,
-        evidence_roles=[],
     )
