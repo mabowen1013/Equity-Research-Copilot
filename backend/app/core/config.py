@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     answer_llm_timeout_seconds: float = Field(default=30.0, gt=0, le=90)
     answer_llm_max_retries: int = Field(default=0, ge=0, le=5)
     answer_llm_max_output_tokens: int = Field(default=900, ge=64, le=4096)
+    # Claim-level entailment is an extra LLM call on the validation path, so it is
+    # opt-in per environment (set ANSWER_ENTAILMENT_CHECK=true to enable).
+    answer_entailment_check: bool = False
+    answer_entailment_llm_model: str = "gpt-4o-mini"
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

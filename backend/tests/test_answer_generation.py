@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+from app.core import Settings
 from app.schemas import (
     CitationValidationIssueRead,
     MetricComparisonRead,
@@ -16,6 +17,7 @@ from app.services.answer_generation import (
     build_citation_alias_map,
     metric_comparison_record,
     normalize_generated_answer_citations,
+    parse_entailment_labels,
     parse_salient_numbers,
     split_streamed_answer,
 )
@@ -642,3 +644,105 @@ def test_citation_validator_skips_number_checks_without_evidence_records() -> No
     codes = {warning.code for warning in validation.warnings}
     assert "unsupported_number" not in codes
     assert "citation_number_mismatch" not in codes
+
+
+class FakeEntailmentJudge:
+    def __init__(self, labels: list[str]) -> None:
+        self._labels = labels
+        self.calls = 0
+
+    def judge(self, claims: list[dict]) -> list[str]:
+        self.calls += 1
+        return [self._labels[i] if i < len(self._labels) else "entailed" for i in range(len(claims))]
+
+
+def _entail_records() -> list[PromptEvidenceRecord]:
+    return [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for the Q2 2026 quarter."
+        )
+    ]
+
+
+def test_entailment_contradiction_fails_validation() -> None:
+    generated = GeneratedAnswer(
+        answer="Apple plans to discontinue the iPhone next year. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(
+        entailment_judge=FakeEntailmentJudge(["contradicted"])
+    ).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert validation.status == "failed"
+    assert "contradicted_claim" in {issue.code for issue in validation.errors}
+
+
+def test_entailment_neutral_warns_without_failing() -> None:
+    generated = GeneratedAnswer(
+        answer="Apple is focused on its services strategy. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(
+        entailment_judge=FakeEntailmentJudge(["neutral"])
+    ).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert validation.status == "passed"
+    assert "unsupported_claim" in {issue.code for issue in validation.warnings}
+
+
+def test_entailment_entailed_is_clean() -> None:
+    judge = FakeEntailmentJudge(["entailed"])
+    generated = GeneratedAnswer(
+        answer="Revenue was strong this quarter. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(entailment_judge=judge).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert judge.calls == 1
+    codes = {issue.code for issue in [*validation.errors, *validation.warnings]}
+    assert "contradicted_claim" not in codes
+    assert "unsupported_claim" not in codes
+
+
+def test_entailment_skipped_when_check_disabled() -> None:
+    # Default settings keep the check off, so no judge runs even on a contradiction.
+    generated = GeneratedAnswer(
+        answer="Apple plans to discontinue the iPhone next year. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(settings=Settings(_env_file=None)).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert validation.status == "passed"
+    assert "contradicted_claim" not in {issue.code for issue in validation.errors}
+
+
+def test_parse_entailment_labels_normalizes_and_pads() -> None:
+    labels = parse_entailment_labels(
+        '{"labels": ["Contradicted", {"label": "neutral"}, "bogus"]}', 4
+    )
+
+    assert labels == ["contradicted", "neutral", "entailed", "entailed"]

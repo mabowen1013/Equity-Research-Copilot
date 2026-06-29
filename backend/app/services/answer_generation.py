@@ -353,7 +353,71 @@ class FallbackAnswerGenerator:
             )
 
 
+class EntailmentJudge(Protocol):
+    def judge(self, claims: list[dict[str, Any]]) -> list[str]:
+        """Return a label per claim in {entailed, neutral, contradicted}, in order.
+
+        Each claim is {"sentence": str, "evidence": list[str]}.
+        """
+
+
+class LLMEntailmentJudge:
+    """LLM-as-judge: decides whether each cited sentence is supported by its evidence."""
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
+
+    def judge(self, claims: list[dict[str, Any]]) -> list[str]:
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            raise AnswerGenerationError(
+                "OPENAI_API_KEY must be configured for entailment checks."
+            )
+        try:
+            client = get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.answer_llm_timeout_seconds,
+                max_retries=self._settings.answer_llm_max_retries,
+            )
+        except ImportError as exc:
+            raise AnswerGenerationError(
+                "The openai package must be installed for entailment checks."
+            ) from exc
+
+        payload = {
+            "claims": [
+                {"index": index, "claim": claim["sentence"], "evidence": claim["evidence"]}
+                for index, claim in enumerate(claims)
+            ]
+        }
+        response = client.chat.completions.create(
+            model=self._settings.answer_entailment_llm_model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": entailment_system_prompt()},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        content = response.choices[0].message.content or "{}"
+        return parse_entailment_labels(content, len(claims))
+
+
 class CitationValidator:
+    def __init__(
+        self,
+        *,
+        settings: Settings | None = None,
+        entailment_judge: EntailmentJudge | None = None,
+    ) -> None:
+        self._settings = settings or get_settings()
+        if entailment_judge is not None:
+            self._entailment_judge: EntailmentJudge | None = entailment_judge
+        elif self._settings.answer_entailment_check:
+            self._entailment_judge = LLMEntailmentJudge(self._settings)
+        else:
+            self._entailment_judge = None
+
     def validate(
         self,
         generated: GeneratedAnswer,
@@ -399,6 +463,12 @@ class CitationValidator:
                 *warnings,
                 *number_support_warnings(generated.answer, evidence_records),
             ]
+            if self._entailment_judge is not None:
+                entail_errors, entail_warnings = entailment_issues(
+                    generated.answer, evidence_records, self._entailment_judge
+                )
+                errors = [*errors, *entail_errors]
+                warnings = [*warnings, *entail_warnings]
 
         return CitationValidationRead(
             status="failed" if errors else "passed",
@@ -1359,6 +1429,116 @@ def _numbers_match(
     if largest == 0:
         return diff == 0
     return diff <= AMOUNT_MATCH_REL_TOL * largest
+
+
+ENTAILMENT_MAX_CLAIMS = 12
+
+
+def entailment_issues(
+    answer: str,
+    evidence_records: list[PromptEvidenceRecord],
+    judge: EntailmentJudge,
+) -> tuple[list[CitationValidationIssueRead], list[CitationValidationIssueRead]]:
+    """Judge whether each cited sentence is supported by the evidence it cites.
+
+    Returns (errors, warnings): a contradicted claim is an error (it joins the
+    fail -> retry -> extractive-fallback path); a neutral/unsupported claim is a
+    warning. The judge is best-effort: any failure yields no issues rather than
+    blocking a run on an unavailable check.
+    """
+    text_by_id = {record.evidence_id: record.text for record in evidence_records}
+    claims: list[dict[str, Any]] = []
+    for sentence in answer_claim_sentences(answer):
+        if not sentence_requires_citation(sentence):
+            continue
+        cited = [
+            evidence_id
+            for evidence_id in extract_citation_markers(sentence)
+            if evidence_id in text_by_id
+        ]
+        if not cited:
+            continue
+        claims.append(
+            {
+                "sentence": sentence,
+                "evidence": [text_by_id[evidence_id] for evidence_id in cited],
+            }
+        )
+        if len(claims) >= ENTAILMENT_MAX_CLAIMS:
+            break
+    if not claims:
+        return [], []
+    try:
+        labels = judge.judge(claims)
+    except Exception:
+        return [], []
+
+    errors: list[CitationValidationIssueRead] = []
+    warnings: list[CitationValidationIssueRead] = []
+    for claim, label in zip(claims, labels):
+        if label == "contradicted":
+            errors.append(
+                CitationValidationIssueRead(
+                    code="contradicted_claim",
+                    message="The cited evidence contradicts this sentence.",
+                    sentence=claim["sentence"],
+                )
+            )
+        elif label == "neutral":
+            warnings.append(
+                CitationValidationIssueRead(
+                    code="unsupported_claim",
+                    message="The cited evidence does not support this sentence.",
+                    sentence=claim["sentence"],
+                )
+            )
+    return errors, warnings
+
+
+def parse_entailment_labels(content: str, expected: int) -> list[str]:
+    try:
+        parsed = json.loads(_strip_json_fences(content))
+    except (ValueError, TypeError):
+        parsed = {}
+    raw_labels = parsed.get("labels") if isinstance(parsed, dict) else None
+    labels: list[str] = []
+    if isinstance(raw_labels, list):
+        for item in raw_labels:
+            if isinstance(item, str):
+                labels.append(item.strip().lower())
+            elif isinstance(item, dict):
+                labels.append(str(item.get("label", "")).strip().lower())
+            else:
+                labels.append("")
+    # Pad/truncate to the expected count; an unknown label is treated as entailed so
+    # an unparseable judge response never falsely fails an answer.
+    normalized: list[str] = []
+    for index in range(expected):
+        label = labels[index] if index < len(labels) else ""
+        normalized.append(
+            label if label in {"entailed", "neutral", "contradicted"} else "entailed"
+        )
+    return normalized
+
+
+def _strip_json_fences(content: str) -> str:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped
+
+
+def entailment_system_prompt() -> str:
+    return """You are a strict fact-checker for SEC research answers.
+For each claim you are given the claim sentence and the evidence snippets it cites.
+Label each claim using ONLY its cited evidence:
+- "entailed": the evidence clearly supports the claim.
+- "neutral": the evidence neither clearly supports nor contradicts the claim.
+- "contradicted": the evidence states something incompatible with the claim.
+Judge only against the provided evidence; do not use outside knowledge.
+
+Return one JSON object: {"labels": ["entailed"|"neutral"|"contradicted", ...]} with one label per claim, in the same order as the input claims."""
 
 
 def answer_claim_sentences(answer: str) -> list[str]:
