@@ -465,13 +465,14 @@ export function fetchCompanyMetrics(
   ticker: string,
   metricKey?: string,
 ): Promise<FinancialFact[]> {
-  const params = new URLSearchParams({ limit: "1000" });
+  const params = new URLSearchParams();
   if (metricKey) {
     params.set("metric_key", metricKey);
   }
+  const query = params.toString();
 
   return requestJson<FinancialFact[]>(
-    `/companies/${encodeURIComponent(ticker)}/metrics?${params.toString()}`,
+    `/companies/${encodeURIComponent(ticker)}/metrics${query ? `?${query}` : ""}`,
   );
 }
 
