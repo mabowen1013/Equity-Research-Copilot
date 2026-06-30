@@ -167,7 +167,7 @@ XBRL 的一个领域陷阱：US-GAAP 没有单独的 Q4 facts（只有 FY 和 Q1
    - **覆盖面**：跨公司（AAPL/MSFT/NVDA/TSLA + 银行 JPM）+ 对抗用例（不披露指标→应拒答；假前提“营收下滑”→不得附和）。
 4. **Agent 轨迹 eval**（`agent_trajectory_eval.py`，新增）：因为工具选择现在是**非确定性 LLM**，这是个新回归面。标注“问题→期望工具集”，跑真控制器 N 次，gate `expect_tools⊆used`、报**稳定性**。
 
-**实测**（6 家公司、139 份解析报告、18,579 chunk、5,006 XBRL facts、~100 问；完整见 `docs/eval_results.md`，复现 `python -m app.evals.run_all`）：文本检索 **recall@5 91.7%**、结构化指标准确率 **100%**（对 SEC XBRL 真值）、忠实度 **0 矛盾论断**、不可答 **安全拒答 100%**、agent 工具选择 **100%**（稳定性 100%）、延迟 **P50 13.4s / P95 19.3s**。**反证**：把某 gold 值故意改成 $999B → 同一答案立刻 `value_mismatch` 失败，证明验的是对错而非形状。另有 313 个 pytest（LLM 依赖全部 Protocol 注入 fake，CI 无需 API key）。诚实限定：评测集小样本、忠实度 judge 未校准、planner 严格 case pass 仅 4.3%（用字段级 61% 才是诚实测度）。
+**实测**（6 家公司、139 份解析报告、18,579 chunk、5,006 XBRL facts；完整方法与数据见 `docs/eval_results.md`）：**结构化指标准确率 86.5%**（95% CI 78–92%、n=96、自动生成对 SEC XBRL 真值）、文本检索 **recall@5 91.7%**、忠实度 **0 矛盾论断**、不可答 **安全拒答 100%**、agent 工具选择 **100%**（稳定性 100%）、延迟 **P50 13.4s / P95 19.3s**。**反证**：把某 gold 值故意改成 $999B → 立刻 `value_mismatch` 失败,证明验的是对错而非形状。诚实限定:除结构化准确率是大样本+置信区间外其余小样本、忠实度 judge 未校准、planner 严格 case pass 仅 4.3%（字段级 61% 才是诚实测度）。
 
 RAG eval 的难点及对策：(a) **标注贵** → 数字真值直接复用 SEC XBRL（零人工）、retrieval gold 钉角色而非逐 chunk 标注；(b) **答案无唯一正确文本** → 不评字面相似度，评可验证性质（数字对账、引用合法、蕴含、可答性、安全）；(c) **LLM-judge 不稳定** → judge 全部 fail-open（不可用时不拦正常答案），且 judge 校准（对人工标注子集测一致率）列为下一步。
 
