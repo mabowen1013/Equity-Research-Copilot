@@ -1,0 +1,966 @@
+{
+  "suite_name": "metric_accuracy_eval",
+  "description": "Auto-generated from financial_facts: latest 3 fiscal years per company/metric. Ground truth is the SEC XBRL value; answer must state it within 3%.",
+  "cases": [
+    {
+      "id": "AAPL_free_cash_flow_FY2025",
+      "ticker": "AAPL",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was AAPL's free cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 98767000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_free_cash_flow_FY2024",
+      "ticker": "AAPL",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was AAPL's free cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 108807000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_free_cash_flow_FY2023",
+      "ticker": "AAPL",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was AAPL's free cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 99584000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_gross_profit_FY2025",
+      "ticker": "AAPL",
+      "metric": "gross_profit",
+      "fiscal_year": 2025,
+      "question": "What was AAPL's gross profit in fiscal year 2025?",
+      "kind": "amount",
+      "value": 195201000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_gross_profit_FY2024",
+      "ticker": "AAPL",
+      "metric": "gross_profit",
+      "fiscal_year": 2024,
+      "question": "What was AAPL's gross profit in fiscal year 2024?",
+      "kind": "amount",
+      "value": 180683000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_gross_profit_FY2023",
+      "ticker": "AAPL",
+      "metric": "gross_profit",
+      "fiscal_year": 2023,
+      "question": "What was AAPL's gross profit in fiscal year 2023?",
+      "kind": "amount",
+      "value": 169148000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_net_income_FY2025",
+      "ticker": "AAPL",
+      "metric": "net_income",
+      "fiscal_year": 2025,
+      "question": "What was AAPL's net income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 112010000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_net_income_FY2024",
+      "ticker": "AAPL",
+      "metric": "net_income",
+      "fiscal_year": 2024,
+      "question": "What was AAPL's net income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 93736000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_net_income_FY2023",
+      "ticker": "AAPL",
+      "metric": "net_income",
+      "fiscal_year": 2023,
+      "question": "What was AAPL's net income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 96995000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_operating_cash_flow_FY2025",
+      "ticker": "AAPL",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was AAPL's operating cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 111482000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_operating_cash_flow_FY2024",
+      "ticker": "AAPL",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was AAPL's operating cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 118254000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_operating_cash_flow_FY2023",
+      "ticker": "AAPL",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was AAPL's operating cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 110543000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_operating_income_FY2025",
+      "ticker": "AAPL",
+      "metric": "operating_income",
+      "fiscal_year": 2025,
+      "question": "What was AAPL's operating income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 133050000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_operating_income_FY2024",
+      "ticker": "AAPL",
+      "metric": "operating_income",
+      "fiscal_year": 2024,
+      "question": "What was AAPL's operating income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 123216000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_operating_income_FY2023",
+      "ticker": "AAPL",
+      "metric": "operating_income",
+      "fiscal_year": 2023,
+      "question": "What was AAPL's operating income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 114301000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_revenue_FY2025",
+      "ticker": "AAPL",
+      "metric": "revenue",
+      "fiscal_year": 2025,
+      "question": "What was AAPL's total revenue in fiscal year 2025?",
+      "kind": "amount",
+      "value": 416161000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_revenue_FY2024",
+      "ticker": "AAPL",
+      "metric": "revenue",
+      "fiscal_year": 2024,
+      "question": "What was AAPL's total revenue in fiscal year 2024?",
+      "kind": "amount",
+      "value": 391035000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "AAPL_revenue_FY2023",
+      "ticker": "AAPL",
+      "metric": "revenue",
+      "fiscal_year": 2023,
+      "question": "What was AAPL's total revenue in fiscal year 2023?",
+      "kind": "amount",
+      "value": 383285000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_net_income_FY2025",
+      "ticker": "JPM",
+      "metric": "net_income",
+      "fiscal_year": 2025,
+      "question": "What was JPM's net income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 57048000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_net_income_FY2024",
+      "ticker": "JPM",
+      "metric": "net_income",
+      "fiscal_year": 2024,
+      "question": "What was JPM's net income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 58471000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_net_income_FY2023",
+      "ticker": "JPM",
+      "metric": "net_income",
+      "fiscal_year": 2023,
+      "question": "What was JPM's net income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 49552000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_operating_cash_flow_FY2025",
+      "ticker": "JPM",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was JPM's operating cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": -147782000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_operating_cash_flow_FY2024",
+      "ticker": "JPM",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was JPM's operating cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": -42012000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_operating_cash_flow_FY2023",
+      "ticker": "JPM",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was JPM's operating cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 12974000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_revenue_FY2025",
+      "ticker": "JPM",
+      "metric": "revenue",
+      "fiscal_year": 2025,
+      "question": "What was JPM's total revenue in fiscal year 2025?",
+      "kind": "amount",
+      "value": 182447000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_revenue_FY2024",
+      "ticker": "JPM",
+      "metric": "revenue",
+      "fiscal_year": 2024,
+      "question": "What was JPM's total revenue in fiscal year 2024?",
+      "kind": "amount",
+      "value": 177556000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "JPM_revenue_FY2023",
+      "ticker": "JPM",
+      "metric": "revenue",
+      "fiscal_year": 2023,
+      "question": "What was JPM's total revenue in fiscal year 2023?",
+      "kind": "amount",
+      "value": 158104000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_free_cash_flow_FY2025",
+      "ticker": "META",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was META's free cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 46109000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_free_cash_flow_FY2024",
+      "ticker": "META",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was META's free cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 54072000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_free_cash_flow_FY2023",
+      "ticker": "META",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was META's free cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 44068000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_net_income_FY2025",
+      "ticker": "META",
+      "metric": "net_income",
+      "fiscal_year": 2025,
+      "question": "What was META's net income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 60458000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_net_income_FY2024",
+      "ticker": "META",
+      "metric": "net_income",
+      "fiscal_year": 2024,
+      "question": "What was META's net income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 62360000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_net_income_FY2023",
+      "ticker": "META",
+      "metric": "net_income",
+      "fiscal_year": 2023,
+      "question": "What was META's net income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 39098000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_operating_cash_flow_FY2025",
+      "ticker": "META",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was META's operating cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 115800000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_operating_cash_flow_FY2024",
+      "ticker": "META",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was META's operating cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 91328000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_operating_cash_flow_FY2023",
+      "ticker": "META",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was META's operating cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 71113000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_operating_income_FY2025",
+      "ticker": "META",
+      "metric": "operating_income",
+      "fiscal_year": 2025,
+      "question": "What was META's operating income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 83276000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_operating_income_FY2024",
+      "ticker": "META",
+      "metric": "operating_income",
+      "fiscal_year": 2024,
+      "question": "What was META's operating income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 69380000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_operating_income_FY2023",
+      "ticker": "META",
+      "metric": "operating_income",
+      "fiscal_year": 2023,
+      "question": "What was META's operating income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 46751000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_revenue_FY2025",
+      "ticker": "META",
+      "metric": "revenue",
+      "fiscal_year": 2025,
+      "question": "What was META's total revenue in fiscal year 2025?",
+      "kind": "amount",
+      "value": 200966000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_revenue_FY2024",
+      "ticker": "META",
+      "metric": "revenue",
+      "fiscal_year": 2024,
+      "question": "What was META's total revenue in fiscal year 2024?",
+      "kind": "amount",
+      "value": 164501000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "META_revenue_FY2023",
+      "ticker": "META",
+      "metric": "revenue",
+      "fiscal_year": 2023,
+      "question": "What was META's total revenue in fiscal year 2023?",
+      "kind": "amount",
+      "value": 134902000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_free_cash_flow_FY2025",
+      "ticker": "MSFT",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was MSFT's free cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 71611000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_free_cash_flow_FY2024",
+      "ticker": "MSFT",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was MSFT's free cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 74071000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_free_cash_flow_FY2023",
+      "ticker": "MSFT",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was MSFT's free cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 59475000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_gross_profit_FY2025",
+      "ticker": "MSFT",
+      "metric": "gross_profit",
+      "fiscal_year": 2025,
+      "question": "What was MSFT's gross profit in fiscal year 2025?",
+      "kind": "amount",
+      "value": 193893000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_gross_profit_FY2024",
+      "ticker": "MSFT",
+      "metric": "gross_profit",
+      "fiscal_year": 2024,
+      "question": "What was MSFT's gross profit in fiscal year 2024?",
+      "kind": "amount",
+      "value": 171008000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_gross_profit_FY2023",
+      "ticker": "MSFT",
+      "metric": "gross_profit",
+      "fiscal_year": 2023,
+      "question": "What was MSFT's gross profit in fiscal year 2023?",
+      "kind": "amount",
+      "value": 146052000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_net_income_FY2025",
+      "ticker": "MSFT",
+      "metric": "net_income",
+      "fiscal_year": 2025,
+      "question": "What was MSFT's net income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 101832000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_net_income_FY2024",
+      "ticker": "MSFT",
+      "metric": "net_income",
+      "fiscal_year": 2024,
+      "question": "What was MSFT's net income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 88136000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_net_income_FY2023",
+      "ticker": "MSFT",
+      "metric": "net_income",
+      "fiscal_year": 2023,
+      "question": "What was MSFT's net income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 72361000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_operating_cash_flow_FY2025",
+      "ticker": "MSFT",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was MSFT's operating cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 136162000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_operating_cash_flow_FY2024",
+      "ticker": "MSFT",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was MSFT's operating cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 118548000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_operating_cash_flow_FY2023",
+      "ticker": "MSFT",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was MSFT's operating cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 87582000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_operating_income_FY2025",
+      "ticker": "MSFT",
+      "metric": "operating_income",
+      "fiscal_year": 2025,
+      "question": "What was MSFT's operating income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 128528000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_operating_income_FY2024",
+      "ticker": "MSFT",
+      "metric": "operating_income",
+      "fiscal_year": 2024,
+      "question": "What was MSFT's operating income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 109433000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_operating_income_FY2023",
+      "ticker": "MSFT",
+      "metric": "operating_income",
+      "fiscal_year": 2023,
+      "question": "What was MSFT's operating income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 88523000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_revenue_FY2025",
+      "ticker": "MSFT",
+      "metric": "revenue",
+      "fiscal_year": 2025,
+      "question": "What was MSFT's total revenue in fiscal year 2025?",
+      "kind": "amount",
+      "value": 281724000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_revenue_FY2024",
+      "ticker": "MSFT",
+      "metric": "revenue",
+      "fiscal_year": 2024,
+      "question": "What was MSFT's total revenue in fiscal year 2024?",
+      "kind": "amount",
+      "value": 245122000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "MSFT_revenue_FY2023",
+      "ticker": "MSFT",
+      "metric": "revenue",
+      "fiscal_year": 2023,
+      "question": "What was MSFT's total revenue in fiscal year 2023?",
+      "kind": "amount",
+      "value": 211915000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_free_cash_flow_FY2026",
+      "ticker": "NVDA",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2026,
+      "question": "What was NVDA's free cash flow in fiscal year 2026?",
+      "kind": "amount",
+      "value": 96676000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_free_cash_flow_FY2025",
+      "ticker": "NVDA",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was NVDA's free cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 60853000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_free_cash_flow_FY2024",
+      "ticker": "NVDA",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was NVDA's free cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 27021000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_gross_profit_FY2026",
+      "ticker": "NVDA",
+      "metric": "gross_profit",
+      "fiscal_year": 2026,
+      "question": "What was NVDA's gross profit in fiscal year 2026?",
+      "kind": "amount",
+      "value": 153463000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_gross_profit_FY2025",
+      "ticker": "NVDA",
+      "metric": "gross_profit",
+      "fiscal_year": 2025,
+      "question": "What was NVDA's gross profit in fiscal year 2025?",
+      "kind": "amount",
+      "value": 97858000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_gross_profit_FY2024",
+      "ticker": "NVDA",
+      "metric": "gross_profit",
+      "fiscal_year": 2024,
+      "question": "What was NVDA's gross profit in fiscal year 2024?",
+      "kind": "amount",
+      "value": 44301000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_net_income_FY2026",
+      "ticker": "NVDA",
+      "metric": "net_income",
+      "fiscal_year": 2026,
+      "question": "What was NVDA's net income in fiscal year 2026?",
+      "kind": "amount",
+      "value": 120067000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_net_income_FY2025",
+      "ticker": "NVDA",
+      "metric": "net_income",
+      "fiscal_year": 2025,
+      "question": "What was NVDA's net income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 72880000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_net_income_FY2024",
+      "ticker": "NVDA",
+      "metric": "net_income",
+      "fiscal_year": 2024,
+      "question": "What was NVDA's net income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 29760000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_operating_cash_flow_FY2026",
+      "ticker": "NVDA",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2026,
+      "question": "What was NVDA's operating cash flow in fiscal year 2026?",
+      "kind": "amount",
+      "value": 102718000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_operating_cash_flow_FY2025",
+      "ticker": "NVDA",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was NVDA's operating cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 64089000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_operating_cash_flow_FY2024",
+      "ticker": "NVDA",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was NVDA's operating cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 28090000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_operating_income_FY2026",
+      "ticker": "NVDA",
+      "metric": "operating_income",
+      "fiscal_year": 2026,
+      "question": "What was NVDA's operating income in fiscal year 2026?",
+      "kind": "amount",
+      "value": 130387000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_operating_income_FY2025",
+      "ticker": "NVDA",
+      "metric": "operating_income",
+      "fiscal_year": 2025,
+      "question": "What was NVDA's operating income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 81453000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_operating_income_FY2024",
+      "ticker": "NVDA",
+      "metric": "operating_income",
+      "fiscal_year": 2024,
+      "question": "What was NVDA's operating income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 32972000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_revenue_FY2026",
+      "ticker": "NVDA",
+      "metric": "revenue",
+      "fiscal_year": 2026,
+      "question": "What was NVDA's total revenue in fiscal year 2026?",
+      "kind": "amount",
+      "value": 215938000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_revenue_FY2025",
+      "ticker": "NVDA",
+      "metric": "revenue",
+      "fiscal_year": 2025,
+      "question": "What was NVDA's total revenue in fiscal year 2025?",
+      "kind": "amount",
+      "value": 130497000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "NVDA_revenue_FY2024",
+      "ticker": "NVDA",
+      "metric": "revenue",
+      "fiscal_year": 2024,
+      "question": "What was NVDA's total revenue in fiscal year 2024?",
+      "kind": "amount",
+      "value": 60922000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_free_cash_flow_FY2025",
+      "ticker": "TSLA",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was TSLA's free cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 6220000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_free_cash_flow_FY2024",
+      "ticker": "TSLA",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was TSLA's free cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 3581000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_free_cash_flow_FY2023",
+      "ticker": "TSLA",
+      "metric": "free_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was TSLA's free cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 4357000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_gross_profit_FY2025",
+      "ticker": "TSLA",
+      "metric": "gross_profit",
+      "fiscal_year": 2025,
+      "question": "What was TSLA's gross profit in fiscal year 2025?",
+      "kind": "amount",
+      "value": 17094000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_gross_profit_FY2024",
+      "ticker": "TSLA",
+      "metric": "gross_profit",
+      "fiscal_year": 2024,
+      "question": "What was TSLA's gross profit in fiscal year 2024?",
+      "kind": "amount",
+      "value": 17450000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_gross_profit_FY2023",
+      "ticker": "TSLA",
+      "metric": "gross_profit",
+      "fiscal_year": 2023,
+      "question": "What was TSLA's gross profit in fiscal year 2023?",
+      "kind": "amount",
+      "value": 17660000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_net_income_FY2025",
+      "ticker": "TSLA",
+      "metric": "net_income",
+      "fiscal_year": 2025,
+      "question": "What was TSLA's net income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 3794000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_net_income_FY2024",
+      "ticker": "TSLA",
+      "metric": "net_income",
+      "fiscal_year": 2024,
+      "question": "What was TSLA's net income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 7091000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_net_income_FY2023",
+      "ticker": "TSLA",
+      "metric": "net_income",
+      "fiscal_year": 2023,
+      "question": "What was TSLA's net income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 14997000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_operating_cash_flow_FY2025",
+      "ticker": "TSLA",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2025,
+      "question": "What was TSLA's operating cash flow in fiscal year 2025?",
+      "kind": "amount",
+      "value": 14747000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_operating_cash_flow_FY2024",
+      "ticker": "TSLA",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2024,
+      "question": "What was TSLA's operating cash flow in fiscal year 2024?",
+      "kind": "amount",
+      "value": 14923000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_operating_cash_flow_FY2023",
+      "ticker": "TSLA",
+      "metric": "operating_cash_flow",
+      "fiscal_year": 2023,
+      "question": "What was TSLA's operating cash flow in fiscal year 2023?",
+      "kind": "amount",
+      "value": 13256000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_operating_income_FY2025",
+      "ticker": "TSLA",
+      "metric": "operating_income",
+      "fiscal_year": 2025,
+      "question": "What was TSLA's operating income in fiscal year 2025?",
+      "kind": "amount",
+      "value": 4355000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_operating_income_FY2024",
+      "ticker": "TSLA",
+      "metric": "operating_income",
+      "fiscal_year": 2024,
+      "question": "What was TSLA's operating income in fiscal year 2024?",
+      "kind": "amount",
+      "value": 7076000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_operating_income_FY2023",
+      "ticker": "TSLA",
+      "metric": "operating_income",
+      "fiscal_year": 2023,
+      "question": "What was TSLA's operating income in fiscal year 2023?",
+      "kind": "amount",
+      "value": 8891000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_revenue_FY2025",
+      "ticker": "TSLA",
+      "metric": "revenue",
+      "fiscal_year": 2025,
+      "question": "What was TSLA's total revenue in fiscal year 2025?",
+      "kind": "amount",
+      "value": 94827000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_revenue_FY2024",
+      "ticker": "TSLA",
+      "metric": "revenue",
+      "fiscal_year": 2024,
+      "question": "What was TSLA's total revenue in fiscal year 2024?",
+      "kind": "amount",
+      "value": 97690000000.0,
+      "rel_tol": 0.03
+    },
+    {
+      "id": "TSLA_revenue_FY2023",
+      "ticker": "TSLA",
+      "metric": "revenue",
+      "fiscal_year": 2023,
+      "question": "What was TSLA's total revenue in fiscal year 2023?",
+      "kind": "amount",
+      "value": 96773000000.0,
+      "rel_tol": 0.03
+    }
+  ]
+}
