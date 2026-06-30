@@ -33,11 +33,16 @@ class FieldMismatch:
 class CaseResult:
     case_id: str
     question: str
+    asserted_fields: int = 0
     mismatches: list[FieldMismatch] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
         return not self.mismatches
+
+    @property
+    def matched_fields(self) -> int:
+        return max(0, self.asserted_fields - len(self.mismatches))
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,15 @@ class EvalResult:
         if not self.results:
             return 0.0
         return self.passed_count / len(self.results)
+
+    @property
+    def field_accuracy(self) -> float:
+        # Field-level slot accuracy: fraction of asserted slots that matched.
+        # More informative than all-or-nothing case pass when a gold case pins
+        # many fields and the planner drifts on a secondary one.
+        total = sum(result.asserted_fields for result in self.results)
+        matched = sum(result.matched_fields for result in self.results)
+        return matched / total if total else 0.0
 
 
 def run_eval_file(
@@ -90,6 +104,7 @@ def evaluate_case(case: dict[str, Any], planner: QueryPlanner) -> CaseResult:
     return CaseResult(
         case_id=case.get("id", question),
         question=question,
+        asserted_fields=len(case.get("expected_plan", {})),
         mismatches=mismatches,
     )
 

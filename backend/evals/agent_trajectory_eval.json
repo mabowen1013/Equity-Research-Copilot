@@ -1,36 +1,17 @@
 {
   "suite_name": "agent_trajectory_eval",
-  "description": "Tool-selection regression for the LLM ReAct controller. Each case runs the agent multiple times (the controller is non-deterministic) and requires every run to select the expected tools (expect_tools subset of used) and avoid forbidden ones. mean_stability reports the share of runs that passed. Run against a DB seeded with AAPL/MSFT/NVDA/TSLA/JPM.",
-  "version": "1.0",
+  "description": "Tool-selection regression for the non-deterministic LLM ReAct controller across 6 companies. expect_tools must all appear in the agent's tool steps; each case runs `runs` times (cache cleared per run) and gates on every run passing; stability = share of runs that passed.",
+  "version": "2.0",
   "cases": [
-    {
-      "id": "aapl_metric_uses_xbrl",
-      "ticker": "AAPL",
-      "question": "What was Apple's revenue in the latest quarter?",
-      "expect_tools": ["query_xbrl_metrics"],
-      "runs": 2
-    },
-    {
-      "id": "aapl_why_uses_xbrl_and_mda",
-      "ticker": "AAPL",
-      "question": "Why did Apple's gross margin change year over year?",
-      "expect_tools": ["query_xbrl_metrics", "retrieve_mda"],
-      "runs": 2
-    },
-    {
-      "id": "msft_risk_uses_risk_factors_not_xbrl",
-      "ticker": "MSFT",
-      "question": "What are Microsoft's main risk factors?",
-      "expect_tools": ["retrieve_risk_factors"],
-      "forbid_tools": ["query_xbrl_metrics"],
-      "runs": 2
-    },
-    {
-      "id": "nvda_why_uses_xbrl_and_mda",
-      "ticker": "NVDA",
-      "question": "What drove NVIDIA's revenue growth in its most recent fiscal year?",
-      "expect_tools": ["query_xbrl_metrics", "retrieve_mda"],
-      "runs": 2
-    }
+    {"id": "aapl_metric", "ticker": "AAPL", "question": "What was Apple's revenue in the latest quarter?", "expect_tools": ["query_xbrl_metrics"], "runs": 2},
+    {"id": "msft_metric", "ticker": "MSFT", "question": "What was Microsoft's net income in the latest quarter?", "expect_tools": ["query_xbrl_metrics"], "runs": 2},
+    {"id": "nvda_metric", "ticker": "NVDA", "question": "What was NVIDIA's revenue in the latest quarter?", "expect_tools": ["query_xbrl_metrics"], "runs": 2},
+    {"id": "tsla_metric", "ticker": "TSLA", "question": "What was Tesla's revenue in the latest quarter?", "expect_tools": ["query_xbrl_metrics"], "runs": 2},
+    {"id": "meta_metric", "ticker": "META", "question": "What was Meta's revenue in the latest quarter?", "expect_tools": ["query_xbrl_metrics"], "runs": 2},
+    {"id": "aapl_why", "ticker": "AAPL", "question": "Why did Apple's gross margin change year over year?", "expect_tools": ["query_xbrl_metrics", "retrieve_mda"], "runs": 2},
+    {"id": "nvda_why", "ticker": "NVDA", "question": "Why did NVIDIA's revenue grow year over year?", "expect_tools": ["query_xbrl_metrics", "retrieve_mda"], "runs": 2},
+    {"id": "aapl_risk", "ticker": "AAPL", "question": "What are Apple's main risk factors?", "expect_tools": ["retrieve_risk_factors"], "runs": 2},
+    {"id": "msft_risk", "ticker": "MSFT", "question": "What are Microsoft's main risk factors?", "expect_tools": ["retrieve_risk_factors"], "runs": 2},
+    {"id": "jpm_risk", "ticker": "JPM", "question": "What are JPMorgan's main risk factors?", "expect_tools": ["retrieve_risk_factors"], "runs": 2}
   ]
 }

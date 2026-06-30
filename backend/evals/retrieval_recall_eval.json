@@ -1,0 +1,19 @@
+{
+  "suite_name": "retrieval_recall_eval",
+  "description": "Text-retrieval recall@k on TEXT questions (driver/why -> MD&A, risk -> Risk Factors). For each question, is a chunk from the expected SEC section in the top-k retrieved chunks? Section match normalizes section_label to alphanumerics (SEC labels carry OCR noise). Metric questions are excluded on purpose: they are answered from structured XBRL facts, not by retrieving the financial-statement text, so they are covered by structured-metric accuracy instead. 2 questions x 6 companies.",
+  "version": "2.0",
+  "cases": [
+    {"id": "aapl_why", "ticker": "AAPL", "question": "Why did Apple's revenue change year over year?", "expect_sections": ["MANAGEMENT'S DISCUSSION"], "k": 5},
+    {"id": "aapl_risk", "ticker": "AAPL", "question": "What are Apple's main risk factors?", "expect_sections": ["RISK FACTORS"], "k": 5},
+    {"id": "msft_why", "ticker": "MSFT", "question": "Why did Microsoft's revenue grow year over year?", "expect_sections": ["MANAGEMENT'S DISCUSSION"], "k": 5},
+    {"id": "msft_risk", "ticker": "MSFT", "question": "What are Microsoft's main risk factors?", "expect_sections": ["RISK FACTORS"], "k": 5},
+    {"id": "nvda_why", "ticker": "NVDA", "question": "Why did NVIDIA's revenue grow year over year?", "expect_sections": ["MANAGEMENT'S DISCUSSION"], "k": 5},
+    {"id": "nvda_risk", "ticker": "NVDA", "question": "What are NVIDIA's main risk factors?", "expect_sections": ["RISK FACTORS"], "k": 5},
+    {"id": "tsla_why", "ticker": "TSLA", "question": "Why did Tesla's revenue change year over year?", "expect_sections": ["MANAGEMENT'S DISCUSSION"], "k": 5},
+    {"id": "tsla_risk", "ticker": "TSLA", "question": "What are Tesla's main risk factors?", "expect_sections": ["RISK FACTORS"], "k": 5},
+    {"id": "meta_why", "ticker": "META", "question": "Why did Meta's revenue grow year over year?", "expect_sections": ["MANAGEMENT'S DISCUSSION"], "k": 5},
+    {"id": "meta_risk", "ticker": "META", "question": "What are Meta's main risk factors?", "expect_sections": ["RISK FACTORS"], "k": 5},
+    {"id": "jpm_why", "ticker": "JPM", "question": "Why did JPMorgan's net income change year over year?", "expect_sections": ["MANAGEMENT'S DISCUSSION"], "k": 5},
+    {"id": "jpm_risk", "ticker": "JPM", "question": "What are JPMorgan's main risk factors?", "expect_sections": ["RISK FACTORS"], "k": 5}
+  ]
+}

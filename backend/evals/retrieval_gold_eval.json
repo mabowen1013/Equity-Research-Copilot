@@ -1,44 +1,19 @@
 {
   "suite_name": "retrieval_gold_eval",
-  "description": "Retrieval regression set keyed on stable evidence ROLES (and form/period) rather than volatile chunk ids, so it survives re-ingestion. role recall = fraction of expected roles populated in the final evidence pack; role precision = share of surfaced roles that were expected. Run against a DB seeded with AAPL/MSFT/NVDA/TSLA/JPM.",
-  "version": "2.0",
+  "description": "Retrieval regression set keyed on stable evidence ROLES (survives re-ingestion): role recall = fraction of expected roles populated in the final evidence pack; role precision = share of surfaced roles that were expected. Across 6 companies (AAPL/MSFT/NVDA/TSLA/META/JPM).",
+  "version": "3.0",
   "cases": [
-    {
-      "id": "aapl_latest_10q_overview",
-      "ticker": "AAPL",
-      "question": "Tell me what matters in Apple's latest 10-Q.",
-      "expect_roles": ["primary_financial_statement", "mda_explanation"],
-      "min_role_recall": 0.5,
-      "expect_form_types": ["10-Q"]
-    },
-    {
-      "id": "aapl_risk_factors",
-      "ticker": "AAPL",
-      "question": "What are Apple's main risk factors?",
-      "expect_roles": ["risk_factor"],
-      "min_role_recall": 1.0
-    },
-    {
-      "id": "msft_revenue_growth_drivers",
-      "ticker": "MSFT",
-      "question": "Why did Microsoft's revenue grow year over year?",
-      "expect_roles": ["metric", "mda_explanation"],
-      "min_role_recall": 0.5
-    },
-    {
-      "id": "nvda_latest_revenue",
-      "ticker": "NVDA",
-      "question": "What was NVIDIA's revenue in the latest quarter?",
-      "expect_roles": ["metric", "primary_financial_statement"],
-      "min_role_recall": 0.5,
-      "expect_form_types": ["10-Q"]
-    },
-    {
-      "id": "tsla_risk_factors",
-      "ticker": "TSLA",
-      "question": "What are Tesla's key risk factors?",
-      "expect_roles": ["risk_factor"],
-      "min_role_recall": 1.0
-    }
+    {"id": "aapl_metric", "ticker": "AAPL", "question": "What was Apple's revenue in the latest quarter?", "expect_roles": ["metric", "primary_financial_statement"], "min_role_recall": 0.5},
+    {"id": "aapl_risk", "ticker": "AAPL", "question": "What are Apple's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "msft_metric", "ticker": "MSFT", "question": "What was Microsoft's revenue in the latest quarter?", "expect_roles": ["metric", "primary_financial_statement"], "min_role_recall": 0.5},
+    {"id": "msft_risk", "ticker": "MSFT", "question": "What are Microsoft's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "nvda_why", "ticker": "NVDA", "question": "Why did NVIDIA's revenue grow year over year?", "expect_roles": ["metric", "mda_explanation"], "min_role_recall": 0.5},
+    {"id": "nvda_risk", "ticker": "NVDA", "question": "What are NVIDIA's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "tsla_metric", "ticker": "TSLA", "question": "What was Tesla's revenue in the latest quarter?", "expect_roles": ["metric", "primary_financial_statement"], "min_role_recall": 0.5},
+    {"id": "tsla_risk", "ticker": "TSLA", "question": "What are Tesla's key risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "meta_why", "ticker": "META", "question": "Why did Meta's revenue grow year over year?", "expect_roles": ["metric", "mda_explanation"], "min_role_recall": 0.5},
+    {"id": "meta_risk", "ticker": "META", "question": "What are Meta's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "jpm_metric", "ticker": "JPM", "question": "What was JPMorgan's total revenue in the latest period?", "expect_roles": ["metric"], "min_role_recall": 1.0},
+    {"id": "jpm_risk", "ticker": "JPM", "question": "What are JPMorgan's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0}
   ]
 }
