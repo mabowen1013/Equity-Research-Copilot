@@ -29,6 +29,25 @@
 | Agent run-to-run stability | **100%** | 10 | tool labels |
 | Latency **P50 / P95** | **13.4s / 19.3s** | 24 | — |
 
+## How much to trust these numbers
+
+A wall of 100% deserves suspicion. They are **not** all the same kind of "strong" (full reasoning +
+interview Q&A in `docs/eval_interview_notes.md`):
+
+- **Real architectural strength:** structured-metric accuracy 100% — numbers come from XBRL, not
+  LLM free-text; this is the system's core design working. (But it tests the easy sub-task of
+  transcribing a structured value, n=12.)
+- **High because the bar is low / n is tiny / near-deterministic:** safe refusal (n=5, and the cases
+  target the gate I built), agent tool-selection + stability (subset criterion + obvious mappings +
+  temperature 0, so stability is near-free), role recall (role merely populated), invalid citations
+  (true by construction).
+- **Faithfulness 0 contradicted:** plausible but the LLM-judge is uncalibrated, so treat as a signal.
+
+That the suite is **not** all green — answer-suite 75%, recall@5 91.7% (a real JPM miss), planner 61%
+(strict case-pass 4.3%) — is itself evidence the eval surfaces failures rather than self-congratulating.
+To make these trustworthy: larger, independently-authored sets; harder/multi-hop questions; exact
+(not subset) agent matching; human-labeled retrieval relevance; and calibrating the faithfulness judge.
+
 ## Resume-ready summary
 
 > Evaluated the system on **6 US public companies** (139 parsed 10-K/10-Q filings, 18,579 embedded
