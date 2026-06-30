@@ -173,7 +173,9 @@ eval 全绿只证明“格式合规、安全、带引用、够快”，**不证�
 在生成**之前**加一个可注入的 `AnswerabilityJudge`（默认 `LLMAnswerabilityJudge`）：把 question + 检索到的证据交给一次 LLM，判“这个问题能否由这些证据回答”。判不能 → 直接走 `insufficient_evidence`（error code `question_not_answerable`），**不进生成**。一个闸门同时堵住两类 bug（off-topic、指标不可得）。设计要点：
 - **保守**：只在证据明显不含所问时拒答（prompt 明确“拿不准就放行”），避免误伤正常题；
 - **fail-open**：judge 无 key / 报错 → 放行，绝不因闸门不可用而拦正常答案；
-- **config 开关** `ANSWER_RELEVANCE_CHECK`：额外一次 pre-gen LLM 调用，按环境 opt-in，eval 里默认开。
+- **部署即生效**：API 路由用 `research_settings()` 在应用层强制打开 answerability + 蕴含两道闸门；config 默认关只是为了让离线单测/库调用不打网络（额外一次 pre-gen LLM 调用）。
+
+> 一个诚实的教训：我第一次只在 **eval/脚本里强制开 flag** 验证、看到拒答就报“已修复”，但**没验默认 app 配置**——真实 dev server 读 `.env`、flag 是关的，bug 仍在。后来我在 app 里打开「CEO 颜色」复现了。修法是把闸门提到 API 层默认开，并在产品实际运行的配置下复验。**必须在产品真正运行的配置下验证，而不是只在能让它通过的配置下验证。**
 
 顺带修了一个隐藏 wiring bug：`ResearchAnswerService` 之前用 `CitationValidator()` 没透传 settings，导致**蕴含 gate 在 eval 里其实从没真正跑过**；改成 `CitationValidator(settings=self._settings)` 后蕴含才真正生效。
 

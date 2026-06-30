@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core import Settings, get_settings
 from app.db import get_db_session
 from app.db.session import get_sessionmaker
 from app.schemas import (
@@ -33,6 +34,18 @@ from app.services import (
 router = APIRouter(prefix="/research", tags=["research"])
 
 logger = logging.getLogger(__name__)
+
+
+def research_settings() -> Settings:
+    """Settings for answer-producing endpoints, with the safety gates turned on.
+
+    The answerability + entailment gates default off in config so library/test use
+    stays offline and fast; the deployed app always opts into them so it declines
+    unanswerable questions instead of answering from loosely-related evidence.
+    """
+    return get_settings().model_copy(
+        update={"answer_relevance_check": True, "answer_entailment_check": True}
+    )
 
 
 @router.post("/plan", response_model=RetrievalPlanRead)
@@ -72,7 +85,7 @@ def query_research(
     db: Session = Depends(get_db_session),
 ) -> ResearchAnswerResponseRead:
     try:
-        return ResearchAnswerService(db).answer(request)
+        return ResearchAnswerService(db, settings=research_settings()).answer(request)
     except RetrievalCompanyNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RetrievalError as exc:
@@ -85,7 +98,7 @@ def run_research(
     db: Session = Depends(get_db_session),
 ) -> ResearchRunRead:
     try:
-        return ResearchRunService(db).run(request)
+        return ResearchRunService(db, settings=research_settings()).run(request)
     except RetrievalCompanyNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RetrievalError as exc:
@@ -110,7 +123,7 @@ async def stream_research_run(
         # owned by the event-loop thread and SQLAlchemy sessions are not thread-safe.
         try:
             with get_sessionmaker()() as db:
-                run = ResearchRunService(db).run(
+                run = ResearchRunService(db, settings=research_settings()).run(
                     request, on_event=emit, should_cancel=cancel.is_set
                 )
                 emit({"type": "run", "run": run.model_dump(mode="json")})

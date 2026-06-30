@@ -160,7 +160,7 @@ XBRL 的一个领域陷阱：US-GAAP 没有单独的 Q4 facts（只有 FY 和 Q1
 3. **Answer eval**（`answer_eval.py`，端到端跑 `/research/runs`）——核心是从“验形状”升级到“验对错 + 忠实度”：
    - **数字对错（外部真值）**：`expect_values` 用 `parse_salient_numbers`+容差，把答案里的数字和**从 SEC XBRL（`financial_facts`）按固定财年钉死的真值**比对。这是真正的外部 ground truth（SEC 强制披露），不是系统自产——大多数 RAG 项目没有结构化真值，这个项目有。
    - **忠实度（硬 gate）**：eval 里打开 claim 级蕴含校验，`contradicted_claim` → 直接判失败。
-   - **可答性（硬 gate）**：打开 answerability 闸门，不可答/指标不可得的问题必须返回 insufficient_evidence，而不是用松散相关的证据硬答。
+   - **可答性（硬 gate）**：打开 answerability 闸门，不可答/指标不可得的问题必须返回 insufficient_evidence，而不是用松散相关的证据硬答。（蕴含 + 可答性两道闸门 config 默认关、只为离线测试；**部署的 app 在 API 层 `research_settings()` 默认开**，所以产品里真正生效。）
    - **期间正确性**：`expect_latest_filing` 断言最新被引 filing == 最新一期。
    - **安全 + 延迟**：禁投资建议用语（must_not_match）、`max_duration_ms` 预算。
    - **接地信号作指标**：数字接地 warning（对派生数字有噪声）作套件级指标上报、逐 case opt-in 才 gate；硬 gate 留给蕴含。

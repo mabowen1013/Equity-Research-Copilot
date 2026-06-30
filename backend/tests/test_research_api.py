@@ -121,7 +121,7 @@ def test_retrieve_endpoint_returns_retrieval_trace(monkeypatch) -> None:
 
 def test_query_endpoint_returns_cited_answer(monkeypatch) -> None:
     class FakeResearchAnswerService:
-        def __init__(self, db) -> None:
+        def __init__(self, db, *, settings=None) -> None:
             self.db = db
 
         def answer(self, request):
@@ -256,7 +256,7 @@ def test_research_runs_endpoint_returns_auditable_run(monkeypatch) -> None:
     from app.schemas import ResearchRunDiagnosticsRead, ResearchRunRead, ResearchRunStepRead
 
     class FakeResearchRunService:
-        def __init__(self, db):
+        def __init__(self, db, *, settings=None):
             self.db = db
 
         def run(self, request):
@@ -307,7 +307,7 @@ def test_research_runs_stream_endpoint_emits_events_and_final_run(monkeypatch) -
     from app.schemas import ResearchRunDiagnosticsRead, ResearchRunRead
 
     class FakeResearchRunService:
-        def __init__(self, db):
+        def __init__(self, db, *, settings=None):
             self.db = db
 
         def run(self, request, *, on_event=None, should_cancel=None):
@@ -353,7 +353,7 @@ def test_research_runs_stream_endpoint_reports_company_not_found(monkeypatch) ->
     from app.api.routes import research as research_routes
 
     class FailingResearchRunService:
-        def __init__(self, db):
+        def __init__(self, db, *, settings=None):
             self.db = db
 
         def run(self, request, *, on_event=None, should_cancel=None):
