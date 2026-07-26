@@ -40,27 +40,6 @@ Equity Research Copilot 是一个面向美国上市公司的全栈投资研究�
 - research-run workflow 和 trace viewer 的生产级 hardening。
 - 生产级检索优化，例如 HNSW auto mode、MMR diversity、neighbor expansion、learned reranking，以及更完整的 eval coverage。
 
-## 评估结果
-
-在 **6 家美股公司**（139 份已解析 10-K/10-Q、18,579 个 embedding chunk、5,006 条 SEC XBRL facts）、
-约 100 个研究问题上评估（部署安全闸门开启）。完整方法与各指标样本量见
-[docs/eval_results.md](docs/eval_results.md)；复现：`cd backend && .venv/bin/python -m app.evals.run_all`。
-
-| 指标 | 数值 (n) |
-| --- | --- |
-| 结构化财务指标准确率（对 SEC XBRL 真值） | **86.5%**（95% CI 78–92%，n=96） |
-| 文本检索 recall@5（MD&A / 风险类问题） | **91.7%** (12) |
-| 答案忠实度——矛盾论断数（LLM-judge） | **0** (24) |
-| 不可答问题的安全拒答率 | **100%** (5) |
-| Agent 工具选择准确率 / 多次运行稳定性 | **100% / 100%** (10) |
-| 证据角色召回 | **100%** (12) |
-| 端到端延迟 P50 / P95 | **13.4s / 19.3s** (24) |
-
-头条的结构化准确率是在「每家公司 × 每个指标 × 最近若干财年」上**自动生成**、对 SEC XBRL 外部真值评分、
-带 95% 置信区间——**故意低于 100%**（错误集中在经营性现金流和更早的财年）。复现：
-`.venv/bin/python -m app.evals.metric_accuracy_eval evals/metric_accuracy_eval.json`。诚实限定：其余套件
-小样本；忠实度 LLM-judge 未校准；答案套件复合 pass-rate（75%）被严格的引用覆盖率门槛拖累，而非答案错误。
-
 ## 前置要求
 
 - Python 3.11+

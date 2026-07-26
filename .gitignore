@@ -20,3 +20,7 @@ htmlcov/
 node_modules/
 dist/
 *.tsbuildinfo
+
+# local eval-results / interview notes (kept out of the repo)
+docs/eval_results.md
+docs/interview_qa.md

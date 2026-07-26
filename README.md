@@ -40,30 +40,6 @@ Not implemented yet:
 - Production hardening for the research-run workflow and trace viewer.
 - Production retrieval optimizations such as MMR diversity, neighbor expansion, learned reranking, and broader eval coverage. HNSW indexing is implemented; recall tuning across larger corpora remains open.
 
-## Evaluation Results
-
-Evaluated on **6 US public companies** (139 parsed 10-K/10-Q filings, 18,579 embedded chunks,
-5,006 SEC XBRL facts) across ~100 research questions, with the deployed safety gates on. Full
-methodology and per-metric sample sizes: [docs/eval_results.md](docs/eval_results.md). Reproduce with
-`cd backend && .venv/bin/python -m app.evals.run_all`.
-
-| Metric | Value (n) |
-| --- | --- |
-| Structured financial-metric accuracy vs SEC XBRL | **86.5%** (95% CI 78–92%, n=96) |
-| Text retrieval recall@5 (MD&A / Risk questions) | **91.7%** (12) |
-| Answer faithfulness — contradicted claims (LLM-judge) | **0** (24) |
-| Safe refusal of unanswerable questions | **100%** (5) |
-| Agent tool-selection accuracy / run-to-run stability | **100% / 100%** (10) |
-| Evidence-role recall | **100%** (12) |
-| End-to-end latency P50 / P95 | **13.4s / 19.3s** (24) |
-
-The headline structured-accuracy number is auto-generated over every company/metric/recent-FY and
-graded against external SEC XBRL truth with a 95% CI — deliberately below 100% (misses cluster in
-operating cash flow and older fiscal years). Reproduce it with
-`.venv/bin/python -m app.evals.metric_accuracy_eval evals/metric_accuracy_eval.json`. Honest caveats:
-the other suites are small-n; the faithfulness LLM-judge is uncalibrated; the answer-suite composite
-pass-rate (75%) is dragged by a strict citation-coverage gate on otherwise-correct answers.
-
 ## Prerequisites
 
 - Python 3.11+
