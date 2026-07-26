@@ -30,26 +30,7 @@ def build_research_run_steps(
 
     if agent_steps:
         for raw_step in agent_steps:
-            action = str(raw_step.get("action") or "agent_step")
-            phase = _phase_for_agent_action(action)
-            steps.append(
-                ResearchRunStepRead(
-                    step_id=f"step-{len(steps)}-{action}",
-                    step_index=len(steps),
-                    phase=phase,
-                    name=_name_for_action(action),
-                    status="completed",
-                    summary=str(
-                        raw_step.get("observation_summary")
-                        or raw_step.get("thought_summary")
-                        or action
-                    ),
-                    tool_name=None if action in {"analyze_question", "finalize_answer"} else action,
-                    tool_input_summary=_dict_or_none(raw_step.get("action_input")),
-                    evidence_ids=[str(value) for value in raw_step.get("evidence_ids", [])],
-                    degraded_reason=raw_step.get("stop_reason"),
-                )
-            )
+            steps.append(agent_step_to_run_step(raw_step, step_index=len(steps)))
     else:
         steps.append(
             ResearchRunStepRead(
@@ -166,6 +147,30 @@ def build_research_run_diagnostics(
         retrieval_config=dict(trace.get("retrieval_config", {})),
         source_coverage_summary=retrieval_response.source_coverage_summary,
         top_score_breakdown=_trace_top_score_breakdown(trace, retrieval_response),
+    )
+
+
+def agent_step_to_run_step(
+    raw_step: dict[str, Any],
+    *,
+    step_index: int,
+) -> ResearchRunStepRead:
+    action = str(raw_step.get("action") or "agent_step")
+    return ResearchRunStepRead(
+        step_id=f"step-{step_index}-{action}",
+        step_index=step_index,
+        phase=_phase_for_agent_action(action),
+        name=_name_for_action(action),
+        status="completed",
+        summary=str(
+            raw_step.get("observation_summary")
+            or raw_step.get("thought_summary")
+            or action
+        ),
+        tool_name=None if action in {"analyze_question", "finalize_answer"} else action,
+        tool_input_summary=_dict_or_none(raw_step.get("action_input")),
+        evidence_ids=[str(value) for value in raw_step.get("evidence_ids", [])],
+        degraded_reason=raw_step.get("stop_reason"),
     )
 
 
@@ -325,6 +330,7 @@ def _span_evidence(span: EvidenceSpanRead, role: str) -> ResearchRunEvidenceRead
         sec_url=span.sec_url,
         source_ids={
             "chunk_id": span.chunk_id,
+            "filing_id": span.filing_id,
             "source_chunk_evidence_id": span.source_chunk_evidence_id,
             "accession_number": span.accession_number,
             "start_char": span.start_char,

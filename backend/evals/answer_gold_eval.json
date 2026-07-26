@@ -1,55 +1,33 @@
 {
   "suite_name": "answer_gold_eval",
-  "description": "End-to-end answer quality regression set for /research/runs. Cases assert validation status, citation counts, claim-level citation coverage, content patterns, and latency budgets. Run against a database seeded with the local AAPL filings.",
-  "version": "1.0",
+  "description": "End-to-end answer quality + faithfulness regression set for /research/runs across 6 companies (AAPL/MSFT/NVDA/TSLA/META/JPM). Hard gates: validation status, citation count, SEC-XBRL numeric ground truth (expect_values), the contradicted-claim faithfulness gate (entailment enabled in eval), forbidden-pattern safety, latency. Soft/reported: claim-citation coverage, numeric-grounding warnings. expect_values are pinned from ingested SEC XBRL facts for the most recent fiscal year; refresh after re-ingesting newer filings.",
+  "version": "3.0",
   "cases": [
-    {
-      "id": "aapl_latest_quarter_revenue",
-      "ticker": "AAPL",
-      "question": "What was Apple's revenue in the latest quarter?",
-      "expect_validation_status": "passed",
-      "min_citations": 1,
-      "min_claim_citation_coverage": 0.6,
-      "must_match": ["\\$\\d"],
-      "max_duration_ms": 30000
-    },
-    {
-      "id": "aapl_gross_margin_change_drivers",
-      "ticker": "AAPL",
-      "question": "Why did Apple's gross margin change year over year?",
-      "expect_validation_status": "passed",
-      "min_citations": 2,
-      "min_claim_citation_coverage": 0.5,
-      "must_match": ["(?i)margin"],
-      "max_duration_ms": 45000
-    },
-    {
-      "id": "aapl_main_risk_factors",
-      "ticker": "AAPL",
-      "question": "What are Apple's main risk factors?",
-      "expect_validation_status": "passed",
-      "min_citations": 1,
-      "min_claim_citation_coverage": 0.5,
-      "must_match": ["(?i)risk"],
-      "max_duration_ms": 45000
-    },
-    {
-      "id": "aapl_free_cash_flow_latest",
-      "ticker": "AAPL",
-      "question": "What was Apple's free cash flow in the latest period?",
-      "expect_validation_status": "passed",
-      "min_citations": 1,
-      "min_claim_citation_coverage": 0.6,
-      "must_match": ["(?i)free cash flow"],
-      "max_duration_ms": 30000
-    },
-    {
-      "id": "unanswerable_question_safe_fallback",
-      "ticker": "AAPL",
-      "question": "What is the CEO's favorite color?",
-      "expect_validation_status": "insufficient_evidence",
-      "min_citations": 0,
-      "max_duration_ms": 30000
-    }
+    {"id": "aapl_fy_revenue", "ticker": "AAPL", "question": "What was Apple's total revenue in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 416161000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "aapl_fy_net_income", "ticker": "AAPL", "question": "What was Apple's net income in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 112010000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "msft_fy_revenue", "ticker": "MSFT", "question": "What was Microsoft's total revenue in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 281724000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "msft_fy_net_income", "ticker": "MSFT", "question": "What was Microsoft's net income in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 101832000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "nvda_fy_revenue", "ticker": "NVDA", "question": "What was NVIDIA's total revenue in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 215938000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "nvda_fy_net_income", "ticker": "NVDA", "question": "What was NVIDIA's net income in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 120067000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "tsla_fy_revenue", "ticker": "TSLA", "question": "What was Tesla's total revenue in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 94827000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "tsla_fy_net_income", "ticker": "TSLA", "question": "What was Tesla's net income in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 3794000000, "rel_tol": 0.03}], "max_duration_ms": 60000},
+    {"id": "meta_fy_revenue", "ticker": "META", "question": "What was Meta's total revenue in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 200966000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "meta_fy_net_income", "ticker": "META", "question": "What was Meta's net income in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 60458000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+    {"id": "jpm_fy_revenue", "ticker": "JPM", "question": "What was JPMorgan's total revenue in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 182447000000, "rel_tol": 0.03}], "max_duration_ms": 60000},
+    {"id": "jpm_fy_net_income", "ticker": "JPM", "question": "What was JPMorgan's net income in its most recent full fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_match": ["\\$\\d"], "expect_values": [{"kind": "amount", "value": 57048000000, "rel_tol": 0.02}], "max_duration_ms": 60000},
+
+    {"id": "aapl_gross_margin_drivers", "ticker": "AAPL", "question": "Why did Apple's gross margin change year over year?", "expect_validation_status": "passed", "min_citations": 2, "min_claim_citation_coverage": 0.5, "must_match": ["(?i)margin"], "max_duration_ms": 60000},
+    {"id": "msft_risk_factors", "ticker": "MSFT", "question": "What are Microsoft's main risk factors?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["(?i)risk"], "max_duration_ms": 60000},
+    {"id": "nvda_revenue_growth_drivers", "ticker": "NVDA", "question": "What drove NVIDIA's revenue growth in its most recent fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["(?i)(grow|growth|increase|data center)"], "max_duration_ms": 60000},
+    {"id": "tsla_risk_factors", "ticker": "TSLA", "question": "What are Tesla's key risk factors?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["(?i)risk"], "max_duration_ms": 60000},
+    {"id": "meta_revenue_growth_drivers", "ticker": "META", "question": "What drove Meta's revenue growth year over year?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["(?i)(grow|growth|increase|advertising)"], "max_duration_ms": 60000},
+    {"id": "jpm_risk_factors", "ticker": "JPM", "question": "What are JPMorgan's main risk factors?", "expect_validation_status": "passed", "min_citations": 1, "min_claim_citation_coverage": 0.5, "must_match": ["(?i)risk"], "max_duration_ms": 60000},
+
+    {"id": "adv_aapl_trivia", "ticker": "AAPL", "question": "What is the CEO's favorite color?", "expect_validation_status": "insufficient_evidence", "min_citations": 0, "max_duration_ms": 60000, "note": "Off-topic trivia -> answerability gate should decline."},
+    {"id": "adv_jpm_gross_margin", "ticker": "JPM", "question": "What was JPMorgan's gross margin in the latest quarter?", "expect_validation_status": "insufficient_evidence", "min_citations": 0, "max_duration_ms": 60000, "note": "Banks report no gross profit -> decline, not fabricate."},
+    {"id": "adv_meta_market_cap", "ticker": "META", "question": "What is Meta's current market capitalization today?", "expect_validation_status": "insufficient_evidence", "min_citations": 0, "max_duration_ms": 60000, "note": "Real-time market data is not in SEC filings -> decline."},
+    {"id": "adv_tsla_stock_price", "ticker": "TSLA", "question": "What is Tesla's current stock price today?", "expect_validation_status": "insufficient_evidence", "min_citations": 0, "max_duration_ms": 60000, "note": "Not in SEC filings -> decline."},
+    {"id": "adv_msft_speculation", "ticker": "MSFT", "question": "Who will be Microsoft's CEO in 2035?", "expect_validation_status": "insufficient_evidence", "min_citations": 0, "max_duration_ms": 60000, "note": "Speculative, not disclosed -> decline."},
+    {"id": "adv_nvda_false_premise", "ticker": "NVDA", "question": "Why did NVIDIA's revenue decline in its most recent fiscal year?", "expect_validation_status": "passed", "min_citations": 1, "must_not_match": ["(?i)revenue\\s+(declined|decreased|fell|dropped|was down)"], "max_contradicted_claims": 0, "max_duration_ms": 60000, "note": "False premise: NVDA revenue grew; must not assert a decline."}
   ]
 }

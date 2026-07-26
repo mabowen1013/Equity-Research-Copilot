@@ -97,6 +97,7 @@ def make_response() -> RetrievalResponse:
     span = EvidenceSpanRead(
         evidence_id="span:101:primary_financial_statement_chunks:0:80",
         chunk_id=101,
+        filing_id=10,
         source_chunk_evidence_id="chunk:101",
         role="primary_financial_statement_chunks",
         score=0.91,

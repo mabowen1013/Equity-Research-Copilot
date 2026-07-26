@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 import re
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session
@@ -81,6 +81,10 @@ class RetrievalError(ValueError):
 
 class RetrievalCompanyNotFoundError(RetrievalError):
     """Raised when retrieval is requested for an unknown company."""
+
+
+class RunCancelled(Exception):
+    """Raised when a research run is cancelled cooperatively (e.g. client disconnect)."""
 
 
 @dataclass
@@ -186,7 +190,13 @@ class RetrievalService:
         self._planner = planner or QueryPlanner()
         self._embedding_provider = embedding_provider
 
-    def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
+    def retrieve(
+        self,
+        request: RetrievalRequest,
+        *,
+        on_agent_step: Callable[[dict[str, Any]], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> RetrievalResponse:
         started = perf_counter()
         timings: dict[str, float] = {}
         degraded: list[dict[str, str]] = []
@@ -209,7 +219,11 @@ class RetrievalService:
                 started=started,
                 timings=timings,
                 degraded=degraded,
+                on_agent_step=on_agent_step,
+                should_cancel=should_cancel,
             )
+        except RunCancelled:
+            raise
         except Exception as exc:
             degraded.append(
                 {
@@ -461,15 +475,23 @@ class RetrievalService:
         started: float,
         timings: dict[str, float],
         degraded: list[dict[str, str]],
+        on_agent_step: Callable[[dict[str, Any]], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> RetrievalResponse:
         agent = ResearchAgentService(settings=self._settings)
         state = agent.start(question=request.question, plan=plan)
         accumulator = RetrievalAgentAccumulator()
+        if on_agent_step is not None:
+            on_agent_step(state.steps[-1])
 
         while True:
+            if should_cancel is not None and should_cancel():
+                raise RunCancelled("Research run cancelled during retrieval.")
             action = agent.next_action(state)
             if action.action == "finalize_answer":
                 agent.finish(state, action)
+                if on_agent_step is not None:
+                    on_agent_step(state.steps[-1])
                 break
 
             action_at = perf_counter()
@@ -486,6 +508,8 @@ class RetrievalService:
                 action_at
             )
             agent.observe(state, action, observation)
+            if on_agent_step is not None:
+                on_agent_step(state.steps[-1])
 
         return self._build_agent_response(
             request,
@@ -2688,6 +2712,7 @@ def build_evidence_span_read(
     return EvidenceSpanRead(
         evidence_id=f"span:{chunk.chunk_id}:{role}:{unit.start_char}:{unit.end_char}",
         chunk_id=chunk.chunk_id,
+        filing_id=chunk.filing_id,
         source_chunk_evidence_id=chunk.evidence_id,
         role=role,
         score=round(score, 6),

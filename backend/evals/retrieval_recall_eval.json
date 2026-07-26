@@ -1,0 +1,461 @@
+{
+  "suite_name": "retrieval_recall_eval",
+  "description": "Text-retrieval recall@k: does a chunk from the expected SEC section appear in the top-k retrieved chunks? 12 original cases (why->MD&A, risk->Risk Factors per company) plus 42 template-expanded cases covering Business, Legal Proceedings, Market Risk (7A), MD&A subsections (liquidity, opex, capital return), Controls, and Cybersecurity. Expected sections were written against section labels that exist in the parsed corpus; metric questions are excluded (they are answered from XBRL, covered by metric_accuracy_eval).",
+  "version": "2.0",
+  "cases": [
+    {
+      "id": "aapl_why",
+      "ticker": "AAPL",
+      "question": "Why did Apple's revenue change year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ],
+      "k": 5
+    },
+    {
+      "id": "aapl_risk",
+      "ticker": "AAPL",
+      "question": "What are Apple's main risk factors?",
+      "expect_sections": [
+        "RISK FACTORS"
+      ],
+      "k": 5
+    },
+    {
+      "id": "msft_why",
+      "ticker": "MSFT",
+      "question": "Why did Microsoft's revenue grow year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ],
+      "k": 5
+    },
+    {
+      "id": "msft_risk",
+      "ticker": "MSFT",
+      "question": "What are Microsoft's main risk factors?",
+      "expect_sections": [
+        "RISK FACTORS"
+      ],
+      "k": 5
+    },
+    {
+      "id": "nvda_why",
+      "ticker": "NVDA",
+      "question": "Why did NVIDIA's revenue grow year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ],
+      "k": 5
+    },
+    {
+      "id": "nvda_risk",
+      "ticker": "NVDA",
+      "question": "What are NVIDIA's main risk factors?",
+      "expect_sections": [
+        "RISK FACTORS"
+      ],
+      "k": 5
+    },
+    {
+      "id": "tsla_why",
+      "ticker": "TSLA",
+      "question": "Why did Tesla's revenue change year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ],
+      "k": 5
+    },
+    {
+      "id": "tsla_risk",
+      "ticker": "TSLA",
+      "question": "What are Tesla's main risk factors?",
+      "expect_sections": [
+        "RISK FACTORS"
+      ],
+      "k": 5
+    },
+    {
+      "id": "meta_why",
+      "ticker": "META",
+      "question": "Why did Meta's revenue grow year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ],
+      "k": 5
+    },
+    {
+      "id": "meta_risk",
+      "ticker": "META",
+      "question": "What are Meta's main risk factors?",
+      "expect_sections": [
+        "RISK FACTORS"
+      ],
+      "k": 5
+    },
+    {
+      "id": "jpm_why",
+      "ticker": "JPM",
+      "question": "Why did JPMorgan's net income change year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ],
+      "k": 5
+    },
+    {
+      "id": "jpm_risk",
+      "ticker": "JPM",
+      "question": "What are JPMorgan's main risk factors?",
+      "expect_sections": [
+        "RISK FACTORS"
+      ],
+      "k": 5
+    },
+    {
+      "id": "aapl_business",
+      "ticker": "AAPL",
+      "question": "What products and services does Apple sell, and how does it generate revenue?",
+      "expect_sections": [
+        "BUSINESS"
+      ]
+    },
+    {
+      "id": "aapl_competition",
+      "ticker": "AAPL",
+      "question": "Who are Apple's main competitors and on what basis does it compete?",
+      "expect_sections": [
+        "BUSINESS",
+        "RISK FACTORS"
+      ]
+    },
+    {
+      "id": "aapl_legal",
+      "ticker": "AAPL",
+      "question": "What material legal proceedings is Apple currently involved in?",
+      "expect_sections": [
+        "LEGAL PROCEEDINGS"
+      ]
+    },
+    {
+      "id": "aapl_marketrisk",
+      "ticker": "AAPL",
+      "question": "How is Apple exposed to foreign exchange and interest rate risk?",
+      "expect_sections": [
+        "MARKET RISK"
+      ]
+    },
+    {
+      "id": "aapl_liquidity",
+      "ticker": "AAPL",
+      "question": "How does Apple fund its operations and what is its liquidity position?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "aapl_opex",
+      "ticker": "AAPL",
+      "question": "Why did Apple's operating expenses change year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "aapl_capital_return",
+      "ticker": "AAPL",
+      "question": "How does Apple return capital to shareholders through dividends and share repurchases?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION",
+        "MARKET FOR REGISTRANT"
+      ]
+    },
+    {
+      "id": "aapl_controls",
+      "ticker": "AAPL",
+      "question": "What did management conclude about the effectiveness of Apple's disclosure controls and procedures?",
+      "expect_sections": [
+        "CONTROLS AND PROCEDURES"
+      ]
+    },
+    {
+      "id": "msft_business",
+      "ticker": "MSFT",
+      "question": "What are Microsoft's major business segments and what does each offer?",
+      "expect_sections": [
+        "BUSINESS"
+      ]
+    },
+    {
+      "id": "msft_competition",
+      "ticker": "MSFT",
+      "question": "Who does Microsoft compete with across its major businesses?",
+      "expect_sections": [
+        "BUSINESS",
+        "RISK FACTORS"
+      ]
+    },
+    {
+      "id": "msft_legal",
+      "ticker": "MSFT",
+      "question": "What significant lawsuits or regulatory actions does Microsoft face?",
+      "expect_sections": [
+        "LEGAL PROCEEDINGS"
+      ]
+    },
+    {
+      "id": "msft_marketrisk",
+      "ticker": "MSFT",
+      "question": "How does Microsoft manage its exposure to currency and interest rate fluctuations?",
+      "expect_sections": [
+        "MARKET RISK"
+      ]
+    },
+    {
+      "id": "msft_liquidity",
+      "ticker": "MSFT",
+      "question": "What does Microsoft say about its liquidity and capital resources?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "msft_opex",
+      "ticker": "MSFT",
+      "question": "What drove changes in Microsoft's operating expenses?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "msft_capital_return",
+      "ticker": "MSFT",
+      "question": "What has Microsoft done with dividends and share buybacks?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION",
+        "MARKET FOR REGISTRANT"
+      ]
+    },
+    {
+      "id": "msft_controls",
+      "ticker": "MSFT",
+      "question": "What did management conclude about the effectiveness of Microsoft's disclosure controls and procedures?",
+      "expect_sections": [
+        "CONTROLS AND PROCEDURES"
+      ]
+    },
+    {
+      "id": "nvda_business",
+      "ticker": "NVDA",
+      "question": "What markets does NVIDIA serve and what products does it sell into them?",
+      "expect_sections": [
+        "BUSINESS"
+      ]
+    },
+    {
+      "id": "nvda_competition",
+      "ticker": "NVDA",
+      "question": "Who are NVIDIA's principal competitors in GPUs and AI accelerators?",
+      "expect_sections": [
+        "BUSINESS",
+        "RISK FACTORS"
+      ]
+    },
+    {
+      "id": "nvda_legal",
+      "ticker": "NVDA",
+      "question": "What legal proceedings has NVIDIA disclosed?",
+      "expect_sections": [
+        "LEGAL PROCEEDINGS"
+      ]
+    },
+    {
+      "id": "nvda_marketrisk",
+      "ticker": "NVDA",
+      "question": "What market risks, such as interest rate and currency exposure, does NVIDIA disclose?",
+      "expect_sections": [
+        "MARKET RISK"
+      ]
+    },
+    {
+      "id": "nvda_liquidity",
+      "ticker": "NVDA",
+      "question": "How strong is NVIDIA's liquidity and how does it plan to deploy its cash?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "nvda_opex",
+      "ticker": "NVDA",
+      "question": "Why did NVIDIA's operating expenses increase?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "nvda_capital_return",
+      "ticker": "NVDA",
+      "question": "How has NVIDIA returned capital to shareholders?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION",
+        "MARKET FOR REGISTRANT"
+      ]
+    },
+    {
+      "id": "nvda_controls",
+      "ticker": "NVDA",
+      "question": "What did management conclude about the effectiveness of NVIDIA's disclosure controls and procedures?",
+      "expect_sections": [
+        "CONTROLS AND PROCEDURES"
+      ]
+    },
+    {
+      "id": "tsla_business",
+      "ticker": "TSLA",
+      "question": "What products and services make up Tesla's business?",
+      "expect_sections": [
+        "BUSINESS"
+      ]
+    },
+    {
+      "id": "tsla_competition",
+      "ticker": "TSLA",
+      "question": "How does Tesla describe the competitive landscape for electric vehicles?",
+      "expect_sections": [
+        "BUSINESS",
+        "RISK FACTORS"
+      ]
+    },
+    {
+      "id": "tsla_legal",
+      "ticker": "TSLA",
+      "question": "What major litigation is Tesla involved in?",
+      "expect_sections": [
+        "LEGAL PROCEEDINGS"
+      ]
+    },
+    {
+      "id": "tsla_marketrisk",
+      "ticker": "TSLA",
+      "question": "How do currency movements and interest rates affect Tesla's results?",
+      "expect_sections": [
+        "MARKET RISK"
+      ]
+    },
+    {
+      "id": "tsla_liquidity",
+      "ticker": "TSLA",
+      "question": "How does Tesla fund its capital expenditures and operations?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "tsla_opex",
+      "ticker": "TSLA",
+      "question": "What drove the change in Tesla's operating expenses?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "tsla_cyber",
+      "ticker": "TSLA",
+      "question": "How does Tesla manage cybersecurity risks?",
+      "expect_sections": [
+        "CYBERSECURITY",
+        "RISK FACTORS"
+      ]
+    },
+    {
+      "id": "tsla_controls",
+      "ticker": "TSLA",
+      "question": "What did management conclude about the effectiveness of Tesla's disclosure controls and procedures?",
+      "expect_sections": [
+        "CONTROLS AND PROCEDURES"
+      ]
+    },
+    {
+      "id": "meta_business",
+      "ticker": "META",
+      "question": "What are Meta's main products and how does the company make money?",
+      "expect_sections": [
+        "BUSINESS"
+      ]
+    },
+    {
+      "id": "meta_competition",
+      "ticker": "META",
+      "question": "Who are Meta's biggest competitors for users and advertising dollars?",
+      "expect_sections": [
+        "BUSINESS",
+        "RISK FACTORS"
+      ]
+    },
+    {
+      "id": "meta_legal",
+      "ticker": "META",
+      "question": "What antitrust and other legal proceedings is Meta facing?",
+      "expect_sections": [
+        "LEGAL PROCEEDINGS"
+      ]
+    },
+    {
+      "id": "meta_marketrisk",
+      "ticker": "META",
+      "question": "What is Meta's exposure to foreign currency and interest rate risk?",
+      "expect_sections": [
+        "MARKET RISK"
+      ]
+    },
+    {
+      "id": "meta_liquidity",
+      "ticker": "META",
+      "question": "How does Meta fund its infrastructure investments and what is its cash position?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "meta_opex",
+      "ticker": "META",
+      "question": "Why did Meta's costs and expenses change year over year?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION"
+      ]
+    },
+    {
+      "id": "meta_capital_return",
+      "ticker": "META",
+      "question": "What does Meta disclose about share repurchases and dividends?",
+      "expect_sections": [
+        "MANAGEMENT'S DISCUSSION",
+        "MARKET FOR REGISTRANT"
+      ]
+    },
+    {
+      "id": "meta_controls",
+      "ticker": "META",
+      "question": "What did management conclude about the effectiveness of Meta's disclosure controls and procedures?",
+      "expect_sections": [
+        "CONTROLS AND PROCEDURES"
+      ]
+    },
+    {
+      "id": "jpm_legal",
+      "ticker": "JPM",
+      "question": "What material legal proceedings is JPMorgan involved in?",
+      "expect_sections": [
+        "LEGAL PROCEEDINGS"
+      ]
+    },
+    {
+      "id": "jpm_marketrisk",
+      "ticker": "JPM",
+      "question": "How does JPMorgan describe its exposure to market risk?",
+      "expect_sections": [
+        "MARKET RISK"
+      ]
+    }
+  ]
+}

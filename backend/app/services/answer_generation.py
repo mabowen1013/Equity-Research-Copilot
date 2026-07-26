@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 import re
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from app.core import Settings, get_settings
 from app.schemas.answer import (
@@ -46,6 +46,37 @@ PREFIXED_EVIDENCE_MARKER_RE = re.compile(
 NUMBERED_CITATION_VALUE_RE = re.compile(r"(?:source|citation)?\s*#?\s*(\d{1,3})", re.IGNORECASE)
 SENTENCE_BOUNDARY_RE = re.compile(r"(?<!\d)[.!?](?!\d)")
 RATIO_METRIC_KEYS = {"gross_margin", "operating_margin", "net_margin"}
+STREAM_LIMITATIONS_RE = re.compile(r"^[ \t]*LIMITATIONS:", re.MULTILINE)
+STREAM_DELTA_HOLDBACK_CHARS = 24
+
+# Numeric grounding: only treat numbers carrying financial meaning (a currency
+# sign, a scale word/letter, or a percent/point marker) as claims to reconcile.
+# Bare integers such as years, counts, or page numbers are ignored to keep the
+# false-positive rate low, since this check feeds answer-quality warnings.
+SALIENT_NUMBER_RE = re.compile(
+    r"(?P<dollar>\$)?\s*"
+    r"(?P<num>\d[\d,]*(?:\.\d+)?)\s*"
+    r"(?P<suffix>%|percentage\s+points?|percent|pp|billion|million|trillion|thousand|bn|[bmkt])?",
+    re.IGNORECASE,
+)
+NUMBER_SCALE_FACTORS = {
+    "trillion": Decimal("1e12"),
+    "t": Decimal("1e12"),
+    "billion": Decimal("1e9"),
+    "bn": Decimal("1e9"),
+    "b": Decimal("1e9"),
+    "million": Decimal("1e6"),
+    "m": Decimal("1e6"),
+    "thousand": Decimal("1e3"),
+    "k": Decimal("1e3"),
+}
+AMOUNT_MATCH_REL_TOL = Decimal("0.01")
+PERCENT_MATCH_ABS_TOL = Decimal("0.3")
+PERCENT_MATCH_REL_TOL = Decimal("0.03")
+MAX_NUMBER_WARNINGS = 10
+
+AnswerDeltaCallback = Callable[[str], None]
+AnswerEventCallback = Callable[[dict[str, Any]], None]
 
 
 class AnswerGenerationError(RuntimeError):
@@ -123,6 +154,22 @@ class ExtractiveAnswerGenerator:
             limitations=["Generated from retrieved SEC evidence only."],
         )
 
+    def generate_stream(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        on_delta: AnswerDeltaCallback,
+        validation_errors: list[CitationValidationIssueRead] | None = None,
+    ) -> GeneratedAnswer:
+        generated = self.generate(
+            context,
+            evidence_records,
+            validation_errors=validation_errors,
+        )
+        on_delta(generated.answer)
+        return generated
+
 
 class OpenAIAnswerGenerator:
     def __init__(self, settings: Settings | None = None) -> None:
@@ -135,27 +182,12 @@ class OpenAIAnswerGenerator:
         *,
         validation_errors: list[CitationValidationIssueRead] | None = None,
     ) -> GeneratedAnswer:
-        api_key = self._settings.openai_api_key
-        if api_key is None or not api_key.get_secret_value().strip():
-            raise AnswerGenerationError("OPENAI_API_KEY must be configured for answer generation.")
-
-        try:
-            client = get_openai_client(
-                api_key.get_secret_value(),
-                timeout=self._settings.answer_llm_timeout_seconds,
-                max_retries=self._settings.answer_llm_max_retries,
-            )
-        except ImportError as exc:
-            raise AnswerGenerationError(
-                "The openai package must be installed for answer generation."
-            ) from exc
-
         payload = build_answer_prompt_payload(
             context,
             evidence_records,
             validation_errors=validation_errors,
         )
-        response = client.chat.completions.create(
+        response = self._client().chat.completions.create(
             model=self._settings.answer_llm_model,
             temperature=0,
             max_tokens=self._settings.answer_llm_max_output_tokens,
@@ -167,6 +199,87 @@ class OpenAIAnswerGenerator:
         )
         content = response.choices[0].message.content or "{}"
         return parse_generated_answer(content)
+
+    def generate_stream(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        on_delta: AnswerDeltaCallback,
+        validation_errors: list[CitationValidationIssueRead] | None = None,
+    ) -> GeneratedAnswer:
+        payload = build_answer_prompt_payload(
+            context,
+            evidence_records,
+            validation_errors=validation_errors,
+        )
+        stream = self._client().chat.completions.create(
+            model=self._settings.answer_llm_model,
+            temperature=0,
+            max_tokens=self._settings.answer_llm_max_output_tokens,
+            stream=True,
+            messages=[
+                {"role": "system", "content": answer_stream_system_prompt()},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        emitter = AnswerStreamEmitter(on_delta)
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                emitter.feed(chunk.choices[0].delta.content)
+        return parse_streamed_answer(emitter.finish())
+
+    def _client(self):
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            raise AnswerGenerationError("OPENAI_API_KEY must be configured for answer generation.")
+
+        try:
+            return get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.answer_llm_timeout_seconds,
+                max_retries=self._settings.answer_llm_max_retries,
+            )
+        except ImportError as exc:
+            raise AnswerGenerationError(
+                "The openai package must be installed for answer generation."
+            ) from exc
+
+
+class AnswerStreamEmitter:
+    """Forwards streamed answer text while holding back a trailing LIMITATIONS block.
+
+    A small tail is withheld from emission so a sentinel split across stream
+    deltas is never shown to the caller; finish() flushes the tail when no
+    sentinel arrived.
+    """
+
+    def __init__(self, on_delta: AnswerDeltaCallback) -> None:
+        self._on_delta = on_delta
+        self._buffer = ""
+        self._emitted = 0
+        self._sentinel_found = False
+
+    def feed(self, delta: str) -> None:
+        self._buffer += delta
+        if self._sentinel_found:
+            return
+        match = STREAM_LIMITATIONS_RE.search(self._buffer)
+        if match is not None:
+            self._sentinel_found = True
+            self._emit_to(match.start())
+            return
+        self._emit_to(len(self._buffer) - STREAM_DELTA_HOLDBACK_CHARS)
+
+    def finish(self) -> str:
+        if not self._sentinel_found:
+            self._emit_to(len(self._buffer))
+        return self._buffer
+
+    def _emit_to(self, end: int) -> None:
+        if end > self._emitted:
+            self._on_delta(self._buffer[self._emitted : end])
+            self._emitted = end
 
 
 class FallbackAnswerGenerator:
@@ -206,14 +319,167 @@ class FallbackAnswerGenerator:
                 ],
             )
 
+    def generate_stream(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        on_delta: AnswerDeltaCallback,
+        validation_errors: list[CitationValidationIssueRead] | None = None,
+    ) -> GeneratedAnswer:
+        try:
+            return generate_with_optional_stream(
+                self._primary,
+                context,
+                evidence_records,
+                on_delta=on_delta,
+                validation_errors=validation_errors,
+            )
+        except AnswerGenerationError as exc:
+            fallback_answer = generate_with_optional_stream(
+                self._fallback,
+                context,
+                evidence_records,
+                on_delta=on_delta,
+                validation_errors=validation_errors,
+            )
+            return GeneratedAnswer(
+                answer=fallback_answer.answer,
+                cited_evidence_ids=fallback_answer.cited_evidence_ids,
+                limitations=[
+                    *fallback_answer.limitations,
+                    f"LLM answer generation unavailable; used extractive fallback ({exc}).",
+                ],
+            )
+
+
+class EntailmentJudge(Protocol):
+    def judge(self, claims: list[dict[str, Any]]) -> list[str]:
+        """Return a label per claim in {entailed, neutral, contradicted}, in order.
+
+        Each claim is {"sentence": str, "evidence": list[str]}.
+        """
+
+
+class LLMEntailmentJudge:
+    """LLM-as-judge: decides whether each cited sentence is supported by its evidence."""
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
+
+    def judge(self, claims: list[dict[str, Any]]) -> list[str]:
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            raise AnswerGenerationError(
+                "OPENAI_API_KEY must be configured for entailment checks."
+            )
+        try:
+            client = get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.answer_llm_timeout_seconds,
+                max_retries=self._settings.answer_llm_max_retries,
+            )
+        except ImportError as exc:
+            raise AnswerGenerationError(
+                "The openai package must be installed for entailment checks."
+            ) from exc
+
+        payload = {
+            "claims": [
+                {"index": index, "claim": claim["sentence"], "evidence": claim["evidence"]}
+                for index, claim in enumerate(claims)
+            ]
+        }
+        response = client.chat.completions.create(
+            model=self._settings.answer_entailment_llm_model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": entailment_system_prompt()},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        content = response.choices[0].message.content or "{}"
+        return parse_entailment_labels(content, len(claims))
+
+
+class AnswerabilityJudge(Protocol):
+    def is_answerable(
+        self, question: str, evidence_records: list[PromptEvidenceRecord]
+    ) -> tuple[bool, str]:
+        """Return (answerable, reason) for the question given the retrieved evidence."""
+
+
+class LLMAnswerabilityJudge:
+    """LLM gate deciding whether the question can be answered from the evidence.
+
+    Fail-open: any missing key or judge error returns answerable=True so a flaky
+    gate never blocks an otherwise valid answer.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
+
+    def is_answerable(
+        self, question: str, evidence_records: list[PromptEvidenceRecord]
+    ) -> tuple[bool, str]:
+        api_key = self._settings.openai_api_key
+        if api_key is None or not api_key.get_secret_value().strip():
+            return True, ""
+        try:
+            client = get_openai_client(
+                api_key.get_secret_value(),
+                timeout=self._settings.answer_llm_timeout_seconds,
+                max_retries=self._settings.answer_llm_max_retries,
+            )
+        except ImportError:
+            return True, ""
+
+        payload = {
+            "question": question,
+            "evidence": [
+                {"type": record.evidence_type, "text": record.text[:400]}
+                for record in evidence_records[:MAX_PROMPT_EVIDENCE_ITEMS]
+            ],
+        }
+        try:
+            response = client.chat.completions.create(
+                model=self._settings.answer_relevance_llm_model,
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": answerability_system_prompt()},
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                ],
+            )
+        except Exception:
+            return True, ""
+        content = response.choices[0].message.content or "{}"
+        return parse_answerability(content)
+
 
 class CitationValidator:
+    def __init__(
+        self,
+        *,
+        settings: Settings | None = None,
+        entailment_judge: EntailmentJudge | None = None,
+    ) -> None:
+        self._settings = settings or get_settings()
+        if entailment_judge is not None:
+            self._entailment_judge: EntailmentJudge | None = entailment_judge
+        elif self._settings.answer_entailment_check:
+            self._entailment_judge = LLMEntailmentJudge(self._settings)
+        else:
+            self._entailment_judge = None
+
     def validate(
         self,
         generated: GeneratedAnswer,
         *,
         allowed_evidence_ids: list[str],
         prompt_evidence_ids: list[str],
+        evidence_records: list[PromptEvidenceRecord] | None = None,
     ) -> CitationValidationRead:
         allowed_set = set(allowed_evidence_ids)
         prompt_set = set(prompt_evidence_ids)
@@ -247,6 +513,17 @@ class CitationValidator:
             generated.answer,
             valid_evidence_ids=allowed_set & prompt_set,
         )
+        if evidence_records:
+            warnings = [
+                *warnings,
+                *number_support_warnings(generated.answer, evidence_records),
+            ]
+            if self._entailment_judge is not None:
+                entail_errors, entail_warnings = entailment_issues(
+                    generated.answer, evidence_records, self._entailment_judge
+                )
+                errors = [*errors, *entail_errors]
+                warnings = [*warnings, *entail_warnings]
 
         return CitationValidationRead(
             status="failed" if errors else "passed",
@@ -269,11 +546,19 @@ class ResearchAnswerService:
         retriever=None,
         answer_generator: AnswerGenerator | None = None,
         validator: CitationValidator | None = None,
+        answerability_judge: "AnswerabilityJudge | None" = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._retriever = retriever or RetrievalService(db, settings=self._settings)
         self._answer_generator = answer_generator or build_answer_generator(self._settings)
-        self._validator = validator or CitationValidator()
+        # Pass settings through so the entailment gate honors the caller's config.
+        self._validator = validator or CitationValidator(settings=self._settings)
+        if answerability_judge is not None:
+            self._answerability_judge: AnswerabilityJudge | None = answerability_judge
+        elif self._settings.answer_relevance_check:
+            self._answerability_judge = LLMAnswerabilityJudge(self._settings)
+        else:
+            self._answerability_judge = None
 
     def answer(self, request: RetrievalRequest) -> ResearchAnswerResponseRead:
         retrieval_response = RetrievalResponse.model_validate(self._retriever.retrieve(request))
@@ -283,6 +568,8 @@ class ResearchAnswerService:
         self,
         request: RetrievalRequest,
         retrieval_response: RetrievalResponse,
+        *,
+        on_event: AnswerEventCallback | None = None,
     ) -> ResearchAnswerResponseRead:
         context = build_answer_evidence_context(request, retrieval_response)
         evidence_records = build_prompt_evidence_records(context)
@@ -303,14 +590,39 @@ class ResearchAnswerService:
                 ],
             )
 
+        # Answerability gate: retrieval always returns top-k, so evidence being
+        # non-empty does not mean the question is answerable. Decline off-topic or
+        # unavailable-metric questions instead of fabricating from loosely related
+        # evidence.
+        if self._answerability_judge is not None:
+            answerable, reason = self._answerability_judge.is_answerable(
+                request.question, evidence_records
+            )
+            if not answerable:
+                return build_insufficient_evidence_response(
+                    context,
+                    retrieval_response,
+                    retrieved_evidence_ids=retrieved_evidence_ids,
+                    prompt_evidence_ids=prompt_evidence_ids,
+                    errors=[
+                        CitationValidationIssueRead(
+                            code="question_not_answerable",
+                            message=reason
+                            or "The retrieved evidence does not address the question.",
+                        )
+                    ],
+                )
+
         validation: CitationValidationRead | None = None
         generated: GeneratedAnswer | None = None
-        for _ in range(2):
+        for attempt in range(1, 3):
             try:
-                generated = self._answer_generator.generate(
+                generated = self._generate(
                     context,
                     evidence_records,
                     validation_errors=validation.errors if validation else None,
+                    attempt=attempt,
+                    on_event=on_event,
                 )
             except AnswerGenerationError as exc:
                 return build_insufficient_evidence_response(
@@ -331,7 +643,10 @@ class ResearchAnswerService:
                 generated,
                 allowed_evidence_ids=context.allowed_evidence_ids,
                 prompt_evidence_ids=prompt_evidence_ids,
+                evidence_records=evidence_records,
             )
+            if on_event is not None:
+                on_event({"type": "validation", "status": validation.status})
             if validation.status == "passed":
                 return build_validated_answer_response(
                     generated,
@@ -341,6 +656,8 @@ class ResearchAnswerService:
                     prompt_evidence_ids=prompt_evidence_ids,
                 )
 
+        if on_event is not None:
+            on_event({"type": "status", "stage": "answering"})
         fallback_generated = normalize_generated_answer_citations(
             ExtractiveAnswerGenerator().generate(context, evidence_records),
             evidence_records,
@@ -349,7 +666,10 @@ class ResearchAnswerService:
             fallback_generated,
             allowed_evidence_ids=context.allowed_evidence_ids,
             prompt_evidence_ids=prompt_evidence_ids,
+            evidence_records=evidence_records,
         )
+        if on_event is not None:
+            on_event({"type": "validation", "status": fallback_validation.status})
         if fallback_validation.status == "passed":
             return build_validated_answer_response(
                 fallback_generated,
@@ -366,6 +686,34 @@ class ResearchAnswerService:
             prompt_evidence_ids=prompt_evidence_ids,
             errors=validation.errors if validation else [],
             limitations=["Citation validation failed for the generated answer."],
+        )
+
+    def _generate(
+        self,
+        context: AnswerEvidenceContextRead,
+        evidence_records: list[PromptEvidenceRecord],
+        *,
+        validation_errors: list[CitationValidationIssueRead] | None,
+        attempt: int,
+        on_event: AnswerEventCallback | None,
+    ) -> GeneratedAnswer:
+        if on_event is None:
+            return self._answer_generator.generate(
+                context,
+                evidence_records,
+                validation_errors=validation_errors,
+            )
+        on_event({"type": "status", "stage": "answering"})
+        return generate_with_optional_stream(
+            self._answer_generator,
+            context,
+            evidence_records,
+            # Stream internally, but never forward unvalidated tokens to the client:
+            # the user must only ever see an answer that passed citation validation,
+            # which is revealed by the terminal run event. Decoupling "show activity"
+            # (status/step events) from "show answer" avoids show-then-retract.
+            on_delta=lambda _text: None,
+            validation_errors=validation_errors,
         )
 
 
@@ -396,19 +744,21 @@ def build_answer_prompt_payload(
         "ticker": context.ticker,
         "question": context.question,
         "retrieval_plan": context.retrieval_plan.model_dump(mode="json"),
-        "evidence": [record.to_prompt_dict() for record in evidence_records],
-        "citation_format": "Append citations as [evidence_id] markers.",
+        "evidence": [
+            {"index": index, **record.to_prompt_dict()}
+            for index, record in enumerate(evidence_records, start=1)
+        ],
+        "citation_format": "Cite evidence by its index field as [index] markers, for example [1] or [2].",
         "validation_errors_to_fix": [
             issue.model_dump(mode="json") for issue in (validation_errors or [])
         ],
     }
 
 
-def answer_system_prompt() -> str:
-    return """
+ANSWER_PROMPT_CORE = """
 You are Equity Research Copilot, a citation-first research assistant for SEC filings.
 Answer only from the evidence objects in the user payload. Do not use outside facts.
-Do not invent citation ids. Use citation markers in the exact form [evidence_id].
+Do not invent citations. Cite evidence by its index field using markers in the exact form [index], for example [1] or [2].
 
 Citation rules:
 - Put citation markers after the sentence or bullet they support.
@@ -425,16 +775,78 @@ Answer style:
 - Then explain drivers or context using MD&A/text evidence when available.
 - Use readable financial formatting: revenue in $B/$M, margins as percentages, and margin changes in percentage points.
 - Do not provide investment advice, price targets, ratings, or recommendations.
+""".strip()
+
+
+def answer_system_prompt() -> str:
+    return f"""{ANSWER_PROMPT_CORE}
 
 Return one JSON object with:
 - answer: complete analyst-style answer string with citation markers.
-- citations: array of evidence_id strings used as answer markers.
+- citations: array of the evidence index numbers used as answer markers.
 - limitations: array of short limitations or caveats.
 
 Only include limitations for specific evidence gaps, conflicts, stale data, or unanswered parts of the question.
 Do not add generic caveats.
-If evidence is not enough, say so plainly in answer and keep citations empty.
-""".strip()
+If evidence is not enough, say so plainly in answer and keep citations empty."""
+
+
+def answer_stream_system_prompt() -> str:
+    return f"""{ANSWER_PROMPT_CORE}
+
+Output format (plain text, not JSON, no markdown headings):
+- Write the complete analyst-style answer with [index] citation markers, for example [1] or [2].
+- If there are limitations for specific evidence gaps, conflicts, stale data, or unanswered parts of the question, end with a line containing exactly LIMITATIONS: followed by one short limitation per line, each starting with "- ".
+- If there are no limitations, do not write a LIMITATIONS section.
+- Do not add generic caveats.
+If evidence is not enough, say so plainly in the answer and use no citation markers."""
+
+
+def generate_with_optional_stream(
+    generator: AnswerGenerator,
+    context: AnswerEvidenceContextRead,
+    evidence_records: list[PromptEvidenceRecord],
+    *,
+    on_delta: AnswerDeltaCallback,
+    validation_errors: list[CitationValidationIssueRead] | None = None,
+) -> GeneratedAnswer:
+    """Stream when the generator supports it; otherwise emit the answer once."""
+    stream_method = getattr(generator, "generate_stream", None)
+    if stream_method is not None:
+        return stream_method(
+            context,
+            evidence_records,
+            on_delta=on_delta,
+            validation_errors=validation_errors,
+        )
+    generated = generator.generate(
+        context,
+        evidence_records,
+        validation_errors=validation_errors,
+    )
+    on_delta(generated.answer)
+    return generated
+
+
+def parse_streamed_answer(content: str) -> GeneratedAnswer:
+    answer, limitations = split_streamed_answer(content)
+    return GeneratedAnswer(
+        answer=answer,
+        cited_evidence_ids=extract_citation_markers(answer),
+        limitations=limitations,
+    )
+
+
+def split_streamed_answer(content: str) -> tuple[str, list[str]]:
+    match = STREAM_LIMITATIONS_RE.search(content)
+    if match is None:
+        return content.strip(), []
+    answer = content[: match.start()].strip()
+    limitations = [
+        line.strip().lstrip("-*").strip()
+        for line in content[match.end() :].splitlines()
+    ]
+    return answer, [limitation for limitation in limitations if limitation]
 
 
 def parse_generated_answer(content: str) -> GeneratedAnswer:
@@ -733,6 +1145,7 @@ def evidence_span_record(span: EvidenceSpanRead) -> PromptEvidenceRecord:
             pages=format_pages(span.start_page, span.end_page),
             source_ids={
                 "chunk_id": span.chunk_id,
+                "filing_id": span.filing_id,
                 "source_chunk_evidence_id": span.source_chunk_evidence_id,
                 "accession_number": span.accession_number,
                 "start_char": span.start_char,
@@ -990,6 +1403,256 @@ def claim_citation_coverage(
                 )
             )
     return warnings, claim_count, cited_claim_count
+
+
+def number_support_warnings(
+    answer: str,
+    evidence_records: list[PromptEvidenceRecord],
+) -> list[CitationValidationIssueRead]:
+    """Flag answer numbers that no evidence supports, or that the cited evidence does not contain.
+
+    Two failure modes are distinguished so the trace viewer can tell them apart:
+    - unsupported_number: the value matches no retrieved evidence at all (hallucination).
+    - citation_number_mismatch: the value exists in some evidence, but not in the
+      evidence the sentence actually cites (wrong attribution).
+
+    These are warnings, not errors: financial rounding and derived figures make
+    strict numeric equality too noisy to reject answers on.
+    """
+    record_numbers = {
+        record.evidence_id: parse_salient_numbers(record.text)
+        for record in evidence_records
+    }
+    global_numbers = [number for numbers in record_numbers.values() for number in numbers]
+    warnings: list[CitationValidationIssueRead] = []
+    seen: set[tuple[str, str, str]] = set()
+    for sentence in answer_claim_sentences(answer):
+        sentence_numbers = parse_salient_numbers(re.sub(r"\[[^\]]*\]", " ", sentence))
+        if not sentence_numbers:
+            continue
+        cited_ids = [
+            evidence_id
+            for evidence_id in extract_citation_markers(sentence)
+            if evidence_id in record_numbers
+        ]
+        cited_numbers = [
+            number for evidence_id in cited_ids for number in record_numbers[evidence_id]
+        ]
+        for kind, value, raw in sentence_numbers:
+            if not _number_supported(kind, value, global_numbers):
+                code = "unsupported_number"
+                message = f"Answer states {raw}, which is not supported by any retrieved evidence."
+            elif cited_ids and not _number_supported(kind, value, cited_numbers):
+                code = "citation_number_mismatch"
+                message = (
+                    f"Answer states {raw}, but the evidence cited in this sentence "
+                    "does not contain that value."
+                )
+            else:
+                continue
+            key = (code, raw, sentence)
+            if key in seen:
+                continue
+            seen.add(key)
+            warnings.append(
+                CitationValidationIssueRead(code=code, message=message, sentence=sentence)
+            )
+            if len(warnings) >= MAX_NUMBER_WARNINGS:
+                return warnings
+    return warnings
+
+
+def parse_salient_numbers(text: str) -> list[tuple[str, Decimal, str]]:
+    """Return (kind, value, raw) for financially salient numbers in text.
+
+    kind is "amount" (currency/scaled) or "percent". Bare numbers without a
+    currency sign, scale word, or percent marker are skipped on purpose.
+    """
+    results: list[tuple[str, Decimal, str]] = []
+    cleaned = re.sub(r"\[[^\]]*\]", " ", text or "")
+    for match in SALIENT_NUMBER_RE.finditer(cleaned):
+        suffix = (match.group("suffix") or "").lower().strip()
+        has_dollar = bool(match.group("dollar"))
+        try:
+            base = Decimal(match.group("num").replace(",", ""))
+        except InvalidOperation:
+            continue
+        raw = match.group(0).strip()
+        if suffix in {"%", "pp"} or suffix.startswith("percent"):
+            results.append(("percent", base, raw))
+            continue
+        scale = NUMBER_SCALE_FACTORS.get(suffix)
+        if has_dollar or scale is not None:
+            results.append(("amount", base * (scale or Decimal(1)), raw))
+    return results
+
+
+def _number_supported(
+    kind: str,
+    value: Decimal,
+    candidates: list[tuple[str, Decimal, str]],
+) -> bool:
+    return any(
+        _numbers_match(kind, value, candidate_kind, candidate_value)
+        for candidate_kind, candidate_value, _ in candidates
+    )
+
+
+def _numbers_match(
+    kind_a: str,
+    value_a: Decimal,
+    kind_b: str,
+    value_b: Decimal,
+) -> bool:
+    if kind_a != kind_b:
+        return False
+    diff = abs(value_a - value_b)
+    largest = max(abs(value_a), abs(value_b))
+    if kind_a == "percent":
+        if diff <= PERCENT_MATCH_ABS_TOL:
+            return True
+        return largest > 0 and diff <= PERCENT_MATCH_REL_TOL * largest
+    if largest == 0:
+        return diff == 0
+    return diff <= AMOUNT_MATCH_REL_TOL * largest
+
+
+ENTAILMENT_MAX_CLAIMS = 12
+
+
+def entailment_issues(
+    answer: str,
+    evidence_records: list[PromptEvidenceRecord],
+    judge: EntailmentJudge,
+) -> tuple[list[CitationValidationIssueRead], list[CitationValidationIssueRead]]:
+    """Judge whether each cited sentence is supported by the evidence it cites.
+
+    Returns (errors, warnings): a contradicted claim is an error (it joins the
+    fail -> retry -> extractive-fallback path); a neutral/unsupported claim is a
+    warning. The judge is best-effort: any failure yields no issues rather than
+    blocking a run on an unavailable check.
+    """
+    text_by_id = {record.evidence_id: record.text for record in evidence_records}
+    claims: list[dict[str, Any]] = []
+    for sentence in answer_claim_sentences(answer):
+        if not sentence_requires_citation(sentence):
+            continue
+        cited = [
+            evidence_id
+            for evidence_id in extract_citation_markers(sentence)
+            if evidence_id in text_by_id
+        ]
+        if not cited:
+            continue
+        claims.append(
+            {
+                "sentence": sentence,
+                "evidence": [text_by_id[evidence_id] for evidence_id in cited],
+            }
+        )
+        if len(claims) >= ENTAILMENT_MAX_CLAIMS:
+            break
+    if not claims:
+        return [], []
+    try:
+        labels = judge.judge(claims)
+    except Exception:
+        return [], []
+
+    errors: list[CitationValidationIssueRead] = []
+    warnings: list[CitationValidationIssueRead] = []
+    for claim, label in zip(claims, labels):
+        if label == "contradicted":
+            errors.append(
+                CitationValidationIssueRead(
+                    code="contradicted_claim",
+                    message="The cited evidence contradicts this sentence.",
+                    sentence=claim["sentence"],
+                )
+            )
+        elif label == "neutral":
+            warnings.append(
+                CitationValidationIssueRead(
+                    code="unsupported_claim",
+                    message="The cited evidence does not support this sentence.",
+                    sentence=claim["sentence"],
+                )
+            )
+    return errors, warnings
+
+
+def parse_entailment_labels(content: str, expected: int) -> list[str]:
+    try:
+        parsed = json.loads(_strip_json_fences(content))
+    except (ValueError, TypeError):
+        parsed = {}
+    raw_labels = parsed.get("labels") if isinstance(parsed, dict) else None
+    labels: list[str] = []
+    if isinstance(raw_labels, list):
+        for item in raw_labels:
+            if isinstance(item, str):
+                labels.append(item.strip().lower())
+            elif isinstance(item, dict):
+                labels.append(str(item.get("label", "")).strip().lower())
+            else:
+                labels.append("")
+    # Pad/truncate to the expected count; an unknown label is treated as entailed so
+    # an unparseable judge response never falsely fails an answer.
+    normalized: list[str] = []
+    for index in range(expected):
+        label = labels[index] if index < len(labels) else ""
+        normalized.append(
+            label if label in {"entailed", "neutral", "contradicted"} else "entailed"
+        )
+    return normalized
+
+
+def _strip_json_fences(content: str) -> str:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped
+
+
+def parse_answerability(content: str) -> tuple[bool, str]:
+    try:
+        parsed = json.loads(_strip_json_fences(content))
+    except (ValueError, TypeError):
+        return True, ""
+    if not isinstance(parsed, dict):
+        return True, ""
+    answerable = parsed.get("answerable")
+    reason = parsed.get("reason")
+    if isinstance(answerable, bool):
+        return answerable, reason if isinstance(reason, str) else ""
+    # Default permissive: only decline on an explicit false.
+    return True, ""
+
+
+def answerability_system_prompt() -> str:
+    return """You decide whether a user's question about a US public company can be answered from the provided SEC-filing evidence.
+
+Return answerable=false ONLY when the evidence does not contain what the question specifically asks, for example:
+- the question asks for a metric the company does not report (e.g. a bank's gross margin or gross profit), or
+- the question is not about the company's SEC-reported financials or disclosures at all (e.g. personal trivia about an executive).
+
+Return answerable=true when the evidence contains the requested figure, period, driver, or disclosure, even partially.
+Judge only against the provided evidence; do not use outside knowledge. When unsure, return true.
+
+Return one JSON object: {"answerable": true|false, "reason": "<short explanation>"}."""
+
+
+def entailment_system_prompt() -> str:
+    return """You are a strict fact-checker for SEC research answers.
+For each claim you are given the claim sentence and the evidence snippets it cites.
+Label each claim using ONLY its cited evidence:
+- "entailed": the evidence clearly supports the claim.
+- "neutral": the evidence neither clearly supports nor contradicts the claim.
+- "contradicted": the evidence states something incompatible with the claim.
+Judge only against the provided evidence; do not use outside knowledge.
+
+Return one JSON object: {"labels": ["entailed"|"neutral"|"contradicted", ...]} with one label per claim, in the same order as the input claims."""
 
 
 def answer_claim_sentences(answer: str) -> list[str]:

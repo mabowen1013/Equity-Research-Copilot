@@ -2,18 +2,27 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
 import re
 from typing import Any, Iterable, Protocol
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import Settings
 from app.db import get_sessionmaker
+from app.models import Company, Filing
 from app.schemas import RetrievalRequest
 from app.schemas.answer import CitationValidationRead
 from app.schemas.research_run import ResearchRunRead
 from app.services import ResearchRunService
+from app.services.answer_generation import parse_salient_numbers
+
+DEFAULT_AMOUNT_REL_TOL = Decimal("0.02")
+DEFAULT_PERCENT_ABS_TOL = Decimal("0.3")
+GROUNDING_WARNING_CODES = ("unsupported_number", "citation_number_mismatch")
 
 
 DEFAULT_EVAL_FILE = "backend/evals/answer_gold_eval.json"
@@ -47,6 +56,9 @@ class AnswerGoldCaseResult:
     claim_sentence_count: int
     cited_claim_sentence_count: int
     duration_ms: float
+    contradicted_claims: int = 0
+    unsupported_claims: int = 0
+    grounding_warnings: int = 0
     failures: list[AnswerCheckFailure] = field(default_factory=list)
 
     @property
@@ -94,22 +106,47 @@ class AnswerGoldEvalResult:
             return 0.0
         return sum(result.duration_ms for result in self.results) / len(self.results)
 
+    @property
+    def total_contradicted_claims(self) -> int:
+        return sum(result.contradicted_claims for result in self.results)
+
+    @property
+    def total_unsupported_claims(self) -> int:
+        return sum(result.unsupported_claims for result in self.results)
+
+    @property
+    def total_grounding_warnings(self) -> int:
+        return sum(result.grounding_warnings for result in self.results)
+
 
 def run_eval_file(
     eval_file: str | Path = DEFAULT_EVAL_FILE,
     *,
     db: Session | None = None,
     runner: ResearchRunner | None = None,
+    enable_entailment: bool = True,
+    enable_relevance: bool = True,
 ) -> AnswerGoldEvalResult:
     path = Path(eval_file)
     data = json.loads(path.read_text())
     owns_session = db is None and runner is None
     session = db or (get_sessionmaker()() if runner is None else None)
-    active_runner = runner or ResearchRunService(session)
+    if runner is not None:
+        active_runner: ResearchRunner = runner
+    else:
+        # Turn the safety gates on for eval so they are exercised; production keeps
+        # them opt-in via env (extra LLM calls on the answer path).
+        overrides: dict[str, bool] = {}
+        if enable_entailment:
+            overrides["answer_entailment_check"] = True
+        if enable_relevance:
+            overrides["answer_relevance_check"] = True
+        settings = Settings(**overrides) if overrides else None
+        active_runner = ResearchRunService(session, settings=settings)
 
     try:
         results = [
-            evaluate_case(case, active_runner)
+            evaluate_case(case, active_runner, db=session)
             for case in data.get("cases", [])
         ]
     finally:
@@ -126,6 +163,8 @@ def run_eval_file(
 def evaluate_case(
     case: dict[str, Any],
     runner: ResearchRunner,
+    *,
+    db: Session | None = None,
 ) -> AnswerGoldCaseResult:
     request = RetrievalRequest(
         ticker=str(case["ticker"]),
@@ -137,7 +176,11 @@ def evaluate_case(
     )
     run = ResearchRunRead.model_validate(runner.run(request))
     validation = coerce_validation(run)
-    failures = check_case(case, run)
+    counts = issue_counts(validation)
+    latest_filing = None
+    if db is not None and case.get("expect_latest_filing"):
+        latest_filing = latest_filing_date(db, request.ticker, case.get("expect_form_types"))
+    failures = check_case(case, run, latest_filing_date=latest_filing)
     return AnswerGoldCaseResult(
         case_id=case.get("id", f"{request.ticker}:{request.question}"),
         ticker=request.ticker,
@@ -147,8 +190,37 @@ def evaluate_case(
         claim_sentence_count=validation.claim_sentence_count,
         cited_claim_sentence_count=validation.cited_claim_sentence_count,
         duration_ms=run.duration_ms or 0.0,
+        contradicted_claims=counts.get("contradicted_claim", 0),
+        unsupported_claims=counts.get("unsupported_claim", 0),
+        grounding_warnings=sum(counts.get(code, 0) for code in GROUNDING_WARNING_CODES),
         failures=failures,
     )
+
+
+def issue_counts(validation: CitationValidationRead) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for issue in [*validation.errors, *validation.warnings]:
+        counts[issue.code] = counts.get(issue.code, 0) + 1
+    return counts
+
+
+def latest_filing_date(
+    db: Session,
+    ticker: str,
+    form_types: list[str] | None = None,
+) -> str | None:
+    statement = (
+        select(Filing.filing_date)
+        .join(Company, Company.id == Filing.company_id)
+        .where(Company.ticker == ticker.strip().upper())
+        .order_by(Filing.filing_date.desc())
+    )
+    if form_types:
+        statement = statement.where(
+            Filing.form_type.in_([form.strip().upper() for form in form_types])
+        )
+    value = db.execute(statement.limit(1)).scalar()
+    return value.isoformat() if value is not None else None
 
 
 def coerce_validation(run: ResearchRunRead) -> CitationValidationRead:
@@ -157,7 +229,12 @@ def coerce_validation(run: ResearchRunRead) -> CitationValidationRead:
     return CitationValidationRead.model_validate(run.validation)
 
 
-def check_case(case: dict[str, Any], run: ResearchRunRead) -> list[AnswerCheckFailure]:
+def check_case(
+    case: dict[str, Any],
+    run: ResearchRunRead,
+    *,
+    latest_filing_date: str | None = None,
+) -> list[AnswerCheckFailure]:
     failures: list[AnswerCheckFailure] = []
     answer = run.answer or ""
     validation = coerce_validation(run)
@@ -225,7 +302,86 @@ def check_case(case: dict[str, Any], run: ResearchRunRead) -> list[AnswerCheckFa
             )
         )
 
+    # Numeric ground truth: the answer must state the SEC-XBRL value (within tol).
+    answer_numbers = parse_salient_numbers(answer)
+    for spec in case.get("expect_values", []):
+        if not value_supported(spec, answer_numbers):
+            failures.append(
+                AnswerCheckFailure(
+                    code="value_mismatch",
+                    detail=(
+                        f"answer is missing expected {spec.get('kind', 'amount')} "
+                        f"value {spec.get('value')} (tol)"
+                    ),
+                )
+            )
+
+    # Period correctness: the newest cited filing must be the latest one.
+    if case.get("expect_latest_filing") and latest_filing_date is not None:
+        cited_dates = [c.filing_date for c in run.citations if c.filing_date]
+        newest_cited = max(cited_dates) if cited_dates else None
+        if newest_cited != latest_filing_date:
+            failures.append(
+                AnswerCheckFailure(
+                    code="stale_filing",
+                    detail=f"newest cited filing {newest_cited} != latest {latest_filing_date}",
+                )
+            )
+
+    # Grounding signals are surfaced as metrics on every case and can be gated
+    # per case via max_warning_codes. They are NOT a hard default gate: the
+    # numeric-grounding check has known false positives on *derived* figures
+    # (e.g. a growth "65%" that is computed, not literally present in evidence),
+    # so a blanket cap of 0 would fail correct answers. The hard faithfulness
+    # gate is the contradicted-claim check below.
+    counts = issue_counts(validation)
+    for code, cap in case.get("max_warning_codes", {}).items():
+        if counts.get(code, 0) > int(cap):
+            failures.append(
+                AnswerCheckFailure(
+                    code="warning_cap",
+                    detail=f"{code}={counts.get(code, 0)} exceeds cap {cap}",
+                )
+            )
+
+    max_contradicted = int(case.get("max_contradicted_claims", 0))
+    if counts.get("contradicted_claim", 0) > max_contradicted:
+        failures.append(
+            AnswerCheckFailure(
+                code="contradicted_claim",
+                detail=f"{counts.get('contradicted_claim', 0)} contradicted claim(s) > {max_contradicted}",
+            )
+        )
+
     return failures
+
+
+def value_supported(
+    spec: dict[str, Any],
+    numbers: list[tuple[str, Decimal, str]],
+) -> bool:
+    kind = str(spec.get("kind", "amount")).lower()
+    try:
+        expected = Decimal(str(spec.get("value")))
+    except (InvalidOperation, TypeError):
+        return False
+    rel_tol = Decimal(str(spec.get("rel_tol", DEFAULT_AMOUNT_REL_TOL)))
+    abs_tol_raw = spec.get("abs_tol")
+    abs_tol = (
+        Decimal(str(abs_tol_raw))
+        if abs_tol_raw is not None
+        else (DEFAULT_PERCENT_ABS_TOL if kind == "percent" else Decimal(0))
+    )
+    for number_kind, number_value, _ in numbers:
+        if number_kind != kind:
+            continue
+        diff = abs(number_value - expected)
+        if diff <= abs_tol:
+            return True
+        largest = max(abs(number_value), abs(expected))
+        if largest > 0 and diff <= rel_tol * largest:
+            return True
+    return False
 
 
 def format_eval_result(
@@ -242,6 +398,9 @@ def format_eval_result(
         f"pass_rate: {result.pass_rate:.1%}",
         f"mean_claim_citation_coverage: {result.mean_claim_citation_coverage:.1%}",
         f"mean_duration_ms: {result.mean_duration_ms:.0f}",
+        f"contradicted_claims: {result.total_contradicted_claims}",
+        f"unsupported_claims: {result.total_unsupported_claims}",
+        f"grounding_warnings: {result.total_grounding_warnings}",
     ]
 
     failed_results = [case for case in result.results if not case.passed]
@@ -272,6 +431,9 @@ def _json_result(result: AnswerGoldEvalResult) -> dict[str, Any]:
         "pass_rate": result.pass_rate,
         "mean_claim_citation_coverage": result.mean_claim_citation_coverage,
         "mean_duration_ms": result.mean_duration_ms,
+        "total_contradicted_claims": result.total_contradicted_claims,
+        "total_unsupported_claims": result.total_unsupported_claims,
+        "total_grounding_warnings": result.total_grounding_warnings,
         "results": [
             {
                 "id": case.case_id,

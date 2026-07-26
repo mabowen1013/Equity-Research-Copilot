@@ -185,6 +185,7 @@ def make_retrieval_response() -> RetrievalResponse:
     span = EvidenceSpanRead(
         evidence_id="span:10:mda_explanation_chunks:0:50",
         chunk_id=10,
+        filing_id=7,
         source_chunk_evidence_id="chunk:10",
         role="mda_explanation_chunks",
         score=0.8,
@@ -305,7 +306,10 @@ def test_trace_builder_flattens_evidence_from_pack() -> None:
     assert evidence_by_id["metric_observation:revenue:100"].metric_key == "revenue"
     assert evidence_by_id["metric_observation_component:revenue:service:100"].role == "metric_observation_component"
     assert evidence_by_id["metric_comparison:revenue:latest_quarter_yoy:100:90"].role == "metric_comparison"
-    assert evidence_by_id["span:10:mda_explanation_chunks:0:50"].section == "Management's Discussion and Analysis"
+    span_evidence = evidence_by_id["span:10:mda_explanation_chunks:0:50"]
+    assert span_evidence.section == "Management's Discussion and Analysis"
+    assert span_evidence.source_ids["filing_id"] == 7
+    assert span_evidence.source_ids["chunk_id"] == 10
 
 
 def test_trace_builder_copies_diagnostics() -> None:

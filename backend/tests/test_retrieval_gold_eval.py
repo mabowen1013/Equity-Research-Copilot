@@ -10,39 +10,57 @@ from app.schemas import RetrievalRequest
 from .test_answer_context import make_response
 
 
-def test_evaluate_case_passes_when_expected_evidence_ids_are_present() -> None:
+def test_evaluate_case_passes_when_expected_roles_present() -> None:
     result = evaluate_case(
         {
             "id": "sample_case",
             "ticker": "AAPL",
             "question": "What was latest revenue?",
-            "expected_evidence_ids": [
-                "chunk:101",
-                "span:101:primary_financial_statement_chunks:0:80",
-            ],
+            "expect_roles": ["primary_financial_statement", "metric"],
+            "min_role_recall": 1.0,
+            "expect_form_types": ["10-Q"],
         },
         FakeRetriever(),
     )
 
     assert result.passed
     assert result.recall == 1.0
-    assert result.missing == []
+    assert result.missing_roles == []
+    assert result.form_ok
 
 
-def test_evaluate_case_reports_missing_evidence_ids() -> None:
+def test_evaluate_case_reports_missing_roles() -> None:
     result = evaluate_case(
         {
             "id": "missing_case",
             "ticker": "AAPL",
-            "question": "What was latest revenue?",
-            "expected_evidence_ids": ["chunk:999"],
+            "question": "What are the risks?",
+            "expect_roles": ["risk_factor"],
+            "min_role_recall": 1.0,
         },
         FakeRetriever(),
     )
 
     assert not result.passed
     assert result.recall == 0.0
-    assert result.missing[0].evidence_id == "chunk:999"
+    assert result.missing_roles == ["risk_factor"]
+
+
+def test_evaluate_case_fails_on_wrong_form_type() -> None:
+    result = evaluate_case(
+        {
+            "id": "form_case",
+            "ticker": "AAPL",
+            "question": "What was latest revenue?",
+            "expect_roles": ["primary_financial_statement"],
+            "min_role_recall": 1.0,
+            "expect_form_types": ["10-K"],
+        },
+        FakeRetriever(),
+    )
+
+    assert not result.form_ok
+    assert not result.passed
 
 
 def test_run_eval_file_with_fake_retriever(tmp_path) -> None:
@@ -56,13 +74,15 @@ def test_run_eval_file_with_fake_retriever(tmp_path) -> None:
                         "id": "sample_pass",
                         "ticker": "AAPL",
                         "question": "What was latest revenue?",
-                        "expected_evidence_ids": ["chunk:101"],
+                        "expect_roles": ["primary_financial_statement"],
+                        "min_role_recall": 1.0,
                     },
                     {
                         "id": "sample_fail",
                         "ticker": "AAPL",
-                        "question": "What was latest revenue?",
-                        "expected_evidence_ids": ["chunk:999"],
+                        "question": "What are the risks?",
+                        "expect_roles": ["risk_factor"],
+                        "min_role_recall": 1.0,
                     },
                 ],
             }
@@ -76,7 +96,7 @@ def test_run_eval_file_with_fake_retriever(tmp_path) -> None:
     assert result.failed_count == 1
     summary = format_eval_result(result)
     assert "sample_fail" in summary
-    assert "missing: chunk:999" in summary
+    assert "risk_factor" in summary
 
 
 class FakeRetriever:

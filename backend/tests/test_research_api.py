@@ -1,3 +1,4 @@
+import json
 from collections.abc import Generator
 
 from fastapi.testclient import TestClient
@@ -120,7 +121,7 @@ def test_retrieve_endpoint_returns_retrieval_trace(monkeypatch) -> None:
 
 def test_query_endpoint_returns_cited_answer(monkeypatch) -> None:
     class FakeResearchAnswerService:
-        def __init__(self, db) -> None:
+        def __init__(self, db, *, settings=None) -> None:
             self.db = db
 
         def answer(self, request):
@@ -255,7 +256,7 @@ def test_research_runs_endpoint_returns_auditable_run(monkeypatch) -> None:
     from app.schemas import ResearchRunDiagnosticsRead, ResearchRunRead, ResearchRunStepRead
 
     class FakeResearchRunService:
-        def __init__(self, db):
+        def __init__(self, db, *, settings=None):
             self.db = db
 
         def run(self, request):
@@ -299,3 +300,77 @@ def test_research_runs_endpoint_returns_auditable_run(monkeypatch) -> None:
     assert body["contract_version"] == "research_run.v1"
     assert body["run_id"] == "run-api"
     assert body["steps"][0]["phase"] == "planning"
+
+
+def test_research_runs_stream_endpoint_emits_events_and_final_run(monkeypatch) -> None:
+    from app.api.routes import research as research_routes
+    from app.schemas import ResearchRunDiagnosticsRead, ResearchRunRead
+
+    class FakeResearchRunService:
+        def __init__(self, db, *, settings=None):
+            self.db = db
+
+        def run(self, request, *, on_event=None, should_cancel=None):
+            assert on_event is not None
+            on_event({"type": "status", "stage": "planning", "message": "Planning."})
+            on_event({"type": "status", "stage": "answering"})
+            return ResearchRunRead(
+                run_id="run-stream",
+                status="completed",
+                ticker=request.ticker,
+                question=request.question,
+                answer="AAPL answer. [financial_fact:501]",
+                citations=[],
+                validation_status="passed",
+                validation={"status": "passed", "cited_evidence_ids": []},
+                limitations=[],
+                plan={"question_type": "metric"},
+                steps=[],
+                evidence=[],
+                diagnostics=ResearchRunDiagnosticsRead(),
+            )
+
+    monkeypatch.setattr(research_routes, "ResearchRunService", FakeResearchRunService)
+    override_db_session()
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/research/runs/stream",
+        json={"ticker": "AAPL", "question": "What was revenue?"},
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/x-ndjson")
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    app.dependency_overrides.clear()
+    assert [event["type"] for event in events] == ["status", "status", "run"]
+    assert events[-1]["run"]["run_id"] == "run-stream"
+    assert events[-1]["run"]["contract_version"] == "research_run.v1"
+
+
+def test_research_runs_stream_endpoint_reports_company_not_found(monkeypatch) -> None:
+    from app.api.routes import research as research_routes
+
+    class FailingResearchRunService:
+        def __init__(self, db, *, settings=None):
+            self.db = db
+
+        def run(self, request, *, on_event=None, should_cancel=None):
+            raise research_routes.RetrievalCompanyNotFoundError(
+                "Company not found: ZZZZ"
+            )
+
+    monkeypatch.setattr(research_routes, "ResearchRunService", FailingResearchRunService)
+    override_db_session()
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/research/runs/stream",
+        json={"ticker": "ZZZZ", "question": "What was revenue?"},
+    ) as response:
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    app.dependency_overrides.clear()
+    assert events == [{"type": "error", "message": "Company not found: ZZZZ"}]

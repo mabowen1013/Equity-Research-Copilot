@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     retrieval_fact_candidates: int = Field(default=20, ge=1, le=500)
     retrieval_top_k: int = Field(default=10, ge=1, le=50)
     research_agent_max_steps: int = Field(default=5, ge=1, le=10)
+    research_agent_llm_model: str = "gpt-4o-mini"
+    research_agent_llm_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
+    research_agent_llm_max_retries: int = Field(default=0, ge=0, le=5)
     query_planner_mode: Literal["llm", "rule_only", "rule_with_llm_fallback"] = "llm"
     query_planner_llm_model: str = "gpt-4o-mini"
     query_planner_llm_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
@@ -44,6 +47,16 @@ class Settings(BaseSettings):
     answer_llm_timeout_seconds: float = Field(default=30.0, gt=0, le=90)
     answer_llm_max_retries: int = Field(default=0, ge=0, le=5)
     answer_llm_max_output_tokens: int = Field(default=900, ge=64, le=4096)
+    # Claim-level entailment is an extra LLM call on the validation path, so it is
+    # opt-in per environment (set ANSWER_ENTAILMENT_CHECK=true to enable).
+    answer_entailment_check: bool = False
+    answer_entailment_llm_model: str = "gpt-4o-mini"
+    # Answerability gate: before generating, judge whether the question can be
+    # answered from the retrieved evidence; declines off-topic / unavailable-metric
+    # questions instead of fabricating. Extra pre-generation LLM call, so opt-in
+    # (set ANSWER_RELEVANCE_CHECK=true to enable).
+    answer_relevance_check: bool = False
+    answer_relevance_llm_model: str = "gpt-4o-mini"
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",

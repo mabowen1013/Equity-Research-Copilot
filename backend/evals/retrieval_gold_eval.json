@@ -1,65 +1,19 @@
 {
   "suite_name": "retrieval_gold_eval",
-  "description": "Small Milestone 5 regression set. Evidence ids were seeded from the local AAPL 2026-05-01 10-Q retrieval dump; refresh ids after reingesting filings or changing chunking.",
-  "version": "1.0",
+  "description": "Retrieval regression set keyed on stable evidence ROLES (survives re-ingestion): role recall = fraction of expected roles populated in the final evidence pack; role precision = share of surfaced roles that were expected. Across 6 companies (AAPL/MSFT/NVDA/TSLA/META/JPM).",
+  "version": "3.0",
   "cases": [
-    {
-      "id": "aapl_latest_10q_summary_core_pack",
-      "ticker": "AAPL",
-      "question": "Tell me what matters in Apple's latest 10-Q.",
-      "min_recall": 0.6,
-      "expected_evidence_ids": [
-        "chunk:1252",
-        "chunk:1279",
-        "span:1252:primary_financial_statement_chunks:0:679",
-        "span:1279:mda_explanation_chunks:966:1052",
-        "span:1280:segment_or_product_breakdown_chunks:437:1323"
-      ]
-    },
-    {
-      "id": "aapl_latest_revenue_drivers",
-      "ticker": "AAPL",
-      "question": "Why did Apple's revenue increase in the latest quarter?",
-      "min_recall": 0.6,
-      "expected_evidence_ids": [
-        "chunk:1279",
-        "span:1279:mda_explanation_chunks:833:965",
-        "span:1279:mda_explanation_chunks:966:1052"
-      ]
-    },
-    {
-      "id": "aapl_latest_segment_sales",
-      "ticker": "AAPL",
-      "question": "Which geographies drove Apple's latest net sales?",
-      "min_recall": 0.5,
-      "expected_evidence_ids": [
-        "chunk:1277",
-        "span:1277:mda_explanation_chunks:904:1005",
-        "span:1277:mda_explanation_chunks:1603:1709"
-      ]
-    },
-    {
-      "id": "aapl_latest_product_sales",
-      "ticker": "AAPL",
-      "question": "Which product categories drove Apple's latest net sales?",
-      "min_recall": 0.5,
-      "expected_evidence_ids": [
-        "chunk:1279",
-        "span:1279:mda_explanation_chunks:833:965",
-        "span:1279:mda_explanation_chunks:966:1052"
-      ]
-    },
-    {
-      "id": "aapl_latest_financial_statement_evidence",
-      "ticker": "AAPL",
-      "question": "Show Apple's latest income statement evidence for revenue and profitability.",
-      "min_recall": 0.5,
-      "expected_evidence_ids": [
-        "chunk:1252",
-        "chunk:1258",
-        "span:1252:primary_financial_statement_chunks:0:679",
-        "span:1252:primary_financial_statement_chunks:680:1333"
-      ]
-    }
+    {"id": "aapl_metric", "ticker": "AAPL", "question": "What was Apple's revenue in the latest quarter?", "expect_roles": ["metric", "primary_financial_statement"], "min_role_recall": 0.5},
+    {"id": "aapl_risk", "ticker": "AAPL", "question": "What are Apple's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "msft_metric", "ticker": "MSFT", "question": "What was Microsoft's revenue in the latest quarter?", "expect_roles": ["metric", "primary_financial_statement"], "min_role_recall": 0.5},
+    {"id": "msft_risk", "ticker": "MSFT", "question": "What are Microsoft's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "nvda_why", "ticker": "NVDA", "question": "Why did NVIDIA's revenue grow year over year?", "expect_roles": ["metric", "mda_explanation"], "min_role_recall": 0.5},
+    {"id": "nvda_risk", "ticker": "NVDA", "question": "What are NVIDIA's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "tsla_metric", "ticker": "TSLA", "question": "What was Tesla's revenue in the latest quarter?", "expect_roles": ["metric", "primary_financial_statement"], "min_role_recall": 0.5},
+    {"id": "tsla_risk", "ticker": "TSLA", "question": "What are Tesla's key risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "meta_why", "ticker": "META", "question": "Why did Meta's revenue grow year over year?", "expect_roles": ["metric", "mda_explanation"], "min_role_recall": 0.5},
+    {"id": "meta_risk", "ticker": "META", "question": "What are Meta's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0},
+    {"id": "jpm_metric", "ticker": "JPM", "question": "What was JPMorgan's total revenue in the latest period?", "expect_roles": ["metric"], "min_role_recall": 1.0},
+    {"id": "jpm_risk", "ticker": "JPM", "question": "What are JPMorgan's main risk factors?", "expect_roles": ["risk_factor"], "min_role_recall": 1.0}
   ]
 }

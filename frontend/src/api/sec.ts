@@ -256,6 +256,7 @@ export type AnswerEvidenceSpan = {
   evidence_id: string;
   type: "evidence_span";
   chunk_id: number;
+  filing_id: number;
   source_chunk_evidence_id: string;
   role: string;
   score: number;
@@ -341,6 +342,9 @@ export type CitationValidation = {
   allowed_evidence_ids: string[];
   prompt_evidence_ids: string[];
   errors: CitationValidationIssue[];
+  warnings: CitationValidationIssue[];
+  claim_sentence_count: number;
+  cited_claim_sentence_count: number;
 };
 
 export type ResearchAnswerResponse = {
@@ -461,13 +465,14 @@ export function fetchCompanyMetrics(
   ticker: string,
   metricKey?: string,
 ): Promise<FinancialFact[]> {
-  const params = new URLSearchParams({ limit: "1000" });
+  const params = new URLSearchParams();
   if (metricKey) {
     params.set("metric_key", metricKey);
   }
+  const query = params.toString();
 
   return requestJson<FinancialFact[]>(
-    `/companies/${encodeURIComponent(ticker)}/metrics?${params.toString()}`,
+    `/companies/${encodeURIComponent(ticker)}/metrics${query ? `?${query}` : ""}`,
   );
 }
 
@@ -538,4 +543,54 @@ export function runResearch(request: {
     headers: { "Content-Type": "application/json" },
     method: "POST",
   });
+}
+
+export type ResearchStreamEvent =
+  | { type: "status"; stage: string; message?: string }
+  | { type: "step"; step: ResearchRunStep }
+  | { type: "validation"; status: string }
+  | { type: "run"; run: ResearchRunResponse }
+  | { type: "error"; message: string };
+
+export async function streamResearch(
+  request: {
+    ticker: string;
+    question: string;
+    form_type?: string;
+    section?: string;
+  },
+  onEvent: (event: ResearchStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch("/research/runs/stream", {
+    body: JSON.stringify(request),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+
+  if (!response.ok || response.body === null) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Request failed with status ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex !== -1) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        onEvent(JSON.parse(line) as ResearchStreamEvent);
+      }
+      newlineIndex = buffer.indexOf("\n");
+    }
+  }
 }

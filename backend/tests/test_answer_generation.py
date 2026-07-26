@@ -1,15 +1,25 @@
 from datetime import date
 from decimal import Decimal
 
+from app.core import Settings
 from app.schemas import (
     CitationValidationIssueRead,
     MetricComparisonRead,
     RetrievalRequest,
 )
+from app.schemas.answer import AnswerCitationRead
 from app.services.answer_generation import (
+    AnswerStreamEmitter,
+    PromptEvidenceRecord,
+    answer_stream_system_prompt,
     answer_system_prompt,
+    build_answer_prompt_payload,
+    build_citation_alias_map,
     metric_comparison_record,
     normalize_generated_answer_citations,
+    parse_entailment_labels,
+    parse_salient_numbers,
+    split_streamed_answer,
 )
 from app.services import (
     CitationValidator,
@@ -161,6 +171,27 @@ def test_answer_prompt_discourages_generic_limitations() -> None:
     assert "margin changes in percentage points" in prompt
 
 
+def test_answer_prompts_instruct_index_based_citations() -> None:
+    assert "[index]" in answer_system_prompt()
+    assert "[index]" in answer_stream_system_prompt()
+
+
+def test_answer_prompt_payload_indexes_evidence_for_numbered_citations() -> None:
+    context = make_context()
+    records = build_prompt_evidence_records(context)
+    payload = build_answer_prompt_payload(context, records)
+
+    # Each evidence object carries a 1-based index the model is told to cite.
+    indexes = [item["index"] for item in payload["evidence"]]
+    assert indexes == list(range(1, len(records) + 1))
+
+    # The index the model sees must resolve back to that record's evidence_id,
+    # which is what makes a streamed "[1]" marker validate after normalization.
+    alias_map = build_citation_alias_map(records)
+    for item in payload["evidence"]:
+        assert alias_map[str(item["index"])] == item["evidence_id"]
+
+
 def test_metric_comparison_prompt_record_formats_margin_as_percentages() -> None:
     comparison = MetricComparisonRead(
         evidence_id="metric_comparison:gross_margin:latest_quarter_yoy:47518:47512",
@@ -306,6 +337,13 @@ def test_research_answer_service_answers_from_existing_retrieval_response() -> N
     assert response.validation_status == "passed"
     assert response.retrieval_plan.question_type == "metric"
     assert generator.call_count == 1
+    span_citation = next(
+        citation
+        for citation in response.citations
+        if citation.evidence_type == "evidence_span"
+    )
+    assert span_citation.source_ids["filing_id"] == 10
+    assert span_citation.source_ids["chunk_id"] == 101
 
 
 def test_research_answer_service_uses_extractive_fallback_after_failed_retry() -> None:
@@ -339,6 +377,95 @@ def test_research_answer_service_uses_extractive_fallback_after_failed_retry() -
     assert generator.call_count == 2
 
 
+def test_split_streamed_answer_extracts_limitations_block() -> None:
+    content = (
+        "Revenue grew 8%. [financial_fact:501]\n"
+        "LIMITATIONS:\n"
+        "- Only one quarter of data was available.\n"
+        "- No segment detail.\n"
+    )
+
+    answer, limitations = split_streamed_answer(content)
+
+    assert answer == "Revenue grew 8%. [financial_fact:501]"
+    assert limitations == [
+        "Only one quarter of data was available.",
+        "No segment detail.",
+    ]
+
+
+def test_split_streamed_answer_without_limitations_block() -> None:
+    answer, limitations = split_streamed_answer("Revenue grew. [chunk:1]\n")
+
+    assert answer == "Revenue grew. [chunk:1]"
+    assert limitations == []
+
+
+def test_answer_stream_emitter_withholds_limitations_block() -> None:
+    deltas: list[str] = []
+    emitter = AnswerStreamEmitter(deltas.append)
+
+    for piece in [
+        "Revenue grew 8%. ",
+        "[financial_fact:501]",
+        "\nLIMIT",
+        "ATIONS:\n- Only one quarter.",
+    ]:
+        emitter.feed(piece)
+    full_text = emitter.finish()
+
+    streamed = "".join(deltas)
+    assert streamed.strip() == "Revenue grew 8%. [financial_fact:501]"
+    assert "LIMITATIONS" not in streamed
+    assert "LIMITATIONS:" in full_text
+
+
+def test_answer_stream_emitter_flushes_tail_without_sentinel() -> None:
+    deltas: list[str] = []
+    emitter = AnswerStreamEmitter(deltas.append)
+
+    emitter.feed("Revenue grew 8%. [financial_fact:501]")
+    full_text = emitter.finish()
+
+    assert "".join(deltas) == full_text == "Revenue grew 8%. [financial_fact:501]"
+
+
+def test_research_answer_service_emits_stream_events_when_on_event_provided() -> None:
+    answer = (
+        "Total net sales were supported by the selected filing span. "
+        "[span:101:primary_financial_statement_chunks:0:80]"
+    )
+    generator = SequenceAnswerGenerator(
+        [
+            GeneratedAnswer(
+                answer=answer,
+                cited_evidence_ids=["span:101:primary_financial_statement_chunks:0:80"],
+            ),
+        ]
+    )
+    service = ResearchAnswerService(
+        None,
+        retriever=FakeRetriever(),
+        answer_generator=generator,
+    )
+    events: list[dict] = []
+
+    response = service.answer_from_retrieval_response(
+        make_request(),
+        make_response(),
+        on_event=events.append,
+    )
+
+    assert response.validation_status == "passed"
+    # Unvalidated answer text is never forwarded; only a status event signals
+    # activity, and the validated answer reaches the caller via the response.
+    assert [event["type"] for event in events] == ["status", "validation"]
+    assert "answer_delta" not in [event["type"] for event in events]
+    assert events[0]["stage"] == "answering"
+    assert events[-1]["status"] == "passed"
+    assert response.answer == answer
+
+
 def test_research_answer_service_returns_insufficient_evidence_when_prompt_empty() -> None:
     service = ResearchAnswerService(
         None,
@@ -351,6 +478,62 @@ def test_research_answer_service_returns_insufficient_evidence_when_prompt_empty
     assert response.validation_status == "insufficient_evidence"
     assert response.prompt_evidence_ids == []
     assert response.validation.errors[0].code == "insufficient_evidence"
+
+
+class FakeAnswerabilityJudge:
+    def __init__(self, answerable: bool, reason: str = "") -> None:
+        self._answerable = answerable
+        self._reason = reason
+        self.calls = 0
+
+    def is_answerable(self, question, evidence_records):
+        self.calls += 1
+        return self._answerable, self._reason
+
+
+def _passing_generator() -> "SequenceAnswerGenerator":
+    return SequenceAnswerGenerator(
+        [
+            GeneratedAnswer(
+                answer=(
+                    "Total net sales were supported by the selected filing span. "
+                    "[span:101:primary_financial_statement_chunks:0:80]"
+                ),
+                cited_evidence_ids=["span:101:primary_financial_statement_chunks:0:80"],
+            )
+        ]
+    )
+
+
+def test_answerability_gate_declines_unanswerable_question() -> None:
+    judge = FakeAnswerabilityJudge(False, "evidence has no gross margin")
+    service = ResearchAnswerService(
+        None,
+        retriever=FakeRetriever(),
+        answer_generator=_passing_generator(),
+        answerability_judge=judge,
+    )
+
+    response = service.answer(make_request())
+
+    assert judge.calls == 1
+    assert response.validation_status == "insufficient_evidence"
+    assert response.validation.errors[0].code == "question_not_answerable"
+
+
+def test_answerability_gate_allows_answerable_question() -> None:
+    judge = FakeAnswerabilityJudge(True)
+    service = ResearchAnswerService(
+        None,
+        retriever=FakeRetriever(),
+        answer_generator=_passing_generator(),
+        answerability_judge=judge,
+    )
+
+    response = service.answer(make_request())
+
+    assert judge.calls == 1
+    assert response.validation_status == "passed"
 
 
 class SequenceAnswerGenerator:
@@ -399,3 +582,223 @@ def make_empty_response():
         }
     )
     return response
+
+
+def make_number_record(evidence_id: str, text: str) -> PromptEvidenceRecord:
+    return PromptEvidenceRecord(
+        evidence_id=evidence_id,
+        evidence_type="financial_fact",
+        source_label="fact",
+        text=text,
+        citation=AnswerCitationRead(
+            evidence_id=evidence_id,
+            evidence_type="financial_fact",
+        ),
+    )
+
+
+def test_parse_salient_numbers_extracts_amounts_and_percents() -> None:
+    parsed = parse_salient_numbers(
+        "Revenue was $111.18B, up 8.1%, and 2.3 percentage points in FY2024."
+    )
+
+    pairs = {(kind, value) for kind, value, _ in parsed}
+    assert ("amount", Decimal("111.18e9")) in pairs
+    assert ("percent", Decimal("8.1")) in pairs
+    assert ("percent", Decimal("2.3")) in pairs
+    # The bare year must not be treated as a financial claim.
+    assert all(value != Decimal("2024") for _, value, _ in parsed)
+
+
+def test_citation_validator_flags_unsupported_number() -> None:
+    records = [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for Q2 2026 quarter."
+        )
+    ]
+    generated = GeneratedAnswer(
+        answer="Revenue was $950B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=records,
+    )
+
+    assert validation.status == "passed"
+    codes = {warning.code for warning in validation.warnings}
+    assert "unsupported_number" in codes
+    assert "citation_number_mismatch" not in codes
+
+
+def test_citation_validator_flags_citation_number_mismatch() -> None:
+    records = [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for Q2 2026 quarter."
+        ),
+        make_number_record(
+            "financial_fact:777", "Net Income was $24.16B for Q2 2026 quarter."
+        ),
+    ]
+    generated = GeneratedAnswer(
+        answer="Net income was $24.2B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501", "financial_fact:777"],
+        prompt_evidence_ids=["financial_fact:501", "financial_fact:777"],
+        evidence_records=records,
+    )
+
+    assert validation.status == "passed"
+    codes = {warning.code for warning in validation.warnings}
+    assert "citation_number_mismatch" in codes
+    assert "unsupported_number" not in codes
+
+
+def test_citation_validator_accepts_rounded_supported_number() -> None:
+    records = [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for Q2 2026 quarter."
+        )
+    ]
+    generated = GeneratedAnswer(
+        answer="Revenue was $111.2B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=records,
+    )
+
+    assert validation.status == "passed"
+    codes = {warning.code for warning in validation.warnings}
+    assert "unsupported_number" not in codes
+    assert "citation_number_mismatch" not in codes
+
+
+def test_citation_validator_skips_number_checks_without_evidence_records() -> None:
+    generated = GeneratedAnswer(
+        answer="Revenue was $950B. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator().validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+    )
+
+    codes = {warning.code for warning in validation.warnings}
+    assert "unsupported_number" not in codes
+    assert "citation_number_mismatch" not in codes
+
+
+class FakeEntailmentJudge:
+    def __init__(self, labels: list[str]) -> None:
+        self._labels = labels
+        self.calls = 0
+
+    def judge(self, claims: list[dict]) -> list[str]:
+        self.calls += 1
+        return [self._labels[i] if i < len(self._labels) else "entailed" for i in range(len(claims))]
+
+
+def _entail_records() -> list[PromptEvidenceRecord]:
+    return [
+        make_number_record(
+            "financial_fact:501", "Revenue was $111.18B for the Q2 2026 quarter."
+        )
+    ]
+
+
+def test_entailment_contradiction_fails_validation() -> None:
+    generated = GeneratedAnswer(
+        answer="Apple plans to discontinue the iPhone next year. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(
+        entailment_judge=FakeEntailmentJudge(["contradicted"])
+    ).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert validation.status == "failed"
+    assert "contradicted_claim" in {issue.code for issue in validation.errors}
+
+
+def test_entailment_neutral_warns_without_failing() -> None:
+    generated = GeneratedAnswer(
+        answer="Apple is focused on its services strategy. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(
+        entailment_judge=FakeEntailmentJudge(["neutral"])
+    ).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert validation.status == "passed"
+    assert "unsupported_claim" in {issue.code for issue in validation.warnings}
+
+
+def test_entailment_entailed_is_clean() -> None:
+    judge = FakeEntailmentJudge(["entailed"])
+    generated = GeneratedAnswer(
+        answer="Revenue was strong this quarter. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(entailment_judge=judge).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert judge.calls == 1
+    codes = {issue.code for issue in [*validation.errors, *validation.warnings]}
+    assert "contradicted_claim" not in codes
+    assert "unsupported_claim" not in codes
+
+
+def test_entailment_skipped_when_check_disabled() -> None:
+    # Default settings keep the check off, so no judge runs even on a contradiction.
+    generated = GeneratedAnswer(
+        answer="Apple plans to discontinue the iPhone next year. [financial_fact:501]",
+        cited_evidence_ids=["financial_fact:501"],
+    )
+
+    validation = CitationValidator(settings=Settings(_env_file=None)).validate(
+        generated,
+        allowed_evidence_ids=["financial_fact:501"],
+        prompt_evidence_ids=["financial_fact:501"],
+        evidence_records=_entail_records(),
+    )
+
+    assert validation.status == "passed"
+    assert "contradicted_claim" not in {issue.code for issue in validation.errors}
+
+
+def test_parse_entailment_labels_normalizes_and_pads() -> None:
+    labels = parse_entailment_labels(
+        '{"labels": ["Contradicted", {"label": "neutral"}, "bogus"]}', 4
+    )
+
+    assert labels == ["contradicted", "neutral", "entailed", "entailed"]

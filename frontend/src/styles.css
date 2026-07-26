@@ -585,6 +585,31 @@ h3 {
   background: #eef4fb;
 }
 
+.live-stage-pill {
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #eef4fb;
+  color: #2459b3;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.trace-step--running {
+  border-style: dashed;
+  border-color: #2459b3;
+  animation: live-step-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes live-step-pulse {
+  0%,
+  100% {
+    background: #ffffff;
+  }
+  50% {
+    background: #eef4fb;
+  }
+}
+
 .run-evidence-card {
   border: 1px solid #e3e9f0;
   border-radius: 8px;
@@ -906,6 +931,30 @@ h3 {
 .trace-warning-list span {
   background: #fff1f1;
   color: #9a2f2f;
+}
+
+.claim-coverage {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.coverage-warning-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.coverage-warning-list span {
+  border-radius: 8px;
+  background: #fff8e6;
+  color: #8a5a00;
+  padding: 6px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .metric-group-grid {

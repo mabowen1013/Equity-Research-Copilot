@@ -4,11 +4,16 @@ import json
 
 from app.evals.answer_eval import (
     AnswerGoldEvalResult,
+    check_case,
     format_eval_result,
     run_eval_file,
 )
 from app.schemas import RetrievalRequest
-from app.schemas.answer import AnswerCitationRead, CitationValidationRead
+from app.schemas.answer import (
+    AnswerCitationRead,
+    CitationValidationIssueRead,
+    CitationValidationRead,
+)
 from app.schemas.research_run import ResearchRunRead
 
 
@@ -20,6 +25,8 @@ def build_run(
     claim_sentence_count: int = 2,
     cited_claim_sentence_count: int = 2,
     duration_ms: float = 1200.0,
+    warnings: list[CitationValidationIssueRead] | None = None,
+    errors: list[CitationValidationIssueRead] | None = None,
 ) -> ResearchRunRead:
     cited_ids = [citation.evidence_id for citation in (citations or [])]
     return ResearchRunRead(
@@ -38,6 +45,8 @@ def build_run(
             prompt_evidence_ids=cited_ids,
             claim_sentence_count=claim_sentence_count,
             cited_claim_sentence_count=cited_claim_sentence_count,
+            warnings=warnings or [],
+            errors=errors or [],
         ),
         plan={},
     )
@@ -176,6 +185,113 @@ def test_answer_eval_checks_validation_status_and_latency(tmp_path) -> None:
     assert result.failed_count == 1
     failure_codes = [failure.code for failure in result.results[0].failures]
     assert failure_codes == ["max_duration_ms"]
+
+
+def test_answer_eval_value_match_enforces_numeric_truth(tmp_path) -> None:
+    citation = AnswerCitationRead(evidence_id="chunk:1", evidence_type="chunk")
+    runner = FakeRunner(
+        build_run(
+            answer="Apple's total revenue was $416.2B for fiscal 2025. [chunk:1]",
+            citations=[citation],
+        )
+    )
+    eval_file = write_eval_file(
+        tmp_path,
+        [
+            {
+                "id": "value_ok",
+                "ticker": "AAPL",
+                "question": "Apple FY revenue?",
+                "expect_values": [{"kind": "amount", "value": 416161000000, "rel_tol": 0.02}],
+            },
+            {
+                "id": "value_bad",
+                "ticker": "AAPL",
+                "question": "Apple FY revenue?",
+                "expect_values": [{"kind": "amount", "value": 950000000000}],
+            },
+        ],
+    )
+
+    result = run_eval_file(eval_file, runner=runner)
+
+    by_id = {case.case_id: case for case in result.results}
+    assert by_id["value_ok"].passed
+    assert "value_mismatch" in [f.code for f in by_id["value_bad"].failures]
+
+
+def test_answer_eval_promotes_grounding_warning_to_failure(tmp_path) -> None:
+    citation = AnswerCitationRead(evidence_id="chunk:1", evidence_type="chunk")
+    runner = FakeRunner(
+        build_run(
+            answer="Revenue was $950B. [chunk:1]",
+            citations=[citation],
+            warnings=[
+                CitationValidationIssueRead(
+                    code="unsupported_number", message="not supported"
+                )
+            ],
+        )
+    )
+    eval_file = write_eval_file(
+        tmp_path,
+        [
+            {
+                "id": "warn",
+                "ticker": "AAPL",
+                "question": "Revenue?",
+                "max_warning_codes": {"unsupported_number": 0},
+            }
+        ],
+    )
+
+    result = run_eval_file(eval_file, runner=runner)
+
+    assert result.failed_count == 1
+    assert "warning_cap" in [f.code for f in result.results[0].failures]
+    assert result.results[0].grounding_warnings == 1
+
+
+def test_answer_eval_contradicted_claim_gate(tmp_path) -> None:
+    citation = AnswerCitationRead(evidence_id="chunk:1", evidence_type="chunk")
+    runner = FakeRunner(
+        build_run(
+            answer="Apple will discontinue the iPhone. [chunk:1]",
+            citations=[citation],
+            errors=[
+                CitationValidationIssueRead(
+                    code="contradicted_claim", message="evidence contradicts"
+                )
+            ],
+        )
+    )
+    eval_file = write_eval_file(
+        tmp_path,
+        [{"id": "contra", "ticker": "AAPL", "question": "iPhone plans?"}],
+    )
+
+    result = run_eval_file(eval_file, runner=runner)
+
+    assert "contradicted_claim" in [f.code for f in result.results[0].failures]
+    assert result.results[0].contradicted_claims == 1
+
+
+def test_check_case_flags_stale_filing() -> None:
+    run = build_run(
+        answer="Revenue was $94.0B. [chunk:1]",
+        citations=[
+            AnswerCitationRead(
+                evidence_id="chunk:1", evidence_type="chunk", filing_date="2024-08-01"
+            )
+        ],
+    )
+    failures = check_case(
+        {"id": "p", "ticker": "AAPL", "question": "q", "expect_latest_filing": True},
+        run,
+        latest_filing_date="2026-05-01",
+    )
+
+    assert "stale_filing" in [f.code for f in failures]
 
 
 def test_format_eval_result_lists_failures(tmp_path) -> None:

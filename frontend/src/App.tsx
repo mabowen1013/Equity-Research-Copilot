@@ -24,7 +24,7 @@ import {
   ingestCompany,
   loadCompanyMetrics,
   parseFiling,
-  runResearch,
+  streamResearch,
 } from "./api/sec";
 import "./styles.css";
 
@@ -265,6 +265,8 @@ export function App() {
     null,
   );
   const [selectedRunStepId, setSelectedRunStepId] = useState<string | null>(null);
+  const [liveStage, setLiveStage] = useState<string | null>(null);
+  const [liveSteps, setLiveSteps] = useState<ResearchRunStep[]>([]);
   const [isLoadingCompany, setIsLoadingCompany] = useState(false);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [isLoadingParsedData, setIsLoadingParsedData] = useState(false);
@@ -521,20 +523,36 @@ export function App() {
     setIsAsking(true);
     setError(null);
     setMessage(null);
+    setResearchRun(null);
+    setSelectedRunStepId(null);
+    setLiveStage("planning");
+    setLiveSteps([]);
 
     try {
-      const nextRun = await runResearch({
-        ticker: company.ticker,
-        question,
+      await streamResearch({ ticker: company.ticker, question }, (event) => {
+        if (event.type === "status") {
+          setLiveStage(event.stage);
+        } else if (event.type === "step") {
+          setLiveStage("retrieval");
+          setLiveSteps((current) =>
+            current.some((step) => step.step_id === event.step.step_id)
+              ? current
+              : [...current, event.step],
+          );
+        } else if (event.type === "validation") {
+          setLiveStage("validation");
+        } else if (event.type === "run") {
+          setResearchRun(event.run);
+          setSelectedRunStepId(event.run.steps[0]?.step_id ?? null);
+        } else if (event.type === "error") {
+          setError(event.message);
+        }
       });
-      setResearchRun(nextRun);
-      setSelectedRunStepId(nextRun.steps[0]?.step_id ?? null);
     } catch (retrievalError) {
-      setResearchRun(null);
-      setSelectedRunStepId(null);
       setError(getErrorMessage(retrievalError));
     } finally {
       setIsAsking(false);
+      setLiveStage(null);
     }
   }
 
@@ -870,6 +888,8 @@ export function App() {
             run={researchRun}
             selectedStepId={selectedRunStepId}
             isAsking={isAsking}
+            liveStage={liveStage}
+            liveSteps={liveSteps}
             onQuestionChange={setResearchQuestion}
             onSelectStep={setSelectedRunStepId}
             onSubmit={handleRetrieveEvidence}
@@ -887,6 +907,8 @@ function ResearchPage({
   run,
   selectedStepId,
   isAsking,
+  liveStage,
+  liveSteps,
   onQuestionChange,
   onSelectStep,
   onSubmit,
@@ -897,6 +919,8 @@ function ResearchPage({
   run: ResearchRunResponse | null;
   selectedStepId: string | null;
   isAsking: boolean;
+  liveStage: string | null;
+  liveSteps: ResearchRunStep[];
   onQuestionChange: (question: string) => void;
   onSelectStep: (stepId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
@@ -941,7 +965,9 @@ function ResearchPage({
         </button>
       </form>
 
-      {run === null ? (
+      {run === null && isAsking ? (
+        <LiveRunProgress stage={liveStage} steps={liveSteps} />
+      ) : run === null ? (
         <p className="empty-state">
           {hasCompany
             ? "Ask a question to generate a cited, validator-checked answer."
@@ -979,6 +1005,25 @@ function ResearchPage({
                     {run.validation.errors.map((issue) => (
                       <span key={`${issue.code}:${issue.evidence_id ?? issue.sentence ?? ""}`}>
                         {issue.code}: {issue.message}
+                      </span>
+                    ))}
+                  </div>
+                </details>
+              )}
+              {run.validation.claim_sentence_count > 0 && (
+                <p className="claim-coverage">
+                  Claim citation coverage: {run.validation.cited_claim_sentence_count}/
+                  {run.validation.claim_sentence_count} claim sentences cited
+                </p>
+              )}
+              {run.validation.warnings.length > 0 && (
+                <details className="validation-debug">
+                  <summary>Coverage warnings ({run.validation.warnings.length})</summary>
+                  <div className="coverage-warning-list">
+                    {run.validation.warnings.map((issue, index) => (
+                      <span key={`${issue.code}:${issue.sentence ?? issue.evidence_id ?? index}`}>
+                        {issue.code}: {issue.message}
+                        {issue.sentence ? ` — “${issue.sentence}”` : ""}
                       </span>
                     ))}
                   </div>
@@ -1077,6 +1122,54 @@ function ResearchPage({
   );
 }
 
+const LIVE_STAGE_LABELS: Record<string, string> = {
+  planning: "Planning retrieval",
+  retrieval: "Gathering evidence",
+  answering: "Writing cited answer",
+  validation: "Validating citations",
+};
+
+function LiveRunProgress({
+  stage,
+  steps,
+}: {
+  stage: string | null;
+  steps: ResearchRunStep[];
+}) {
+  const stageLabel = LIVE_STAGE_LABELS[stage ?? ""] ?? "Working";
+
+  // The answer draft is never streamed before validation: we only show live agent
+  // progress, and the validated answer is revealed once the run completes.
+  return (
+    <div className="research-results">
+      <section className="trace-panel" aria-labelledby="live-trace-heading">
+        <div className="panel-header panel-header--compact">
+          <h3 id="live-trace-heading">Agent Trace</h3>
+          <span className="live-stage-pill">{stageLabel}…</span>
+        </div>
+        <div className="trace-list">
+          {steps.map((step) => (
+            <div className="trace-step" key={step.step_id}>
+              <span>
+                {step.phase} | {step.status}
+              </span>
+              <strong>{step.name}</strong>
+              <small>{step.summary}</small>
+            </div>
+          ))}
+          <div className="trace-step trace-step--running">
+            <span>in progress</span>
+            <strong>{stageLabel}…</strong>
+          </div>
+        </div>
+        <p className="empty-state" aria-live="polite">
+          The validated answer appears here once citation checks pass.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function CitedAnswer({
   answer,
   citationNumberById,
@@ -1110,27 +1203,43 @@ function EvidenceCards({ evidence }: { evidence: ResearchRunEvidence[] }) {
 
   return (
     <div className="run-evidence-list">
-      {evidence.map((item) => (
-        <article className="run-evidence-card" key={item.evidence_id}>
-          <div className="chunk-meta">
-            <span>{item.evidence_type}</span>
-            <span>{item.role}</span>
-            {item.form_type && <span>{item.form_type}</span>}
-          </div>
-          <h4>{item.title}</h4>
-          {item.text && <p>{item.text}</p>}
-          <div className="chunk-meta chunk-meta--subtle">
-            {item.period && <span>{item.period}</span>}
-            {item.section && <span>{item.section}</span>}
-            {item.filing_date && <span>{item.filing_date}</span>}
-          </div>
-          {item.sec_url && (
-            <a href={item.sec_url} target="_blank" rel="noreferrer">
-              SEC Source
-            </a>
-          )}
-        </article>
-      ))}
+      {evidence.map((item) => {
+        const filingId = getNumericSourceId(item.source_ids, "filing_id");
+        const chunkId = getNumericSourceId(item.source_ids, "chunk_id");
+
+        return (
+          <article className="run-evidence-card" key={item.evidence_id}>
+            <div className="chunk-meta">
+              <span>{item.evidence_type}</span>
+              <span>{item.role}</span>
+              {item.form_type && <span>{item.form_type}</span>}
+            </div>
+            <h4>{item.title}</h4>
+            {item.text && <p>{item.text}</p>}
+            <div className="chunk-meta chunk-meta--subtle">
+              {item.period && <span>{item.period}</span>}
+              {item.section && <span>{item.section}</span>}
+              {item.filing_date && <span>{item.filing_date}</span>}
+            </div>
+            <div className="chunk-actions">
+              {item.sec_url && (
+                <a href={item.sec_url} target="_blank" rel="noreferrer">
+                  SEC Source
+                </a>
+              )}
+              {filingId !== null && chunkId !== null && (
+                <a
+                  href={getHighlightedSourceUrl(filingId, chunkId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Highlighted Source
+                </a>
+              )}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -1228,8 +1337,8 @@ function PillRow({
 }
 
 function CitationCard({ citation, number }: { citation: AnswerCitation; number: number }) {
-  const chunkId = getNumericSourceId(citation, "chunk_id");
-  const filingId = getNumericSourceId(citation, "filing_id");
+  const chunkId = getNumericSourceId(citation.source_ids, "chunk_id");
+  const filingId = getNumericSourceId(citation.source_ids, "filing_id");
 
   return (
     <article className="citation-card" id={citationDomId(citation.evidence_id)}>
@@ -1266,8 +1375,8 @@ function formatCitationType(type: string): string {
     .join(" ");
 }
 
-function getNumericSourceId(citation: AnswerCitation, key: string): number | null {
-  const value = citation.source_ids[key];
+function getNumericSourceId(sourceIds: Record<string, unknown>, key: string): number | null {
+  const value = sourceIds[key];
   return typeof value === "number" ? value : null;
 }
 

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db_session, get_sessionmaker
@@ -122,27 +122,54 @@ def load_company_metrics(
 def list_company_metrics(
     ticker: str,
     metric_key: str | None = None,
-    limit: int = Query(default=200, ge=1, le=1000),
+    per_metric_limit: int = Query(
+        default=200,
+        ge=1,
+        le=1000,
+        description=(
+            "Max recent facts returned per canonical metric. A per-metric window "
+            "(not a single global cap) ensures no metric is starved for companies "
+            "with many facts."
+        ),
+    ),
     db: Session = Depends(get_db_session),
 ) -> list[FinancialFact]:
     company = get_company_or_404(ticker, db)
-    statement = (
-        select(FinancialFact)
-        .where(FinancialFact.company_id == company.id)
-        .order_by(
-            FinancialFact.canonical_metric_key,
-            FinancialFact.period_end.desc(),
-            FinancialFact.filed_date.desc().nullslast(),
-            FinancialFact.id.desc(),
-        )
-        .limit(limit)
-    )
 
+    normalized_metric_key: str | None = None
     if metric_key is not None:
         normalized_metric_key = metric_key.strip().lower()
         if not normalized_metric_key:
             raise HTTPException(status_code=400, detail="Metric key must not be empty")
-        statement = statement.where(FinancialFact.canonical_metric_key == normalized_metric_key)
+
+    recency_order = (
+        FinancialFact.period_end.desc(),
+        FinancialFact.filed_date.desc().nullslast(),
+        FinancialFact.id.desc(),
+    )
+    ranked = select(
+        FinancialFact.id.label("fact_id"),
+        func.row_number()
+        .over(
+            partition_by=FinancialFact.canonical_metric_key,
+            order_by=recency_order,
+        )
+        .label("rank"),
+    ).where(FinancialFact.company_id == company.id)
+    if normalized_metric_key is not None:
+        ranked = ranked.where(
+            FinancialFact.canonical_metric_key == normalized_metric_key
+        )
+    ranked_subquery = ranked.subquery()
+
+    selected_ids = select(ranked_subquery.c.fact_id).where(
+        ranked_subquery.c.rank <= per_metric_limit
+    )
+    statement = (
+        select(FinancialFact)
+        .where(FinancialFact.id.in_(selected_ids))
+        .order_by(FinancialFact.canonical_metric_key, *recency_order)
+    )
 
     return list(db.scalars(statement).all())
 
