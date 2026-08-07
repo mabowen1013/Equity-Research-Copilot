@@ -1,148 +1,62 @@
 # Equity Research Copilot
 
+针对美股上市公司提问，得到的每一句结论都能追溯回某份 SEC 财报里的具体段落。
+
 [English Version](./README.md)
 
-Equity Research Copilot 是一个面向美国上市公司的全栈投资研究助手。当前后端已经支持 SEC 公司与财报元数据摄取、SEC 财报 HTML 下载、`sec2md` 解析、章节提取、针对近期 `10-K`、`10-Q` 和 `8-K` 财报的 citation-ready 文档切片存储、基于 SEC company facts 的标准化 XBRL 财务指标、chunk embeddings、semantic retrieval、metric-aware retrieval、引用答案生成，以及可审计 research-run packaging。
+做这个项目的起因是一种很具体的失败：通用聊天机器人会非常自信地凭记忆报出 Apple FY2024 的营收，然后差了一个财年；或者煞有介事地引用某页 10-K，而那页根本没写这回事。所以这个应用从设计上就不让模型充当信息来源——它从 EDGAR 抓取财报，解析成带页码锚点的 chunk，只依据检索到的内容作答：金额来自 SEC XBRL facts 而不是模型生成，引用标记会与实际检索到的证据逐一核对，财报支撑不了的问题直接拒答，而不是猜一个。
 
-本项目仅用于研究辅助，不构成任何投资建议。
+## 能用它做什么
 
-## 当前范围
+**Filings（财报）** — 输入 ticker，从 EDGAR 摄取近期 10-K / 10-Q / 8-K 元数据，把某份财报解析成章节和 page-aware chunk，并且能点击任意 chunk 跳回原始 SEC HTML 中高亮的位置。
 
-已实现：
+**Metrics（指标）** — 营收、毛利、营业利润、净利润、现金流、资本开支，以及由它们推导的各项 margin，全部从 SEC XBRL company facts 标准化而来。公司没有披露对应 tag 的指标显示为 unavailable，不做推断。
 
-- FastAPI 后端与 React 前端基础框架。
-- 基于 Alembic migrations 的 PostgreSQL 数据库配置，并支持 pgvector。
-- 健康检查、请求日志和环境配置。
-- Job 状态追踪 API。
-- SEC ticker 到 CIK / 公司信息的查询。
-- 对近期 `10-K`、`10-Q` 和 `8-K` 财报元数据的 SEC submissions 摄取。
-- SEC 响应缓存，并支持可选的 refresh bypass。
-- SEC 请求 User-Agent、速率限制、重试和失败处理。
-- 通过项目统一 SEC client 下载财报 HTML。
-- 原始财报文档与 annotated filing document 缓存。
-- 使用 `sec2md` 解析财报章节与 page-aware chunks。
-- Filing Explorer UI，用于元数据摄取、财报解析、章节、切片和源链接查看。
-- 为 v1 财务指标集合加载 XBRL company facts。
-- 带来源可追溯性的 free cash flow 和 margin 计算指标。
-- Metrics UI，支持缺失 facts 的 unavailable 状态展示。
-- Embedding provider interface，以及带版本号 embedding inputs 的批量 chunk embedding 生成。
-- Dense retrieval、lexical retrieval、XBRL fact retrieval、rule-based query planning、可选 LLM planner fallback、RRF fusion、metadata reranking 和 retrieval trace 输出。
-- Final evidence pack selection，包含按角色分组的 chunks、selected evidence spans、metric comparisons 和稳定 evidence ids。
-- Developer/debug retrieval API 和前端 Research 视图。
-- Answer evidence context contract（`answer_evidence_context.v1`），用于 answer generation、citation validation 和 research-run responses。
-- 可审计 research-run API 与轻量前端 trace viewer，用于展示 planner、agent steps、证据、引用验证和检索诊断。
-- Retrieval dump 和 gold-eval 工具。
-- 公司、财报、解析、指标、embedding、retrieval 和 job 读取 API。
+**Research（研究）** — 问答视图。问一句 *"什么驱动了 Apple 上个季度的营收增长？"*，除了带引用的答案，还能看到完整 trace：查询计划、agent 调用的每一个工具、它选中的证据，以及验证是否通过。
 
-暂未实现：
+## 一个答案是怎么生成的
 
-- 超出 citation ID checks 的更广泛 claim-level support validation。
-- research-run workflow 和 trace viewer 的生产级 hardening。
-- 生产级检索优化，例如 HNSW auto mode、MMR diversity、neighbor expansion、learned reranking，以及更完整的 eval coverage。
+1. **Plan（规划）** — LLM 把问题解析成结构化计划：问题类型、涉及哪些指标、该查哪些财报章节、哪类表单、时间范围。
+2. **Retrieve（检索）** — ReAct agent 在六个工具间循环（XBRL 指标、财报 chunk、MD&A、风险因素、分部讨论、历史财报），根据"还缺哪类证据"决定下一步调哪个。dense 检索（pgvector HNSW）与 lexical 检索用 RRF 融合，再按财报元数据重排。
+3. **Answer（生成）** — 只基于选定的 evidence pack 生成答案，边写边标引用。
+4. **Validate（验证）** — 引用 ID 必须能对应到真实检索过的证据（非法引用在答案输出前剥除）；answerability 闸门拒绝证据支撑不了的问题；claim 级 entailment 检查标出引用文本并不支持的句子。
 
-## 前置要求
+在 6 家公司、139 份已解析财报上的实测：**结构化财务数字准确率 86.5%**，以 SEC XBRL 为真值判定（n=96，95% CI 78–92%），端到端延迟 P50 13.4s。题目是按「每家公司 × 每个指标 × 每个财年」自动生成的，不是手挑，所以没有选择偏差；之所以不是 100%，是因为经营现金流（累计口径 vs 单季口径）和更早的财年确实更难。产出这些数字的 harness 在 `backend/app/evals/`。
 
-- Python 3.11+
-- Node.js 20.19+ 或 22.12+
-- 安装 Docker Compose 的 Docker Desktop
+**技术栈：** FastAPI · SQLAlchemy · Alembic · PostgreSQL + pgvector · React + Vite + TypeScript · OpenAI embeddings 与 completions · 财报解析用 [`sec2md`](https://github.com/lucasastorian/sec2md)。
 
-## 必需环境变量
+## 本地启动
 
-后端环境变量从 `backend/.env` 加载。可以从示例文件开始创建：
+需要 Python 3.11+、Node 20.19+（或 22.12+）、Docker，以及一个 OpenAI API key。
 
-macOS/Linux：
+**1. 配置后端。**
 
 ```bash
 cp backend/.env.example backend/.env
 ```
 
-Windows PowerShell：
+只有两个值必须自己填，其余都有可用默认值：
 
-```powershell
-Copy-Item backend/.env.example backend/.env
-```
+- `SEC_USER_AGENT` — SEC 要求提供真实的应用名和联系邮箱，例如 `Equity Research Copilot/0.1 (contact: you@example.com)`
+- `OPENAI_API_KEY` — 用于 embedding、查询规划和答案生成
 
-必需值：
-
-| 变量 | 是否必需 | 描述 |
-| --- | --- | --- |
-| `DATABASE_URL` | 否 | PostgreSQL 连接 URL。默认使用本地 Docker Compose 数据库。 |
-| `SEC_USER_AGENT` | 是 | 发送给 SEC API 的 User-Agent。应包含应用名称和联系邮箱。 |
-| `SEC_RATE_LIMIT_PER_SECOND` | 否 | SEC 请求限制。默认值为 `10`，也是应用配置允许的最大值。 |
-| `SEC_CACHE_TTL_SECONDS` | 否 | SEC JSON 响应缓存 TTL。默认值为 `86400` 秒。 |
-| `OPENAI_API_KEY` | embeddings 和 LLM planning 需要 | 默认 embedding provider 和 LLM-first query planning 使用的 OpenAI API key。即使没有 dense embeddings，retrieval 仍可降级为 lexical 和 XBRL facts 检索；如果 LLM 不可用，query planning 会降级成宽泛文本检索。 |
-| `EMBEDDING_PROVIDER` | 否 | Embedding provider。默认值为 `openai`。 |
-| `EMBEDDING_MODEL` | 否 | Embedding 模型。默认值为 `text-embedding-3-small`。 |
-| `EMBEDDING_DIMENSIONS` | 否 | Embedding 向量维度。默认值为 `1536`。 |
-| `EMBEDDING_INPUT_VERSION` | 否 | 文档 embedding input template 的版本号。默认值为 `v1`。 |
-| `VECTOR_SEARCH_MODE` | 否 | 预留的向量检索 profile。默认值为 `exact`；HNSW 是后续优化。 |
-| `RETRIEVAL_DENSE_CANDIDATES` | 否 | Dense retrieval 候选数量预算。默认值为 `40`。 |
-| `RETRIEVAL_LEXICAL_CANDIDATES` | 否 | Lexical retrieval 候选数量预算。默认值为 `40`。 |
-| `RETRIEVAL_FACT_CANDIDATES` | 否 | XBRL fact 候选数量预算。默认值为 `20`。 |
-| `RETRIEVAL_TOP_K` | 否 | Final evidence-pack selection 之前的最终 chunk evidence 数量。默认值为 `10`。 |
-| `QUERY_PLANNER_MODE` | 否 | Query planner 模式。默认值为 `llm`。兼容旧值 `rule_only` 和 `rule_with_llm_fallback`；其中 `rule_with_llm_fallback` 现在也走 LLM-first planner。 |
-| `QUERY_PLANNER_LLM_MODEL` | 否 | LLM planner 使用的模型。默认值为 `gpt-4o-mini`。 |
-| `QUERY_PLANNER_LLM_TIMEOUT_SECONDS` | 否 | LLM planner 调用超时时间。默认值为 `20`。 |
-| `QUERY_PLANNER_LLM_MAX_RETRIES` | 否 | Planner 调用的 OpenAI SDK 重试次数。默认值为 `0`，本地测试时会更快失败，不会被 SDK 自动重试拖住。 |
-
-示例：
-
-```env
-DATABASE_URL="postgresql+psycopg://equity_research:equity_research_password@localhost:5432/equity_research_copilot"
-SEC_USER_AGENT="Equity Research Copilot/0.1 (contact: your-email@example.com)"
-SEC_RATE_LIMIT_PER_SECOND=10
-SEC_CACHE_TTL_SECONDS=86400
-OPENAI_API_KEY=""
-EMBEDDING_PROVIDER="openai"
-EMBEDDING_MODEL="text-embedding-3-small"
-EMBEDDING_DIMENSIONS=1536
-EMBEDDING_INPUT_VERSION="v1"
-VECTOR_SEARCH_MODE="exact"
-RETRIEVAL_DENSE_CANDIDATES=40
-RETRIEVAL_LEXICAL_CANDIDATES=40
-RETRIEVAL_FACT_CANDIDATES=20
-RETRIEVAL_TOP_K=10
-QUERY_PLANNER_MODE="llm"
-QUERY_PLANNER_LLM_MODEL="gpt-4o-mini"
-QUERY_PLANNER_LLM_TIMEOUT_SECONDS=20
-QUERY_PLANNER_LLM_MAX_RETRIES=0
-```
-
-## 本地开发
-
-从仓库根目录启动 PostgreSQL：
+**2. 启动 Postgres。**
 
 ```bash
 docker compose -f compose.yaml up -d postgres
 ```
 
-安装后端依赖并启动 API。
-
-macOS/Linux：
+**3. 启动后端 API。**
 
 ```bash
 cd backend
 python3 -m venv .venv
 ./.venv/bin/python -m pip install -e ".[dev]"
 ./.venv/bin/alembic upgrade head
-./.venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+./.venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-Windows PowerShell：
-
-```powershell
-Set-Location backend
-py -3 -m venv .venv
-.\.venv\Scripts\python -m pip install -e .[dev]
-.\.venv\Scripts\alembic upgrade head
-.\.venv\Scripts\uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-如果 Windows Python launcher 不可用，可以将 `py -3` 替换为 `python`。
-
-在另一个终端中安装并启动前端。
-
-macOS/Linux：
+**4. 另开一个终端启动前端**，它会把 API 请求代理到 8000 端口。
 
 ```bash
 cd frontend
@@ -150,171 +64,27 @@ npm install
 npm run dev
 ```
 
-Windows PowerShell：
+打开 Vite 输出的地址即可。
 
-```powershell
-Set-Location frontend
-npm install
-npm run dev
-```
+### 灌入一家公司的数据
 
-前端开发服务器会将 `/health`、`/companies`、`/filings`、`/jobs` 和 `/research` 代理到 `http://127.0.0.1:8000` 的后端服务。
-
-## SEC 数据摄取
-
-先启动后端，然后在另一个终端中触发数据摄取。
-
-获取 Apple 的最新 SEC 元数据。财报元数据摄取默认绕过 SEC 响应缓存，因此可以及时获取新接受的 `10-K`、`10-Q` 和 `8-K` 财报。
-
-macOS/Linux：
+数据库初始是空的，所以要挑一个 ticker 走一遍流程。Filings 视图里点按钮就能完成，命令行等价写法：
 
 ```bash
-JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/companies/AAPL/ingest" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
-curl "http://127.0.0.1:8000/jobs/$JOB_ID"
-curl "http://127.0.0.1:8000/companies/AAPL"
-curl "http://127.0.0.1:8000/companies/AAPL/filings"
-curl "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K"
+# 从 EDGAR 摄取财报元数据
+curl -X POST "http://127.0.0.1:8000/companies/AAPL/ingest"
+
+# 解析最新一份 10-K 为章节和 chunk
+FILING=$(curl -s "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K&limit=1" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+curl -X POST "http://127.0.0.1:8000/filings/$FILING/parse"
+
+# 生成 chunk embedding，并加载 XBRL 财务数据
+curl -X POST "http://127.0.0.1:8000/companies/AAPL/embeddings/generate"
+curl -X POST "http://127.0.0.1:8000/companies/AAPL/metrics/load"
 ```
 
-Windows PowerShell：
-
-```powershell
-$job = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest"
-Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($job.id)"
-Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL"
-Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings"
-Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K"
-```
-
-运行 demo tickers：
-
-macOS/Linux：
-
-```bash
-curl -X POST "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
-curl -X POST "http://127.0.0.1:8000/companies/TSLA/ingest?refresh=true"
-curl -X POST "http://127.0.0.1:8000/companies/NVDA/ingest?refresh=true"
-```
-
-Windows PowerShell：
-
-```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/ingest?refresh=true"
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/TSLA/ingest?refresh=true"
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/NVDA/ingest?refresh=true"
-```
-
-只有当你明确希望复用未过期的 SEC 响应缓存时，才传入 `refresh=false`。
-
-如需直接检查已缓存的 SEC 响应：
-
-```bash
-docker exec -it equity_research_copilot_postgres psql -U equity_research -d equity_research_copilot
-```
-
-```sql
-SELECT id, url, status_code, fetched_at, expires_at
-FROM sec_response_cache
-ORDER BY fetched_at DESC;
-```
-
-## 财报解析
-
-Milestone 3 使用 [`sec2md`](https://github.com/lucasastorian/sec2md) 将财报 HTML 转换为干净的 markdown pages、提取出的 sections 和 page-aware chunks。应用仍然通过自己的 SEC client 下载 SEC 文档，因此 User-Agent、重试、速率限制和失败处理都保持在统一中心化逻辑中。
-
-在完成元数据摄取后，解析已存储的财报。
-
-macOS/Linux：
-
-```bash
-FILING_ID=$(curl -s "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K&limit=1" | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["id"])')
-PARSE_JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/filings/$FILING_ID/parse" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
-curl "http://127.0.0.1:8000/jobs/$PARSE_JOB_ID"
-curl "http://127.0.0.1:8000/filings/$FILING_ID/sections"
-curl "http://127.0.0.1:8000/filings/$FILING_ID/chunks?limit=10"
-```
-
-Windows PowerShell：
-
-```powershell
-$filings = Invoke-RestMethod "http://127.0.0.1:8000/companies/AAPL/filings?form_type=10-K&limit=1"
-$parseJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/parse"
-Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($parseJob.id)"
-Invoke-RestMethod "http://127.0.0.1:8000/filings/$($filings[0].id)/sections"
-Invoke-RestMethod "http://127.0.0.1:8000/filings/$($filings[0].id)/chunks?limit=10"
-```
-
-强制重新下载最新的财报 HTML 并重新解析：
-
-macOS/Linux：
-
-```bash
-curl -X POST "http://127.0.0.1:8000/filings/$FILING_ID/parse?refresh=true"
-```
-
-Windows PowerShell：
-
-```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/filings/$($filings[0].id)/parse?refresh=true"
-```
-
-## 检索与证据
-
-Milestone 5 retrieval 已经实现。系统可以为已解析的 filing chunks 生成 embeddings，根据用户问题检索相关财报证据，包含 metric-aware XBRL facts 和 comparisons，并为引用答案生成与 citation ID validation 返回稳定 evidence ids。
-
-在财报解析完成后生成 embeddings：
-
-macOS/Linux：
-
-```bash
-EMBED_JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/companies/AAPL/embeddings/generate" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
-curl "http://127.0.0.1:8000/jobs/$EMBED_JOB_ID"
-```
-
-Windows PowerShell：
-
-```powershell
-$embedJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/embeddings/generate"
-Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($embedJob.id)"
-```
-
-针对指标相关问题加载 XBRL metrics：
-
-macOS/Linux：
-
-```bash
-METRICS_JOB_ID=$(curl -s -X POST "http://127.0.0.1:8000/companies/AAPL/metrics/load?refresh=false" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
-curl "http://127.0.0.1:8000/jobs/$METRICS_JOB_ID"
-```
-
-Windows PowerShell：
-
-```powershell
-$metricsJob = Invoke-RestMethod -Method Post "http://127.0.0.1:8000/companies/AAPL/metrics/load?refresh=false"
-Invoke-RestMethod "http://127.0.0.1:8000/jobs/$($metricsJob.id)"
-```
-
-调用 retrieval API：
-
-macOS/Linux：
-
-```bash
-curl -s -X POST "http://127.0.0.1:8000/research/retrieve?view=analysis" \
-  -H "Content-Type: application/json" \
-  -d '{"ticker":"AAPL","question":"What drove Apple revenue growth?"}'
-```
-
-Windows PowerShell：
-
-```powershell
-Invoke-RestMethod -Method Post "http://127.0.0.1:8000/research/retrieve?view=analysis" `
-  -ContentType "application/json" `
-  -Body '{"ticker":"AAPL","question":"What drove Apple revenue growth?"}'
-```
-
-`POST /research/runs` 返回最终引用答案，以及 `research_run.v1` 审计结构，包含 planner 输出、agent/tool steps、标准化证据、验证状态、局限说明和检索诊断。
-
-调用 research-run API：
+这些接口都返回一个 job 并在后台执行——用 `GET /jobs/{id}` 轮询，或者直接看 UI。一份完整 10-K 做 embedding 大概要一两分钟。跑完就可以提问了：
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/research/runs" \
@@ -322,141 +92,35 @@ curl -X POST "http://127.0.0.1:8000/research/runs" \
   -d '{"ticker":"AAPL","question":"What drove revenue growth last quarter?"}'
 ```
 
-research-run 响应包含 `answer`、`validation`、`limitations`、`plan`、`steps`、标准化 `evidence` 和 `diagnostics`。每个 step 都带有指向标准化 evidence list 的 evidence ids；当可用时，`diagnostics` 会保留 planner summary、retrieval configuration、source coverage 和 score-breakdown 细节。
+交互式 API 文档在 `http://127.0.0.1:8000/docs`。
 
-`POST /research/retrieve?view=analysis` 仍是更底层的 developer/debug retrieval endpoint。它的紧凑响应包含 `retrieval_plan`、`source_coverage_summary`、`final_evidence_pack`、`top_chunks`、`top_facts`、`metric_comparisons` 和 `analysis_trace`，适合在终端检查。完整 retrieval response 和 retrieval dump 工具会暴露 raw `retrieved_chunks`、`retrieved_facts` 和 `retrieval_trace` payload，便于更深层调试。
+*Windows 上把 `python3 -m venv` 换成 `py -3 -m venv`，路径前缀 `./.venv/bin/` 换成 `.venv\Scripts\`。*
 
-`final_evidence_pack` 会将已选证据分为 primary financial statement chunks、MD&A explanation chunks、segment or product breakdown chunks、annual context chunks、metric comparisons，以及 selected evidence spans。Spans 是从 retrieved chunks 中挑出的短摘录，因为它们是最直接支撑回答的文本；它们保留 source chunk evidence id、页码元数据、SEC URL 和 selection reasons。
-
-当 embeddings 缺失或不可用时，dense retrieval 会优雅降级；只要条件允许，lexical retrieval 和 XBRL fact retrieval 仍会继续运行。前端 Research 视图会调用 `/research/runs`，展示引用答案、验证结果、agent step timeline、selected-step evidence 和 retrieval diagnostics。Raw retrieval details 仍可通过完整 `/research/retrieve` 响应和 retrieval dump 工具查看。
-
-## 评估工具
-
-从仓库根目录运行 query planner eval：
-
-macOS/Linux：
+## 测试
 
 ```bash
-PYTHONPATH=backend backend/.venv/bin/python -m app.evals.query_planner_eval
+cd backend && ./.venv/bin/python -m pytest
 ```
 
-Windows PowerShell：
+317 个测试，全部离线运行——SEC client 和 LLM client 都是 Protocol，测试里注入 fake 实现，所以不需要 API key 也不需要联网。
 
-```powershell
-$env:PYTHONPATH = "backend"
-backend\.venv\Scripts\python -m app.evals.query_planner_eval
-```
-
-导出某个问题的 retrieval diagnostics：
-
-macOS/Linux：
+`backend/app/evals/` 下的评估 harness 则相反：跑在灌好数据的数据库和真实 API 上，测的是指标准确率（对 XBRL）、检索召回、答案忠实度（LLM judge）和 agent 工具选择。
 
 ```bash
-PYTHONPATH=backend backend/.venv/bin/python -m app.evals.retrieval_dump AAPL "What drove Apple revenue growth?"
+cd backend && .venv/bin/python -m app.evals.run_all
 ```
 
-Windows PowerShell：
+## 目录结构
 
-```powershell
-$env:PYTHONPATH = "backend"
-backend\.venv\Scripts\python -m app.evals.retrieval_dump AAPL "What drove Apple revenue growth?"
+```
+backend/app/services/   SEC client、解析、embedding、检索、agent、答案生成
+backend/app/api/routes/ companies、filings、research、jobs、health
+backend/app/evals/      准确率、召回、忠实度、agent 轨迹评估
+backend/tests/          离线测试套件
+frontend/src/           React 前端 — filings、metrics、research
+docs/                   评估结果、开发日志、设计记录
 ```
 
-运行 retrieval gold eval：
+---
 
-macOS/Linux：
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python -m app.evals.retrieval_gold_eval
-```
-
-Windows PowerShell：
-
-```powershell
-$env:PYTHONPATH = "backend"
-backend\.venv\Scripts\python -m app.evals.retrieval_gold_eval
-```
-
-当前 gold eval seed set 位于 `backend/evals/retrieval_gold_eval.json`。它刻意保持小规模；当 chunking、SEC 数据或本地 fixture filings 变化时，应刷新该文件。
-
-## API Endpoints
-
-- `GET /health`
-- `GET /jobs`
-- `GET /jobs/{job_id}`
-- `GET /companies/search?q=...`
-- `GET /companies/{ticker}`
-- `POST /companies/{ticker}/ingest?refresh=true`
-- `POST /companies/{ticker}/embeddings/generate?refresh=false`
-- `POST /companies/{ticker}/metrics/load?refresh=false`
-- `GET /companies/{ticker}/metrics?metric_key=&limit=`
-- `GET /companies/{ticker}/jobs`
-- `GET /companies/{ticker}/filings?form_type=&limit=`
-- `POST /filings/{filing_id}/parse?refresh=false`
-- `GET /filings/{filing_id}/sections`
-- `GET /filings/{filing_id}/sections/{section_id}`
-- `GET /filings/{filing_id}/chunks?section_id=&limit=`
-- `GET /filings/{filing_id}/chunks/{chunk_id}/source`
-- `POST /research/retrieve`
-- `POST /research/retrieve?view=analysis`
-
-## 验证
-
-后端测试。
-
-macOS/Linux：
-
-```bash
-cd backend
-./.venv/bin/python -m pytest
-```
-
-Windows PowerShell：
-
-```powershell
-Set-Location backend
-.\.venv\Scripts\python -m pytest
-```
-
-前端构建。
-
-macOS/Linux：
-
-```bash
-cd frontend
-npm run build
-```
-
-Windows PowerShell：
-
-```powershell
-Set-Location frontend
-npm run build
-```
-
-健康检查。
-
-macOS/Linux：
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-Windows PowerShell：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-```
-
-## 数据限制
-
-- 系统当前存储 SEC 财报元数据、原始财报 HTML、已解析的 section markdown、document chunks、chunk embeddings、XBRL facts、computed metrics 和 retrieval evidence diagnostics。
-- SEC 数据可能存在延迟、修订、不完整，或在不同 forms 和 companies 之间存在不一致。
-- Filing date 和 report date 是不同概念，不应混为一谈。
-- M3 目前只解析 SEC primary HTML document；`8-K` exhibit files 暂未作为独立文档下载。
-- `sec2md` 只支持 HTML 输入。PDF 或非 HTML primary documents 会被标记为解析失败。
-- Chunk highlighted-source pages 会从已存储的 annotated HTML 和 chunk element ids 动态生成。
-- XBRL metrics 使用保守的 US-GAAP tag mapping。缺失指标会显示为 unavailable，而不是被系统猜测。
-- Research workflow 现在可以生成最终带引用的自然语言答案，并根据 allowed evidence set 验证 citation IDs。
-- Query planning 现在默认直接由 LLM 解析。LLM 不可用时，后端会降级为宽泛文本检索，而不是继续用脆弱的关键词 slot 规则。
-- HNSW auto mode、learned reranking、更大规模 eval coverage、更深入的 claim-level support validation 和生产级 hardening 仍是后续工作。
+这是研究辅助工具，不构成投资建议。SEC 数据可能延迟、被修订，或在不同表单间不一致；即便是经过引用校验的答案，也只是你自己去读原文的起点，不是替代品。
